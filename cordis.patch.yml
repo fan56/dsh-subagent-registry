@@ -1,0 +1,9 @@
+# dsh-subagent-registry bundle patch: mounts the plugin into the profile's
+# assembly tree under the stable plugin id `dsh-subagent-registry`. At startup
+# it registers the `use_agent` tool, which lets the main-conversation model
+# call any locally-defined custom agent (~/.dsh/agents/<name>.md) by name as a
+# subagent through the already-assembled `spawn` subagent provider.
+
+- insert:
+    - id: dsh-subagent-registry
+      name: 'dsh-subagent-registry'
