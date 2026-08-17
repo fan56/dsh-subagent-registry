@@ -81,6 +81,8 @@ export interface BuildStartRequestInput {
     leafDenyTools?: readonly string[];
     /** Optional dsh `provider/model` route from the agent frontmatter. */
     model?: string;
+    /** Optional display name used as the running child's display label (falls back to agentName). */
+    displayName?: string;
 }
 /**
  * Build the one-shot subagent start request for one custom agent, encoding the

@@ -143,6 +143,8 @@ export interface BuildStartRequestInput {
   leafDenyTools?: readonly string[]
   /** Optional dsh `provider/model` route from the agent frontmatter. */
   model?: string
+  /** Optional display name used as the running child's display label (falls back to agentName). */
+  displayName?: string
 }
 
 /**
@@ -166,7 +168,7 @@ export interface BuildStartRequestInput {
  *   default `maxDepth: 3`) take over as the recursion backstop.
  */
 export function buildStartRequest(input: BuildStartRequestInput): Omit<SubagentStartRequest, 'signal'> {
-  const { agentName, prompt, parent, persona, deep, toolName, leafDenyTools, model } = input
+  const { agentName, prompt, parent, persona, deep, toolName, leafDenyTools, model, displayName } = input
   // The child's absolute delegation depth, computed by the same authoritative
   // resolver the in-process driver uses (parent depth + 1, monotone floor).
   const childDepth = resolveChildDepth(
@@ -175,7 +177,7 @@ export function buildStartRequest(input: BuildStartRequestInput): Omit<SubagentS
   )
   const modelOptions = model !== undefined ? splitModel(model) : {}
   const request: Omit<SubagentStartRequest, 'signal'> = {
-    label: agentName,
+    label: displayName ?? agentName,
     prompt: [{ type: 'text', text: prompt }],
     parent: parent as Parameters<typeof resolveChildDepth>[0],
     persona,
@@ -218,9 +220,15 @@ async function settleForegroundRun(run: SubagentRun, agentName: string): Promise
       if (result.stopReason !== 'completed') {
         const text = textOf(result.output)
         const headline = `${stopReasonError(String(result.stopReason))} (agent "${agentName}")`
-        throw new Error(
-          text.length === 0 ? headline : `${headline}\nPartial output before the run ended:\n${text}`,
-        )
+        const parts = [text.length === 0 ? headline : `${headline}\nPartial output before the run ended:\n${text}`]
+        // The seam carries no failure detail on a plain `error`; the local
+        // child's terminal turn/end reason is the only place the real cause
+        // survives, so surface it when it exists.
+        if (result.stopReason === 'error') {
+          const underlying = childTurnError(run)
+          if (underlying !== undefined) parts.push(`Child's turn/end error: ${underlying}`)
+        }
+        throw new Error(parts.join('\n'))
       }
       return result.output as unknown as JsonValue[]
     }),
@@ -237,6 +245,31 @@ async function settleForegroundRun(run: SubagentRun, agentName: string): Promise
   }
   if (disposal.status === 'rejected') throw disposal.reason
   return execution.value
+}
+
+/**
+ * Pull the child's own terminal failure out of its session log. The subagent
+ * seam only reports `stopReason: 'error'` with no failure detail, but a local
+ * in-process child records the structured `turn/end` reason verbatim; a remote
+ * child exposes nothing and yields `undefined`.
+ */
+function childTurnError(run: SubagentRun): string | undefined {
+  const agent = run.localAgent
+  if (agent === undefined) return undefined
+  try {
+    const events = agent.session.events
+    for (let i = events.length - 1; i >= 0; i--) {
+      const event = events[i]
+      if (event.type !== 'turn/end') continue
+      const reason = event.data.reason
+      if (reason.kind !== 'error') continue
+      const message = reason.error.message
+      if (message.trim().length > 0) return message
+    }
+  } catch {
+    // The session may already be detached; the headline still carries the failure.
+  }
+  return undefined
 }
 
 /** Map a non-`completed` stop reason to a human headline for the parent model. */
@@ -327,6 +360,7 @@ export function runAgentTool(ctx: Context, cfg: RunAgentConfig) {
         toolName: cfg.toolName,
         leafDenyTools: cfg.leafDenyTools,
         model: agent.meta.model,
+        displayName: agent.meta.displayName,
       })
       const signal = exec.signal
 
