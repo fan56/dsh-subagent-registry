@@ -6,4 +6,4 @@
 
 - insert:
     - id: dsh-subagent-registry
-      name: 'dsh-subagent-registry'
+      name: '@aiwayds/dsh-subagent-registry'
