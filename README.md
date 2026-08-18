@@ -146,6 +146,17 @@ conversation.
   stock dsh base distribution always registers; non-stock deployments should
   tune `leafDenyTools`.
 
+## Publishing note (read before `npm publish`)
+
+This plugin is a **dsh plugin**: its `@deepseek-ai/*` imports must resolve to
+the single dsh closure instance the host provides. Never declare
+`@deepseek-ai/*` in `dependencies` — pnpm would install a **second** copy of
+the cordis/dsh-session closure, breaking module identity and surfacing as
+bizarre runtime errors like
+`Cannot read properties of undefined (reading 'prepare')` in
+session-persistence. Keep them in `peerDependencies` (and `devDependencies`
+for local typecheck/build), matching `@aiwayds/dsh-tui-pi`'s convention.
+
 ## Development
 
 ```sh
