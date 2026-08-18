@@ -78,9 +78,40 @@ Implementation, at `use_agent` execute time:
   native subagent tool defaults to `maxDepth: 3`), which acts as the outer
   recursion backstop.
 
+## Default agent roster
+
+The author's personal `~/.dsh/agents/` ships with three agents: `workhorse`
+(牛马狗, the general workhorse), `oldfox` (老法师, the review/audit oracle),
+and **`rubber-duck`** (小黄鸭). `rubber-duck` is the **multimodal visual
+agent**: it reads screenshots / charts / OCR text and draws plotext / mermaid /
+matplotlib figures, running on an image-capable model. It now occupies the role
+formerly filled by the removed `ArtyDuck` (艺术鸭) in this setup.
+
 ## Usage example
 
-Define `~/.dsh/agents/workhorse.md`:
+A multimodal example — `~/.dsh/agents/rubber-duck.md`:
+
+```markdown
+---
+name: rubber-duck
+display_name: 小黄鸭
+description: "小黄鸭：多模态视觉 agent，看图识别、OCR、画 plotext/mermaid 图……"
+model: digitalvolvo/kimi-k2.7-code
+thinking: max
+extensions: ["*"]
+---
+你是「小黄鸭」——多模态视觉 agent。……（这里写完整的 system prompt）
+```
+
+Then ask in a conversation:
+
+> 用 rubber-duck 看一下这个浏览器截图，描述页面状态并提取文字
+
+The main model calls `use_agent(agent: "rubber-duck", prompt: "…")`, the child
+runs with the file body as its persona and an image-capable model, reads the
+screenshot, and its result comes back into the conversation.
+
+A text-only example — `~/.dsh/agents/workhorse.md`:
 
 ```markdown
 ---
