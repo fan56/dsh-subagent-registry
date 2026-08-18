@@ -34,8 +34,8 @@ Option A — add this checkout as a dsh plugin (tui profile):
 dsh plugin --profile tui add ~/github/dsh-subagent-registry
 ```
 
-Option B — npm dependency: `npm i dsh-subagent-registry`, then load the plugin
-under the stable id `dsh-subagent-registry` in your profile's config, or mount
+Option B — npm dependency: `npm i @aiwayds/dsh-subagent-registry`, then load
+the plugin under the stable id `dsh-subagent-registry` in your profile's config, or mount
 it through a bundle patch (see `cordis.patch.yml` in this repo for the pattern).
 
 ## Configuration
