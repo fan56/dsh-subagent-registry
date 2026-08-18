@@ -1,6 +1,6 @@
 {
   "name": "@aiwayds/dsh-subagent-registry",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "dsh plugin: register locally-defined custom agents (~/.dsh/agents/*.md) as callable subagents via the use_agent tool",
   "type": "module",
   "main": "lib/index.js",
@@ -31,13 +31,16 @@
     "check": "tsc --noEmit -p tsconfig.json",
     "test": "node test/deep-semantics.test.mjs && node test/display-name.test.mjs"
   },
-  "dependencies": {
+  "peerDependencies": {
     "@deepseek-ai/dsh-tools": "0.1.0-rc.6",
     "@deepseek-ai/dsh-subagent": "0.1.0-rc.6",
     "@deepseek-ai/schemastery": "3.18.1"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
+    "@deepseek-ai/dsh-tools": "0.1.0-rc.6",
+    "@deepseek-ai/dsh-subagent": "0.1.0-rc.6",
+    "@deepseek-ai/schemastery": "3.18.1",
     "typescript": "^5.9.0"
   },
   "dsh": {
