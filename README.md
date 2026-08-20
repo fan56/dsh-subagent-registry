@@ -3,7 +3,10 @@
 Register locally-defined custom agents (`~/.dsh/agents/*.md`) as callable
 subagents in [dsh](https://github.com/deepseek-ai/dsh): the main conversation
 can invoke any of them by name through the `use_agent` tool, and each runs as
-a real dsh subagent with its own persona (system prompt).
+a real dsh subagent with its own persona (system prompt). When a run is
+interrupted (error, cancellation, crash, token limit), the next `use_agent`
+call for the same agent **resumes it from its saved partial work** instead of
+restarting from scratch.
 
 **中文简介**：把 `~/.dsh/agents/*.md` 定义的自定义 agent（frontmatter 元数据 +
 markdown 正文作为 persona）注册成 dsh 可按名调用的 subagent。主对话通过
@@ -46,6 +49,54 @@ it through a bundle patch (see `cordis.patch.yml` in this repo for the pattern).
 | `provider`    | `spawn`              | Subagent provider the child runs through (reuses dsh-base's `spawn`).    |
 | `toolName`    | `use_agent`          | Name of the registered tool.                                             |
 | `leafDenyTools` | `[]` (computed default) | Explicit tool-deny list installed on `deep: 0` (leaf) children. Empty = computed default (every agent-spawning tool in the dsh base distribution plus `toolName`). |
+| `resume`      | `auto`               | When `use_agent` continues a prior interrupted run: `auto` resumes whenever one exists, `opt-in` only when the caller passes `resume: true`, `off` never (an explicit `resume: true` still overrides). |
+
+## Resuming interrupted runs
+
+Long subagent runs (>10 min) die for many reasons — API errors, cancellation,
+a crashed dsh process, a token limit — and re-dispatching the same agent used
+to mean redoing everything from zero. It doesn't anymore.
+
+**Nothing extra is logged**: dsh already persists every in-process subagent
+child as a full session under the deployment's session store
+(`~/.dsh/sessions/...`), interrupted runs included. What was missing is the
+recall layer, which this plugin now provides on top of the stock mechanisms:
+
+1. On each `use_agent` call, the plugin enumerates the calling conversation's
+   prior one-shot children (`ctx.subagents.listChildren`, which merges the
+   live store with session persistence) and picks the newest inactive child
+   whose creation label matches the requested agent.
+2. The child's persisted event log is classified by its **last** `turn/end`:
+   anything other than `completed` (error, aborted, max-tokens, crash with no
+   recorded turn result) marks the run as interrupted and resumable.
+3. The child session is resumed (`ctx.agents.resume`) with the same
+   composition a fresh dispatch applies — the current agent-file body as the
+   persona, the frontmatter `model` route, and the leaf tool scoping for
+   `deep: 0` agents — and driven for exactly one continuation turn with a
+   "continue where you left off, don't redo finished work" instruction. The
+   original task and all partial work are already in the child's replayed
+   context.
+4. The result flows back to the parent like any `use_agent` result, prefixed
+   with a provenance line naming the resumed session. If the continuation
+   fails again, the next call simply resumes it again — each retry keeps
+   accumulating progress.
+
+Tool-call parameters:
+
+| Parameter  | Effect                                                                       |
+| ---------- | ---------------------------------------------------------------------------- |
+| `fresh: true`  | Force a clean start, ignoring any interrupted prior run.                 |
+| `resume: true` | Require resuming; the call fails loudly if no interrupted run exists.    |
+
+Lookups (and the resume itself) fail open: with no session persistence
+mounted, an unreadable log, any enumeration error, or a resume that cannot
+even start (e.g. a concurrent duplicate resume raced to the session id), the
+tool silently falls back to a fresh dispatch — resume is an optimization,
+never a blocker. A continuation turn that runs and fails again is different:
+its partial output is kept and surfaced as an error, never silently thrown
+away. Note that only runs dispatched with a `label` are discoverable; this
+plugin has always stamped `display_name ?? agent name` as the label, so
+pre-existing failed runs are resumable too.
 
 ## `deep` semantics
 
@@ -140,7 +191,18 @@ conversation.
   `maxDepth: 3`) as the outer backstop.
 - Continuable / background follow-up conversations with a custom agent
   (`send_message`-style resumption) are **v2**; today every `use_agent` run is
-  one-shot.
+  one-shot (a resumed run is still one continuation turn on the old session).
+- Resume matches by agent label within the same parent conversation: if you
+  re-dispatch the same agent for a *different* task after an interruption,
+  pass `fresh: true` (or the resumed agent will continue the old task).
+- Resume requires the deployment's session persistence (the JSONL/SQLite
+  session store every standard dsh profile mounts); without it the tool
+  silently dispatches fresh.
+- Resume candidates are matched by creation label within the parent
+  conversation. This plugin labels its children `display_name ?? agent name`;
+  a one-shot child started by another tool (e.g. the native `subagent` tool)
+  with the same label in the same conversation is indistinguishable and would
+  be resumed under this plugin's persona.
 - `tools.restrict()` validates the deny list against globally registered tool
   names and throws on unknown names — the default list only names tools the
   stock dsh base distribution always registers; non-stock deployments should
@@ -162,7 +224,7 @@ for local typecheck/build), matching `@aiwayds/dsh-tui-pi`'s convention.
 ```sh
 npm run check    # tsc --noEmit -p tsconfig.json
 npm run build    # tsc -p tsconfig.json -> lib/
-npm test         # node test/deep-semantics.test.mjs (no LLM)
+npm test         # deep-semantics + display-name + resume (no LLM)
 ```
 
 ## License

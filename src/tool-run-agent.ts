@@ -10,6 +10,11 @@
  * already-assembled `spawn` subagent provider (same single-instance realm dsh
  * uses), so the child is a real dsh subagent with its own system prompt.
  *
+ * When the same agent was already run in this conversation and that run was
+ * interrupted (error, cancellation, crash, token limit), the tool instead
+ * resumes the persisted child session and continues it from its partial work
+ * (see `./resume.ts`), unless the caller passes `fresh: true`.
+ *
  * @module dsh-subagent-registry/tool-run-agent
  */
 
@@ -20,12 +25,26 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { JsonValue } from '@deepseek-ai/dsh-session'
 import { resolveChildDepth, type SubagentRun, type SubagentStartRequest } from '@deepseek-ai/dsh-subagent'
 import { expandHome, listAgentFiles, parseAgentMarkdown, type AgentFile } from './agents-dir.ts'
+import {
+  buildContinuationPrompt,
+  decideResume,
+  driveResumedRun,
+  findResumableRun,
+  type ResumeMode,
+} from './resume.ts'
 
 /** The writable knob surface for this plugin (a subset of the Config schema). */
 export interface RunAgentConfig {
   agentsDir: string
   provider: string
   toolName: string
+  /**
+   * When `use_agent` continues a prior interrupted run of the same agent:
+   * `auto` (default) resumes whenever one exists, `opt-in` only when the
+   * caller passes `resume: true`, `off` never (an explicit `resume: true`
+   * still overrides the deployment default).
+   */
+  resume?: ResumeMode
   /**
    * Optional explicit deny list installed on a `deep: 0` (leaf) agent's child.
    * An empty/absent list means the computed default: every agent-spawning tool
@@ -54,6 +73,18 @@ export const SPAWN_TOOL_NAMES = [
   // dsh-base patch: dsh-tool-ralph (fixed tool name 'ralph', fresh children).
   'ralph',
 ] as const
+
+/**
+ * The deny list installed on a `deep: 0` (leaf) agent's child, both at fresh
+ * dispatch and again at resume: an explicit non-empty `leafDenyTools` replaces
+ * the default (every agent-spawning tool in the dsh base distribution plus
+ * this plugin's own `toolName`).
+ */
+export function leafDenyList(toolName: string, leafDenyTools?: readonly string[]): readonly string[] {
+  return leafDenyTools !== undefined && leafDenyTools.length > 0
+    ? leafDenyTools
+    : [...SPAWN_TOOL_NAMES, toolName]
+}
 
 /** Join text blocks from a canonical block array without trusting values. */
 function textOf(output: readonly unknown[]): string {
@@ -185,11 +216,7 @@ export function buildStartRequest(input: BuildStartRequestInput): Omit<SubagentS
       ? {
           // Leaf: strip every spawn capability; no maxDepth at all.
           toolFilter: {
-            deny: [
-              ...(leafDenyTools !== undefined && leafDenyTools.length > 0
-                ? leafDenyTools
-                : [...SPAWN_TOOL_NAMES, toolName]),
-            ],
+            deny: [...leafDenyList(toolName, leafDenyTools)],
           },
         }
       : {
@@ -311,7 +338,13 @@ export function runAgentTool(ctx: Context, cfg: RunAgentConfig) {
     `custom sub-agents (defined in ${dir}/<name>.md); each runs as its own ` +
     `subagent with its own system prompt and returns its result. ` +
     `Pass the exact agent name and a self-contained prompt (the subagent does ` +
-    `not see this conversation, so include everything it needs).\n` +
+    `not see this conversation, so include everything it needs). ` +
+    `If a previous run of the same agent in this conversation was interrupted ` +
+    `(error, cancellation, crash, or token limit), the call automatically resumes ` +
+    `it from its saved partial work instead of restarting; on a resume the prompt is ` +
+    `only shown to the subagent as the reworded request (the original task is already ` +
+    `in its context). Pass fresh=true to force a clean restart, or resume=true to ` +
+    `require a resume.\n` +
     `Available agents:\n${rosterText}`
 
   return defineTool({
@@ -327,6 +360,15 @@ export function runAgentTool(ctx: Context, cfg: RunAgentConfig) {
         type: 'string',
         required: true,
         description: 'The complete, self-contained task for the selected agent.',
+      },
+      resume: {
+        type: 'boolean',
+        description:
+          'Require continuing this agent\'s previous interrupted run from its saved partial work; fails if none exists. Mutually exclusive with fresh.',
+      },
+      fresh: {
+        type: 'boolean',
+        description: 'Force a clean start, ignoring any interrupted previous run of this agent.',
       },
     },
     output: {
@@ -346,8 +388,105 @@ export function runAgentTool(ctx: Context, cfg: RunAgentConfig) {
       if (parent === undefined) {
         throw new Error(`${cfg.toolName} requires a calling agent (exec.agent was undefined)`)
       }
+      if (args.resume === true && args.fresh === true) {
+        throw new Error(`${cfg.toolName}: "resume" and "fresh" are mutually exclusive — pass at most one`)
+      }
       // Re-check existence at execute time with a friendly, roster-aware error.
       const agent = loadAgent(dir, args.agent, nameList === '' ? [] : nameList.split(',').map((n) => n.trim()))
+      const label = agent.meta.displayName ?? args.agent
+
+      // Resume decision: continue the parent's latest interrupted run of this
+      // agent from its persisted partial log (see ./resume.ts). An explicit
+      // resume=true overrides a deployment-level 'off'; everything else
+      // follows the configured mode. Lookup is skipped entirely when it
+      // cannot change the outcome.
+      const configuredMode: ResumeMode = cfg.resume ?? 'auto'
+      const effectiveMode: ResumeMode =
+        configuredMode === 'off' && args.resume === true ? 'opt-in' : configuredMode
+      const candidate =
+        effectiveMode === 'off' || args.fresh === true
+          ? undefined
+          : await findResumableRun(ctx, parent, label, exec.signal)
+      const decision = decideResume(effectiveMode, {
+        explicitResume: args.resume === true,
+        explicitFresh: args.fresh === true,
+        hasCandidate: candidate !== undefined,
+      })
+      if (decision === 'explicit-resume-unavailable') {
+        throw new Error(
+          `${cfg.toolName}: resume requested, but no interrupted prior run of agent "${args.agent}" was found for this conversation ` +
+          `(a prior run only counts while its last turn ended abnormally) — call again without "resume" to start fresh`,
+        )
+      }
+
+      if (decision === 'resume' && candidate !== undefined) {
+        const modelOptions = splitModel(agent.meta.model ?? '')
+        let resumed: Awaited<ReturnType<typeof driveResumedRun>>
+        try {
+          resumed = await driveResumedRun({
+            ctx,
+            parent,
+            childId: candidate.childId,
+            persona: agent.body,
+            toolFilter:
+              agent.meta.deep === 0
+                ? { deny: [...leafDenyList(cfg.toolName, cfg.leafDenyTools)] }
+                : undefined,
+            agentOptions:
+              modelOptions.provider !== undefined || modelOptions.model !== undefined
+                ? modelOptions
+                : undefined,
+            continuationPrompt: buildContinuationPrompt(candidate.classification.endedAs, args.prompt),
+            noticeSummary: `resume interrupted "${args.agent}" subagent run`,
+            signal: exec.signal,
+          })
+        } catch (error) {
+          // Fail-open for the drive too, not just the lookup: a resume that
+          // cannot even start (concurrent duplicate resume raced us to the
+          // session id, persistence load failed after inspection, setup rolled
+          // back) degrades to a fresh dispatch — unless resume was explicitly
+          // requested, or the caller is gone, in which case the original
+          // error is the honest answer. A turn that RAN and ended badly is
+          // not an infrastructure failure: it is settled below, preserving
+          // the partial work, and never silently restarted.
+          if (args.resume === true || exec.signal.aborted) throw error
+          const freshRequest = buildStartRequest({
+            agentName: args.agent,
+            prompt: args.prompt,
+            parent,
+            persona: agent.body,
+            deep: agent.meta.deep,
+            toolName: cfg.toolName,
+            leafDenyTools: cfg.leafDenyTools,
+            model: agent.meta.model,
+            displayName: agent.meta.displayName,
+          })
+          const run = await ctx.subagents.start(cfg.provider, { ...freshRequest, signal: exec.signal })
+          return {
+            kind: 'agent-result' as const,
+            output: [
+              { type: 'text', text: `Resume of the interrupted prior run failed (${String(error)}); started a fresh run instead.` },
+              ...await settleForegroundRun(run, args.agent),
+            ] as unknown as JsonValue[],
+          }
+        }
+        if (resumed.stopReason !== 'completed') {
+          const text = textOf(resumed.output as unknown as readonly unknown[])
+          const headline =
+            `${stopReasonError(String(resumed.stopReason))} (agent "${args.agent}", resumed from interrupted run)`
+          throw new Error(
+            text.length === 0 ? headline : `${headline}\nPartial output before the run ended:\n${text}`,
+          )
+        }
+        const provenance =
+          `Resumed from the interrupted prior run of agent "${args.agent}" ` +
+          `(session ${String(candidate.childId)}; ${candidate.classification.endedAs}); ` +
+          `the subagent kept its earlier partial work and continued from there.`
+        return {
+          kind: 'agent-result' as const,
+          output: [{ type: 'text', text: provenance }, ...resumed.output] as unknown as JsonValue[],
+        }
+      }
 
       // persona = the file's body (system prompt); `deep` semantics and model
       // routing are applied by the pure builder (see buildStartRequest).

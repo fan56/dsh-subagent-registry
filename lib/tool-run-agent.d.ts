@@ -10,15 +10,28 @@
  * already-assembled `spawn` subagent provider (same single-instance realm dsh
  * uses), so the child is a real dsh subagent with its own system prompt.
  *
+ * When the same agent was already run in this conversation and that run was
+ * interrupted (error, cancellation, crash, token limit), the tool instead
+ * resumes the persisted child session and continues it from its partial work
+ * (see `./resume.ts`), unless the caller passes `fresh: true`.
+ *
  * @module dsh-subagent-registry/tool-run-agent
  */
 import type { Context } from '@deepseek-ai/cordis';
 import { type SubagentStartRequest } from '@deepseek-ai/dsh-subagent';
+import { type ResumeMode } from './resume.ts';
 /** The writable knob surface for this plugin (a subset of the Config schema). */
 export interface RunAgentConfig {
     agentsDir: string;
     provider: string;
     toolName: string;
+    /**
+     * When `use_agent` continues a prior interrupted run of the same agent:
+     * `auto` (default) resumes whenever one exists, `opt-in` only when the
+     * caller passes `resume: true`, `off` never (an explicit `resume: true`
+     * still overrides the deployment default).
+     */
+    resume?: ResumeMode;
     /**
      * Optional explicit deny list installed on a `deep: 0` (leaf) agent's child.
      * An empty/absent list means the computed default: every agent-spawning tool
@@ -38,6 +51,13 @@ export interface RunAgentConfig {
  * children, so a leaf cannot abuse them to spawn and they stay visible.
  */
 export declare const SPAWN_TOOL_NAMES: readonly ["subagent", "subagent_fork", "workflow", "ralph"];
+/**
+ * The deny list installed on a `deep: 0` (leaf) agent's child, both at fresh
+ * dispatch and again at resume: an explicit non-empty `leafDenyTools` replaces
+ * the default (every agent-spawning tool in the dsh base distribution plus
+ * this plugin's own `toolName`).
+ */
+export declare function leafDenyList(toolName: string, leafDenyTools?: readonly string[]): readonly string[];
 /**
  * Sanitize a frontmatter `description` into clean display prose:
  * 1. drop the leading run of backslashes left by an escaped-quote residue
