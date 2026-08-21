@@ -16,9 +16,9 @@ markdown 正文作为 persona）注册成 dsh 可按名调用的 subagent。主�
 ## How it works
 
 - **One file per agent**: `<agents-dir>/<name>.md` — a loose `key: value`
-  frontmatter block (`name`, `description`, `model`, `deep`, `display_name`,
-  …) followed by a markdown body that is used **verbatim** as the child's
-  persona (system prompt).
+  frontmatter block (`name`, `description`, `model`, `deep`, `thinking`,
+  `display_name`, …) followed by a markdown body that is used **verbatim** as
+  the child's persona (system prompt).
 - **One tool**: at session startup the plugin registers `use_agent`
   (configurable `toolName`). The tool's static description carries the roster
   — every agent name plus its sanitized description — so the main model can
@@ -128,6 +128,64 @@ Implementation, at `use_agent` execute time:
   Each subsequent delegation level enforces its own per-request caps (the
   native subagent tool defaults to `maxDepth: 3`), which acts as the outer
   recursion backstop.
+
+## `thinking` semantics
+
+The optional frontmatter `thinking` key sets the reasoning effort used for
+the dispatched child's model calls:
+
+| Value                        | Meaning                                                                     |
+| ---------------------------- | --------------------------------------------------------------------------- |
+| `off` / `low` / `medium` / `high` / `max` | Reasoning effort stamped onto every model call of the child.                   |
+| *(key absent)*               | Nothing is injected — the child runs at the model's default effort.         |
+
+Values outside this whitelist are **not** clamped: the agent file is marked
+**broken** at parse time (`invalid \`thinking\`: expected one of
+off/low/medium/high/max, got "…"`) and excluded from the roster until fixed.
+**Upgrading note:** this whitelist check is fail-loud as of this version — an
+invalid value (including a case mismatch such as `High`) drops the whole
+agent file from the roster, so check your existing `.md` files before
+upgrading.
+
+Mechanically the effort travels out of band: while a run is live the child
+session id is mapped to the declared level, and an `agent/request` waterfall
+listener stamps that `reasoningEffort` onto every model-call config proposed
+for the child — identically across the fresh-dispatch, resume, and fallback
+branches. Only registry-dispatched children are injected; all other agents
+pass through untouched.
+
+Scope: the injection rides this plugin's in-process `agent/request` waterfall,
+so it only applies to children that actually run through an **in-process
+spawn/fork provider**. Children of remote providers (`codex`, `claude-code`,
+`acp`, …) never enter this process's agent loop; for them the declared
+`thinking` level has no effect and no error is raised.
+
+Known residual risk: on a **fresh** dispatch there is a theoretical race
+window — the child session id is registered only after `start()` returns,
+while the child's first turn may begin running synchronously — so with very
+low probability the first model request goes out at the model's default
+effort and later requests self-heal onto the declared level. A root fix
+requires upstream first-class reasoning-effort support in the start request.
+
+Adapter support for `medium` depends on the route: `llm-deepseek` routing
+advertises only `off` / `low` / `high` / `max`, so a declared `medium` fails
+loudly with an unsupported reasoning-effort error before any network I/O;
+pi-ai-style routes accept whatever efforts the model catalog advertises for
+the selected model.
+
+Example:
+
+```markdown
+---
+name: workhorse
+display_name: 牛马狗
+description: "牛马狗：干活的主力……"
+model: opencode-go/deepseek-v4-flash
+thinking: medium
+deep: 0
+---
+You are 牛马狗，干活的主力。……（这里写完整的 system prompt）
+```
 
 ## Default agent roster
 

@@ -19,7 +19,8 @@
  * quotes); `name` is required, `description` feeds the tool roster, `model`
  * is a dsh `provider/model` route, `deep` is the spawn-depth budget (the
  * dsh-ui /agent manager uses it: default 1 = may start subagents, 0 = leaf
- * that runs but cannot spawn), and `thinking` holds a reasoning effort id.
+ * that runs but cannot spawn), and `thinking` holds a reasoning effort id
+ * from the THINKING_LEVELS whitelist (an unknown value marks the file broken).
  * The body is kept verbatim and doubles as the child's persona.
  *
  * This module is a self-contained copy of the parsing helpers from the dsh
@@ -30,6 +31,12 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
+
+/** Valid frontmatter `thinking` values, in canonical order. */
+export const THINKING_LEVELS = ['off', 'low', 'medium', 'high', 'max'] as const
+
+/** A reasoning effort id accepted in the `thinking` frontmatter key. */
+export type ThinkingLevel = (typeof THINKING_LEVELS)[number]
 
 /** One agent's frontmatter-derived metadata (the editable surface). */
 export interface AgentMeta {
@@ -43,8 +50,8 @@ export interface AgentMeta {
   color?: string
   /** dsh model route (`provider/model`); absent = inherit the default. */
   model?: string
-  /** Reasoning effort id (off/low/medium/high/max); absent = inherit. */
-  thinking?: string
+  /** Reasoning effort id (one of THINKING_LEVELS); absent = inherit. */
+  thinking?: ThinkingLevel
   /** Spawn-depth budget: default 1 (may start subagents), 0 = leaf (runs, no spawn). */
   deep: number
 }
@@ -85,6 +92,11 @@ function stripQuotes(value: string): string {
     if ((first === '"' && last === '"') || (first === "'" && last === "'")) return value.slice(1, -1)
   }
   return value
+}
+
+/** Check a candidate `thinking` value against the THINKING_LEVELS whitelist. */
+function isThinkingLevel(value: string): value is ThinkingLevel {
+  return (THINKING_LEVELS as readonly string[]).includes(value)
 }
 
 /** Find the closing fence line index of a frontmatter starting at line 0. */
@@ -140,7 +152,17 @@ export function parseAgentMarkdown(text: string, path: string): AgentParseResult
   const model = values['model']?.trim()
   if (model !== undefined && model !== '') meta.model = model
   const thinking = values['thinking']?.trim()
-  if (thinking !== undefined && thinking !== '') meta.thinking = thinking
+  if (thinking !== undefined && thinking !== '') {
+    // Fail loud on unknown levels: mark the file broken instead of silently
+    // ignoring or clamping the declared effort.
+    if (!isThinkingLevel(thinking)) {
+      return {
+        ok: false,
+        error: `invalid \`thinking\`: expected one of ${THINKING_LEVELS.join('/')}, got "${thinking}"`,
+      }
+    }
+    meta.thinking = thinking
+  }
   return { ok: true, agent: { path, meta, body } }
 }
 

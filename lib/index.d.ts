@@ -34,12 +34,12 @@ export declare const Config: z<Schemastery.ObjectS<{
     provider: z<string, string>;
     toolName: z<string, string>;
     leafDenyTools: z<string[], string[]>;
-    resume: z<"auto" | "opt-in" | "off", "auto" | "opt-in" | "off">;
+    resume: z<"off" | "auto" | "opt-in", "off" | "auto" | "opt-in">;
 }>, Schemastery.ObjectT<{
     agentsDir: z<string, string>;
     provider: z<string, string>;
     toolName: z<string, string>;
     leafDenyTools: z<string[], string[]>;
-    resume: z<"auto" | "opt-in" | "off", "auto" | "opt-in" | "off">;
+    resume: z<"off" | "auto" | "opt-in", "off" | "auto" | "opt-in">;
 }>>;
 export declare function apply(ctx: Context, config: RunAgentConfig): void;

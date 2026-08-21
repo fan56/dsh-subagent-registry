@@ -19,6 +19,7 @@
  */
 import type { Context } from '@deepseek-ai/cordis';
 import { type SubagentStartRequest } from '@deepseek-ai/dsh-subagent';
+import { type ThinkingLevel } from './agents-dir.ts';
 import { type ResumeMode } from './resume.ts';
 /** The writable knob surface for this plugin (a subset of the Config schema). */
 export interface RunAgentConfig {
@@ -103,6 +104,15 @@ export interface BuildStartRequestInput {
     model?: string;
     /** Optional display name used as the running child's display label (falls back to agentName). */
     displayName?: string;
+    /**
+     * Optional frontmatter `thinking` level of the agent. Deliberately NOT
+     * projected into `agentOptions`: dsh's `SubagentStartRequest` silently drops
+     * unknown fields downstream, so the effort travels out of band through the
+     * effort registry instead (see `./effort-inject.ts`). Carried on this input
+     * only to document the data flow; a regression test pins that it never
+     * reaches the built request.
+     */
+    thinking?: ThinkingLevel;
 }
 /**
  * Build the one-shot subagent start request for one custom agent, encoding the

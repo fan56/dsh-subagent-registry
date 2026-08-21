@@ -14,6 +14,7 @@
 
 import z from '@deepseek-ai/schemastery'
 import type { Context } from '@deepseek-ai/cordis'
+import { installEffortInjection } from './effort-inject.ts'
 import { runAgentTool, type RunAgentConfig } from './tool-run-agent.ts'
 
 export const name = 'dsh-subagent-registry'
@@ -42,6 +43,12 @@ export const Config = z.object({
 })
 
 export function apply(ctx: Context, config: RunAgentConfig): void {
+  // Inject frontmatter-declared reasoning effort for registry-dispatched
+  // children (see ./effort-inject.ts). The returned registry is held
+  // module-level there and reached via getEffortRegistry(), so the use_agent
+  // tool can register/forget child session ids around runs without a
+  // circular import back through this file.
+  installEffortInjection(ctx)
   // Register the `use_agent` tool as soon as the configured subagent provider
   // (e.g. `spawn`) is available. Cordis activates mutually independent
   // plugins in parallel, so the provider backend plugin's `apply` may run

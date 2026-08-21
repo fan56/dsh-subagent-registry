@@ -31,7 +31,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "check": "tsc --noEmit -p tsconfig.json",
-    "test": "node test/deep-semantics.test.mjs && node test/display-name.test.mjs && node test/resume.test.mjs"
+    "test": "node test/deep-semantics.test.mjs && node test/display-name.test.mjs && node test/resume.test.mjs && node test/effort-inject.test.mjs && node test/thinking-level.test.mjs && node test/effort-wiring.test.mjs && node test/apply-smoke.test.mjs"
   },
   "peerDependencies": {
     "@deepseek-ai/dsh-tools": "0.1.0-rc.8",

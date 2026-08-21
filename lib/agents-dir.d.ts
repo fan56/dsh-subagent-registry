@@ -19,13 +19,18 @@
  * quotes); `name` is required, `description` feeds the tool roster, `model`
  * is a dsh `provider/model` route, `deep` is the spawn-depth budget (the
  * dsh-ui /agent manager uses it: default 1 = may start subagents, 0 = leaf
- * that runs but cannot spawn), and `thinking` holds a reasoning effort id.
+ * that runs but cannot spawn), and `thinking` holds a reasoning effort id
+ * from the THINKING_LEVELS whitelist (an unknown value marks the file broken).
  * The body is kept verbatim and doubles as the child's persona.
  *
  * This module is a self-contained copy of the parsing helpers from the dsh
  * terminal UI's agent manager (dsh-tui-pi/src/agent-manager.ts) with no
  * dependency on that package.
  */
+/** Valid frontmatter `thinking` values, in canonical order. */
+export declare const THINKING_LEVELS: readonly ["off", "low", "medium", "high", "max"];
+/** A reasoning effort id accepted in the `thinking` frontmatter key. */
+export type ThinkingLevel = (typeof THINKING_LEVELS)[number];
 /** One agent's frontmatter-derived metadata (the editable surface). */
 export interface AgentMeta {
     /** File basename without `.md` — required, the stable agent id. */
@@ -38,8 +43,8 @@ export interface AgentMeta {
     color?: string;
     /** dsh model route (`provider/model`); absent = inherit the default. */
     model?: string;
-    /** Reasoning effort id (off/low/medium/high/max); absent = inherit. */
-    thinking?: string;
+    /** Reasoning effort id (one of THINKING_LEVELS); absent = inherit. */
+    thinking?: ThinkingLevel;
     /** Spawn-depth budget: default 1 (may start subagents), 0 = leaf (runs, no spawn). */
     deep: number;
 }
