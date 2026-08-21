@@ -1,6 +1,6 @@
 {
   "name": "@aiwayds/dsh-subagent-registry",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "dsh plugin: register locally-defined custom agents (~/.dsh/agents/*.md) as callable subagents via the use_agent tool",
   "type": "module",
   "main": "lib/index.js",
