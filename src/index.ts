@@ -14,7 +14,9 @@
 
 import z from '@deepseek-ai/schemastery'
 import type { Context } from '@deepseek-ai/cordis'
+import { expandHome } from './agents-dir.ts'
 import { installEffortInjection } from './effort-inject.ts'
+import { seedBundledAgents } from './seed-defaults.ts'
 import { runAgentTool, type RunAgentConfig } from './tool-run-agent.ts'
 
 export const name = 'dsh-subagent-registry'
@@ -43,6 +45,18 @@ export const Config = z.object({
 })
 
 export function apply(ctx: Context, config: RunAgentConfig): void {
+  // One-time seeding of the bundled default roster (workhorse / oldfox /
+  // rubber-duck) into the configured agents dir: a fresh install starts
+  // with a usable roster. Runs synchronously BEFORE the tool registers, so
+  // the roster the model sees already includes the defaults; runs only
+  // while the dir holds no agents, so existing files and deletions are
+  // always user-owned. Best-effort: an unwritable dir must not break the
+  // plugin mount, so failures are swallowed.
+  try {
+    seedBundledAgents(expandHome(config.agentsDir))
+  } catch {
+    // Seeding is an install convenience, never a hard dependency.
+  }
   // Inject frontmatter-declared reasoning effort for registry-dispatched
   // children (see ./effort-inject.ts). The returned registry is held
   // module-level there and reached via getEffortRegistry(), so the use_agent

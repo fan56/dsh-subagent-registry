@@ -1,6 +1,6 @@
 {
   "name": "@aiwayds/dsh-subagent-registry",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "dsh plugin: register locally-defined custom agents (~/.dsh/agents/*.md) as callable subagents via the use_agent tool",
   "type": "module",
   "main": "lib/index.js",
@@ -26,12 +26,13 @@
   "files": [
     "lib",
     "cordis.patch.yml",
-    "src"
+    "src",
+    "templates"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "check": "tsc --noEmit -p tsconfig.json",
-    "test": "node test/deep-semantics.test.mjs && node test/display-name.test.mjs && node test/resume.test.mjs && node test/effort-inject.test.mjs && node test/thinking-level.test.mjs && node test/effort-wiring.test.mjs && node test/apply-smoke.test.mjs"
+    "test": "node test/deep-semantics.test.mjs && node test/display-name.test.mjs && node test/resume.test.mjs && node test/effort-inject.test.mjs && node test/thinking-level.test.mjs && node test/effort-wiring.test.mjs && node test/apply-smoke.test.mjs && node test/seed-defaults.test.mjs"
   },
   "peerDependencies": {
     "@deepseek-ai/dsh-tools": "0.1.0-rc.8",
@@ -58,14 +59,15 @@
     }
   },
   "devDependencies": {
-    "@types/node": "^24.0.0",
-    "@deepseek-ai/dsh-tools": "0.1.0-rc.8",
-    "@deepseek-ai/dsh-subagent": "0.1.0-rc.8",
-    "@deepseek-ai/schemastery": "3.18.1",
-    "typescript": "^5.9.0",
-    "@deepseek-ai/dsh-llm": "0.1.0-rc.8",
+    "@deepseek-ai/cordis": "^4.0.1",
     "@deepseek-ai/dsh-agent": "0.1.0-rc.8",
-    "@deepseek-ai/dsh-session": "0.1.0-rc.8"
+    "@deepseek-ai/dsh-llm": "0.1.0-rc.8",
+    "@deepseek-ai/dsh-session": "0.1.0-rc.8",
+    "@deepseek-ai/dsh-subagent": "0.1.0-rc.8",
+    "@deepseek-ai/dsh-tools": "0.1.0-rc.8",
+    "@deepseek-ai/schemastery": "3.18.1",
+    "@types/node": "^24.0.0",
+    "typescript": "^5.9.0"
   },
   "dsh": {
     "bundle": {

@@ -189,12 +189,18 @@ You are 牛马狗，干活的主力。……（这里写完整的 system prompt�
 
 ## Default agent roster
 
-The author's personal `~/.dsh/agents/` ships with three agents: `workhorse`
+Three default agents ship with this package in `templates/agents/`: `workhorse`
 (牛马狗, the general workhorse), `oldfox` (老法师, the review/audit oracle),
 and **`rubber-duck`** (小黄鸭). `rubber-duck` is the **multimodal visual
 agent**: it reads screenshots / charts / OCR text and draws plotext / mermaid /
-matplotlib figures, running on an image-capable model. It now occupies the role
+matplotlib figures, running on an image-capable model. It occupies the role
 formerly filled by the removed `ArtyDuck` (艺术鸭) in this setup.
+
+**Auto-install**: on startup the plugin seeds these three into
+`~/.dsh/agents/` — exactly once, and only while that directory holds no
+agents at all. Any existing file is user-owned and never overwritten, and a
+default you delete stays deleted; to get the roster back, empty the directory
+(or copy the templates over by hand).
 
 ## Usage example
 
