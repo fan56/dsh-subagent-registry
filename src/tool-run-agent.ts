@@ -179,12 +179,14 @@ export interface BuildStartRequestInput {
   /** Optional display name used as the running child's display label (falls back to agentName). */
   displayName?: string
   /**
-   * Optional frontmatter `thinking` level of the agent. Deliberately NOT
-   * projected into `agentOptions`: dsh's `SubagentStartRequest` silently drops
-   * unknown fields downstream, so the effort travels out of band through the
-   * effort registry instead (see `./effort-inject.ts`). Carried on this input
-   * only to document the data flow; a regression test pins that it never
-   * reaches the built request.
+   * Optional frontmatter `thinking` level of the agent. Dual-track carrier
+   * since the v0.1.2-alpha era: projected into `agentOptions.reasoningEffort`
+   * for hosts that understand it natively, AND still registered out of band
+   * with the effort registry (see `./effort-inject.ts`) because rc-era hosts
+   * (≤ v0.1.1) silently drop the unknown field — verified against their
+   * `resolveChildAgentOptions` (spreads `requested` verbatim) and
+   * `assertCapabilities` (does not gate `agentOptions`), so the extra field
+   * is harmless there.
    */
   thinking?: ThinkingLevel
 }
@@ -210,7 +212,7 @@ export interface BuildStartRequestInput {
  *   default `maxDepth: 3`) take over as the recursion backstop.
  */
 export function buildStartRequest(input: BuildStartRequestInput): Omit<SubagentStartRequest, 'signal'> {
-  const { agentName, prompt, parent, persona, deep, toolName, leafDenyTools, model, displayName } = input
+  const { agentName, prompt, parent, persona, deep, toolName, leafDenyTools, model, displayName, thinking } = input
   // The child's absolute delegation depth, computed by the same authoritative
   // resolver the in-process driver uses (parent depth + 1, monotone floor).
   const childDepth = resolveChildDepth(
@@ -218,6 +220,19 @@ export function buildStartRequest(input: BuildStartRequestInput): Omit<SubagentS
     undefined,
   )
   const modelOptions = model !== undefined ? splitModel(model) : {}
+  // The effort rides natively for alpha-era hosts and is silently dropped for
+  // rc-era hosts (which the out-of-band registry then covers). Idempotent on
+  // alpha: both carriers stamp the same value.
+  //
+  // TODO(alpha floor): once the minimum supported host is v0.1.2-alpha+
+  //   (probe `ctx.subagents.getProvider(...)?.capabilities?.agentOptions`),
+  //   retire effort-inject.ts and the registry wiring around runs.
+  // TODO(alpha): expose a frontmatter `maxTokens` → `agentOptions.maxTokens`
+  //   (native since v0.1.2-alpha) alongside model/thinking.
+  const routeOptions: { provider?: string; model?: string; reasoningEffort?: ReasoningEffortId } = {
+    ...modelOptions,
+    ...(thinking !== undefined ? { reasoningEffort: thinking as ReasoningEffortId } : {}),
+  }
   const request: Omit<SubagentStartRequest, 'signal'> = {
     label: displayName ?? agentName,
     prompt: [{ type: 'text', text: prompt }],
@@ -234,9 +249,7 @@ export function buildStartRequest(input: BuildStartRequestInput): Omit<SubagentS
           // Relative depth budget: childDepth + deep, never a start blocker.
           maxDepth: childDepth + deep,
         }),
-    ...(modelOptions.provider !== undefined || modelOptions.model !== undefined
-      ? { agentOptions: modelOptions }
-      : {}),
+    ...(Object.keys(routeOptions).length > 0 ? { agentOptions: routeOptions } : {}),
   }
   return request
 }
@@ -465,9 +478,15 @@ export function runAgentTool(ctx: Context, cfg: RunAgentConfig) {
         // frontmatter `thinking`, read fresh at execute time. Registered
         // BEFORE the drive so the continuation turn's model calls are stamped
         // too; dropped in the finally below however this branch exits.
+        // (Same dual-track as buildStartRequest: native field for alpha-era
+        // hosts, registry carrier for rc-era hosts.)
         const thinking = agent.meta.thinking
         const registry = thinking === undefined ? undefined : getEffortRegistry()
         registry?.register(candidate.childId, thinking as ReasoningEffortId)
+        const resumeOptions = {
+          ...modelOptions,
+          ...(thinking !== undefined ? { reasoningEffort: thinking as ReasoningEffortId } : {}),
+        }
         try {
           let resumed: Awaited<ReturnType<typeof driveResumedRun>>
           try {
@@ -480,10 +499,7 @@ export function runAgentTool(ctx: Context, cfg: RunAgentConfig) {
                 agent.meta.deep === 0
                   ? { deny: [...leafDenyList(cfg.toolName, cfg.leafDenyTools)] }
                   : undefined,
-              agentOptions:
-                modelOptions.provider !== undefined || modelOptions.model !== undefined
-                  ? modelOptions
-                  : undefined,
+              agentOptions: Object.keys(resumeOptions).length > 0 ? resumeOptions : undefined,
               continuationPrompt: buildContinuationPrompt(candidate.classification.endedAs, args.prompt),
               noticeSummary: `resume interrupted "${args.agent}" subagent run`,
               signal: exec.signal,

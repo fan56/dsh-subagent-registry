@@ -75,6 +75,11 @@ export function apply(ctx: Context, config: RunAgentConfig): void {
   const registerTool = (): void => {
     ctx.effect(() => ctx.tools.register(runAgentTool(ctx, config)), `dsh-subagent-registry:${config.toolName}`)
   }
+  // TODO(alpha): upstream v0.1.2-alpha adds a read-only `list_subagent_models`
+  // tool (model-selection policy; spawns nothing, so the maxAgents fence is
+  // untouched). Consider registering it — or surfacing the same catalog in the
+  // roster text — once the host floor reaches alpha, so users can preview the
+  // routes a pinned/model-chosen subagent may take.
   if (ctx.subagents.getProvider(config.provider) !== undefined) {
     registerTool()
     return

@@ -129,7 +129,9 @@ function allKeys(value, out = []) {
 }
 
 // ---------------------------------------------------------------------------
-// Group 3a — REGRESSION ANCHOR: buildStartRequest emits no effort field.
+// Group 3a — ANCHOR: the effort travels natively (agentOptions.reasoningEffort)
+// for alpha-era hosts AND the out-of-band registry carrier stays armed for
+// rc-era hosts (dual-track, see effort-inject.ts).
 // ---------------------------------------------------------------------------
 
 {
@@ -145,27 +147,27 @@ function allKeys(value, out = []) {
     thinking: 'max',
   }
 
-  // With a model route: agentOptions exists but carries ONLY the provider/model
-  // split — never an effort field.
+  // With a model route: agentOptions = route split + native effort field.
   const routed = buildStartRequest(baseInput)
   assert.ok(routed.agentOptions !== undefined, 'model route produces agentOptions')
-  assert.deepEqual(Object.keys(routed.agentOptions), ['provider', 'model'], 'agentOptions holds only the route split')
+  assert.deepEqual(Object.keys(routed.agentOptions), ['provider', 'model', 'reasoningEffort'],
+    'agentOptions holds the route split plus reasoningEffort')
+  assert.equal(routed.agentOptions.reasoningEffort, 'max', 'effort value passes through verbatim')
 
-  // Whole-request scan: no effort/thinking key anywhere in the payload.
-  for (const [label, request] of [
-    ['routed deep>=1', routed],
-    ['unrouted', buildStartRequest({ ...baseInput, model: undefined })],
-    ['leaf (deep=0)', buildStartRequest({ ...baseInput, deep: 0 })],
-  ]) {
-    const offending = allKeys(request).filter((k) => /effort|thinking/i.test(k))
-    assert.equal(offending.length, 0, `${label}: no effort/thinking key in the request (got ${offending})`)
-  }
+  // thinking alone still produces agentOptions (rc hosts drop the unknown
+  // field harmlessly; alpha hosts honor it natively).
+  const thinkOnly = buildStartRequest({ ...baseInput, model: undefined })
+  assert.deepEqual(Object.keys(thinkOnly.agentOptions), ['reasoningEffort'],
+    'thinking alone yields an effort-only agentOptions')
 
-  // Without a model route there is no agentOptions at all — thinking alone
-  // must never conjure one.
-  assert.equal('agentOptions' in buildStartRequest({ ...baseInput, model: undefined }), false,
-    'thinking alone never adds agentOptions')
-  console.log('PASS anchor: buildStartRequest output contains no effort/reasoningEffort field')
+  // leaf children carry the effort the same way (deep only shapes spawn caps).
+  const leaf = buildStartRequest({ ...baseInput, deep: 0 })
+  assert.equal(leaf.agentOptions.reasoningEffort, 'max', 'leaf keeps the native effort field')
+
+  // No model and no thinking → no agentOptions at all.
+  assert.equal('agentOptions' in buildStartRequest({ ...baseInput, model: undefined, thinking: undefined }), false,
+    'no model and no thinking never conjures agentOptions')
+  console.log('PASS anchor: reasoningEffort rides natively in agentOptions (dual-track with the registry carrier)')
 }
 
 // ---------------------------------------------------------------------------

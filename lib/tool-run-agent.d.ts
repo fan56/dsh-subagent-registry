@@ -105,12 +105,14 @@ export interface BuildStartRequestInput {
     /** Optional display name used as the running child's display label (falls back to agentName). */
     displayName?: string;
     /**
-     * Optional frontmatter `thinking` level of the agent. Deliberately NOT
-     * projected into `agentOptions`: dsh's `SubagentStartRequest` silently drops
-     * unknown fields downstream, so the effort travels out of band through the
-     * effort registry instead (see `./effort-inject.ts`). Carried on this input
-     * only to document the data flow; a regression test pins that it never
-     * reaches the built request.
+     * Optional frontmatter `thinking` level of the agent. Dual-track carrier
+     * since the v0.1.2-alpha era: projected into `agentOptions.reasoningEffort`
+     * for hosts that understand it natively, AND still registered out of band
+     * with the effort registry (see `./effort-inject.ts`) because rc-era hosts
+     * (≤ v0.1.1) silently drop the unknown field — verified against their
+     * `resolveChildAgentOptions` (spreads `requested` verbatim) and
+     * `assertCapabilities` (does not gate `agentOptions`), so the extra field
+     * is harmless there.
      */
     thinking?: ThinkingLevel;
 }

@@ -98,6 +98,12 @@ away. Note that only runs dispatched with a `label` are discoverable; this
 plugin has always stamped `display_name ?? agent name` as the label, so
 pre-existing failed runs are resumable too.
 
+**Cross-host-version boundary**: dsh versions its subagent continuation
+descriptors (v3 since v0.1.2-alpha). A run interrupted under an older host is
+not resumable under a newer one — it folds into the fail-open path above
+(fresh dispatch), and an explicit `resume: true` reports it honestly. Resume
+covers runs produced within the same host version.
+
 ## `deep` semantics
 
 `deep` is the agent's spawn-depth budget, declared in the frontmatter:
