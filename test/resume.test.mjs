@@ -239,6 +239,8 @@ function fakeChildScope() {
     applied,
     get() { return undefined },
     systemPrompt: {
+      getContextOrder: () => 0,
+      getSectionOrder: () => 0,
       context(sec) { applied.contexts.push(sec) },
       section(sec) { if (sec.name === 'deployment:persona') applied.persona = sec.text },
     },
@@ -277,7 +279,7 @@ function fakeResumeBackend(prior, scriptTurn, { whenIdle = async () => {} } = {}
 const DRIVE_PARENT = {
   id: 'session-parent',
   options: { provider: 'parent-prov', model: 'parent-model' },
-  session: { header: { delegationDepth: 0 } },
+  session: { header: { delegationDepth: 0 }, requestHeader: () => undefined },
 }
 
 const signal = new AbortController().signal

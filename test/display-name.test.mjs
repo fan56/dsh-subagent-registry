@@ -39,7 +39,7 @@ Body.`
 // --- buildStartRequest: the running child's label uses displayName, else agentName ---
 
 /** A fake delegating parent whose session header carries the delegation depth. */
-const parentAtDepth = (depth) => ({ options: {}, session: { header: { delegationDepth: depth } } })
+const parentAtDepth = (depth) => ({ options: {}, session: { header: { delegationDepth: depth }, requestHeader: () => undefined } })
 const base = { prompt: 'do the thing', parent: parentAtDepth(1), persona: 'body', deep: 1, toolName: 'use_agent' }
 
 {

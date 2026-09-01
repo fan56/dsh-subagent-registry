@@ -153,25 +153,13 @@ invalid value (including a case mismatch such as `High`) drops the whole
 agent file from the roster, so check your existing `.md` files before
 upgrading.
 
-Mechanically the effort travels out of band: while a run is live the child
-session id is mapped to the declared level, and an `agent/request` waterfall
-listener stamps that `reasoningEffort` onto every model-call config proposed
-for the child — identically across the fresh-dispatch, resume, and fallback
-branches. Only registry-dispatched children are injected; all other agents
-pass through untouched.
-
-Scope: the injection rides this plugin's in-process `agent/request` waterfall,
-so it only applies to children that actually run through an **in-process
-spawn/fork provider**. Children of remote providers (`codex`, `claude-code`,
-`acp`, …) never enter this process's agent loop; for them the declared
-`thinking` level has no effect and no error is raised.
-
-Known residual risk: on a **fresh** dispatch there is a theoretical race
-window — the child session id is registered only after `start()` returns,
-while the child's first turn may begin running synchronously — so with very
-low probability the first model request goes out at the model's default
-effort and later requests self-heal onto the declared level. A root fix
-requires upstream first-class reasoning-effort support in the start request.
+Mechanically the effort travels natively: the declared level is stamped into
+the start request's `agentOptions.reasoningEffort` — identically across the
+fresh-dispatch and resume branches — and the host's subagent service hands it
+to the provider when composing the child. It requires the provider's
+`agentOptions` capability: the in-process `spawn` provider (this plugin's
+default) declares it, and a provider without the capability is rejected
+loudly at start rather than silently dropping the declared level.
 
 Adapter support for `medium` depends on the route: `llm-deepseek` routing
 advertises only `off` / `low` / `high` / `max`, so a declared `medium` fails

@@ -19,7 +19,7 @@ const CASES = [
 ]
 
 /** A fake delegating parent whose session header carries the delegation depth. */
-const parentAtDepth = (depth) => ({ options: {}, session: { header: { delegationDepth: depth } } })
+const parentAtDepth = (depth) => ({ options: {}, session: { header: { delegationDepth: depth }, requestHeader: () => undefined } })
 
 for (const { label, md, expectedDeep } of CASES) {
   const parsed = parseAgentMarkdown(md, '/fake/workhorse.md')

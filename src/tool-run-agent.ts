@@ -22,11 +22,12 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { Context } from '@deepseek-ai/cordis'
-import type { JsonValue } from '@deepseek-ai/dsh-session'
-import type { ReasoningEffortId } from '@deepseek-ai/dsh-llm'
+// Type-only (erased at emit): alpha.3 moved JsonValue out of dsh-session to
+// dsh-util-values — the same module dsh-tools itself sources it from.
+import type { JsonValue } from '@deepseek-ai/dsh-util-values'
+import type { ContentBlock, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import { resolveChildDepth, type SubagentRun, type SubagentStartRequest } from '@deepseek-ai/dsh-subagent'
 import { expandHome, listAgentFiles, parseAgentMarkdown, type AgentFile, type ThinkingLevel } from './agents-dir.ts'
-import { getEffortRegistry } from './effort-inject.ts'
 import {
   buildContinuationPrompt,
   decideResume,
@@ -179,14 +180,11 @@ export interface BuildStartRequestInput {
   /** Optional display name used as the running child's display label (falls back to agentName). */
   displayName?: string
   /**
-   * Optional frontmatter `thinking` level of the agent. Dual-track carrier
-   * since the v0.1.2-alpha era: projected into `agentOptions.reasoningEffort`
-   * for hosts that understand it natively, AND still registered out of band
-   * with the effort registry (see `./effort-inject.ts`) because rc-era hosts
-   * (≤ v0.1.1) silently drop the unknown field — verified against their
-   * `resolveChildAgentOptions` (spreads `requested` verbatim) and
-   * `assertCapabilities` (does not gate `agentOptions`), so the extra field
-   * is harmless there.
+   * Optional frontmatter `thinking` level of the agent, projected verbatim
+   * into `SubagentStartRequest.agentOptions.reasoningEffort` — the host's
+   * native carrier (requires the provider's `agentOptions` capability, which
+   * the in-process `spawn` provider declares; the start service rejects
+   * loudly on a provider without it instead of dropping the value).
    */
   thinking?: ThinkingLevel
 }
@@ -220,13 +218,6 @@ export function buildStartRequest(input: BuildStartRequestInput): Omit<SubagentS
     undefined,
   )
   const modelOptions = model !== undefined ? splitModel(model) : {}
-  // The effort rides natively for alpha-era hosts and is silently dropped for
-  // rc-era hosts (which the out-of-band registry then covers). Idempotent on
-  // alpha: both carriers stamp the same value.
-  //
-  // TODO(alpha floor): once the minimum supported host is v0.1.2-alpha+
-  //   (probe `ctx.subagents.getProvider(...)?.capabilities?.agentOptions`),
-  //   retire effort-inject.ts and the registry wiring around runs.
   // TODO(alpha): expose a frontmatter `maxTokens` → `agentOptions.maxTokens`
   //   (native since v0.1.2-alpha) alongside model/thinking.
   const routeOptions: { provider?: string; model?: string; reasoningEffort?: ReasoningEffortId } = {
@@ -265,7 +256,7 @@ export function buildStartRequest(input: BuildStartRequestInput): Omit<SubagentS
  * meaningful `result` failure. When both fail, both errors are surfaced as an
  * AggregateError.
  */
-async function settleForegroundRun(run: SubagentRun, agentName: string): Promise<JsonValue[]> {
+async function settleForegroundRun(run: SubagentRun, agentName: string): Promise<ContentBlock[]> {
   const [execution] = await Promise.allSettled([
     run.result.then((result) => {
       if (result.stopReason !== 'completed') {
@@ -281,7 +272,7 @@ async function settleForegroundRun(run: SubagentRun, agentName: string): Promise
         }
         throw new Error(parts.join('\n'))
       }
-      return result.output as unknown as JsonValue[]
+      return result.output
     }),
   ])
   const [disposal] = await Promise.allSettled([Promise.resolve().then(() => run.dispose())])
@@ -296,35 +287,6 @@ async function settleForegroundRun(run: SubagentRun, agentName: string): Promise
   }
   if (disposal.status === 'rejected') throw disposal.reason
   return execution.value
-}
-
-/**
- * Settle one foreground run with the effort registry kept in sync: while the
- * run is live, its child session id (`run.id`) is mapped to the agent's
- * frontmatter `thinking` level so the `agent/request` waterfall stamps that
- * effort onto the child's model calls; once the run settles — success,
- * failure, or dispose error — the mapping is dropped again so the
- * module-level map cannot grow without bound.
- *
- * An agent without a `thinking` level skips the registry entirely (no
- * register, no forget), and every registry access tolerates the plugin not
- * having installed one (`getEffortRegistry()` returning undefined). Forgetting
- * twice is harmless: the underlying map delete is idempotent.
- */
-async function settleRegisteredForegroundRun(
-  run: SubagentRun,
-  agentName: string,
-  thinking: ThinkingLevel | undefined,
-): Promise<JsonValue[]> {
-  // Identity mapping (plan §4.4): the frontmatter value IS the reasoning
-  // effort id; validity was enforced by the parse-time whitelist.
-  const registry = thinking === undefined ? undefined : getEffortRegistry()
-  registry?.register(run.id, thinking as ReasoningEffortId)
-  try {
-    return await settleForegroundRun(run, agentName)
-  } finally {
-    registry?.forget(run.id)
-  }
 }
 
 /**
@@ -474,95 +436,81 @@ export function runAgentTool(ctx: Context, cfg: RunAgentConfig) {
 
       if (decision === 'resume' && candidate !== undefined) {
         const modelOptions = splitModel(agent.meta.model ?? '')
-        // The effort source is the same for every branch: the agent file's
-        // frontmatter `thinking`, read fresh at execute time. Registered
-        // BEFORE the drive so the continuation turn's model calls are stamped
-        // too; dropped in the finally below however this branch exits.
-        // (Same dual-track as buildStartRequest: native field for alpha-era
-        // hosts, registry carrier for rc-era hosts.)
-        const thinking = agent.meta.thinking
-        const registry = thinking === undefined ? undefined : getEffortRegistry()
-        registry?.register(candidate.childId, thinking as ReasoningEffortId)
         const resumeOptions = {
           ...modelOptions,
-          ...(thinking !== undefined ? { reasoningEffort: thinking as ReasoningEffortId } : {}),
+          ...(agent.meta.thinking !== undefined
+            ? { reasoningEffort: agent.meta.thinking as ReasoningEffortId }
+            : {}),
         }
+        let resumed: Awaited<ReturnType<typeof driveResumedRun>>
         try {
-          let resumed: Awaited<ReturnType<typeof driveResumedRun>>
-          try {
-            resumed = await driveResumedRun({
-              ctx,
-              parent,
-              childId: candidate.childId,
-              persona: agent.body,
-              toolFilter:
-                agent.meta.deep === 0
-                  ? { deny: [...leafDenyList(cfg.toolName, cfg.leafDenyTools)] }
-                  : undefined,
-              agentOptions: Object.keys(resumeOptions).length > 0 ? resumeOptions : undefined,
-              continuationPrompt: buildContinuationPrompt(candidate.classification.endedAs, args.prompt),
-              noticeSummary: `resume interrupted "${args.agent}" subagent run`,
-              signal: exec.signal,
-            })
-          } catch (error) {
-            // Fail-open for the drive too, not just the lookup: a resume that
-            // cannot even start (concurrent duplicate resume raced us to the
-            // session id, persistence load failed after inspection, setup rolled
-            // back) degrades to a fresh dispatch — unless resume was explicitly
-            // requested, or the caller is gone, in which case the original
-            // error is the honest answer. A turn that RAN and ended badly is
-            // not an infrastructure failure: it is settled below, preserving
-            // the partial work, and never silently restarted.
-            if (args.resume === true || exec.signal.aborted) throw error
-            const freshRequest = buildStartRequest({
-              agentName: args.agent,
-              prompt: args.prompt,
-              parent,
-              persona: agent.body,
-              deep: agent.meta.deep,
-              toolName: cfg.toolName,
-              leafDenyTools: cfg.leafDenyTools,
-              model: agent.meta.model,
-              displayName: agent.meta.displayName,
-              thinking: agent.meta.thinking,
-            })
-            const run = await ctx.subagents.start(cfg.provider, { ...freshRequest, signal: exec.signal })
-            return {
-              kind: 'agent-result' as const,
-              output: [
-                { type: 'text', text: `Resume of the interrupted prior run failed (${String(error)}); started a fresh run instead.` },
-                ...await settleRegisteredForegroundRun(run, args.agent, agent.meta.thinking),
-              ] as unknown as JsonValue[],
-            }
-          }
-          if (resumed.stopReason !== 'completed') {
-            const text = textOf(resumed.output as unknown as readonly unknown[])
-            const headline =
-              `${stopReasonError(String(resumed.stopReason))} (agent "${args.agent}", resumed from interrupted run)`
-            throw new Error(
-              text.length === 0 ? headline : `${headline}\nPartial output before the run ended:\n${text}`,
-            )
-          }
-          const provenance =
-            `Resumed from the interrupted prior run of agent "${args.agent}" ` +
-            `(session ${String(candidate.childId)}; ${candidate.classification.endedAs}); ` +
-            `the subagent kept its earlier partial work and continued from there.`
+          resumed = await driveResumedRun({
+            ctx,
+            parent,
+            childId: candidate.childId,
+            persona: agent.body,
+            toolFilter:
+              agent.meta.deep === 0
+                ? { deny: [...leafDenyList(cfg.toolName, cfg.leafDenyTools)] }
+                : undefined,
+            agentOptions: Object.keys(resumeOptions).length > 0 ? resumeOptions : undefined,
+            continuationPrompt: buildContinuationPrompt(candidate.classification.endedAs, args.prompt),
+            noticeSummary: `resume interrupted "${args.agent}" subagent run`,
+            signal: exec.signal,
+          })
+        } catch (error) {
+          // Fail-open for the drive too, not just the lookup: a resume that
+          // cannot even start (concurrent duplicate resume raced us to the
+          // session id, persistence load failed after inspection, setup rolled
+          // back) degrades to a fresh dispatch — unless resume was explicitly
+          // requested, or the caller is gone, in which case the original
+          // error is the honest answer. A turn that RAN and ended badly is
+          // not an infrastructure failure: it is settled below, preserving
+          // the partial work, and never silently restarted.
+          if (args.resume === true || exec.signal.aborted) throw error
+          const freshRequest = buildStartRequest({
+            agentName: args.agent,
+            prompt: args.prompt,
+            parent,
+            persona: agent.body,
+            deep: agent.meta.deep,
+            toolName: cfg.toolName,
+            leafDenyTools: cfg.leafDenyTools,
+            model: agent.meta.model,
+            displayName: agent.meta.displayName,
+            thinking: agent.meta.thinking,
+          })
+          const run = await ctx.subagents.start(cfg.provider, { ...freshRequest, signal: exec.signal })
           return {
             kind: 'agent-result' as const,
-            output: [{ type: 'text', text: provenance }, ...resumed.output] as unknown as JsonValue[],
+            output: [
+              { type: 'text', text: `Resume of the interrupted prior run failed (${String(error)}); started a fresh run instead.` },
+              ...await settleForegroundRun(run, args.agent),
+            ] as unknown as JsonValue[],
           }
-        } finally {
-          // Map-leak guard: drop the persisted child's effort mapping on every
-          // exit (success, settled failure, rethrow, or fresh fallback).
-          registry?.forget(candidate.childId)
+        }
+        if (resumed.stopReason !== 'completed') {
+          const text = textOf(resumed.output as unknown as readonly unknown[])
+          const headline =
+            `${stopReasonError(String(resumed.stopReason))} (agent "${args.agent}", resumed from interrupted run)`
+          throw new Error(
+            text.length === 0 ? headline : `${headline}\nPartial output before the run ended:\n${text}`,
+          )
+        }
+        const provenance =
+          `Resumed from the interrupted prior run of agent "${args.agent}" ` +
+          `(session ${String(candidate.childId)}; ${candidate.classification.endedAs}); ` +
+          `the subagent kept its earlier partial work and continued from there.`
+        return {
+          kind: 'agent-result' as const,
+          output: [{ type: 'text', text: provenance }, ...resumed.output] as unknown as JsonValue[],
         }
       }
 
-      // persona = the file's body (system prompt); `deep` semantics and model
-      // routing are applied by the pure builder (see buildStartRequest). The
-      // frontmatter `thinking` rides on the input but never enters the request
-      // (regression anchor): it reaches the child out of band via the effort
-      // registry, wired inside settleRegisteredForegroundRun below.
+      // persona = the file's body (system prompt); `deep` semantics, model
+      // routing, and the frontmatter `thinking` effort (native
+      // agentOptions.reasoningEffort) are applied by the pure builder (see
+      // buildStartRequest).
       const request = buildStartRequest({
         agentName: args.agent,
         prompt: args.prompt,
@@ -580,10 +528,10 @@ export function runAgentTool(ctx: Context, cfg: RunAgentConfig) {
       const run = await ctx.subagents.start(cfg.provider, { ...request, signal })
       return {
         kind: 'agent-result' as const,
-        // settleRegisteredForegroundRun always disposes the run, even when
-        // result rejects; a non-`completed` stop reason is surfaced as the
-        // error, and the effort mapping is dropped once the run settles.
-        output: await settleRegisteredForegroundRun(run, args.agent, agent.meta.thinking),
+        // settleForegroundRun always disposes the run, even when result
+        // rejects; a non-`completed` stop reason is surfaced as the error.
+        // ContentBlock[] → the tool contract's JsonValue[] (structural cast).
+        output: (await settleForegroundRun(run, args.agent)) as unknown as JsonValue[],
       }
     },
   })

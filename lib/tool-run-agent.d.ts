@@ -105,14 +105,11 @@ export interface BuildStartRequestInput {
     /** Optional display name used as the running child's display label (falls back to agentName). */
     displayName?: string;
     /**
-     * Optional frontmatter `thinking` level of the agent. Dual-track carrier
-     * since the v0.1.2-alpha era: projected into `agentOptions.reasoningEffort`
-     * for hosts that understand it natively, AND still registered out of band
-     * with the effort registry (see `./effort-inject.ts`) because rc-era hosts
-     * (≤ v0.1.1) silently drop the unknown field — verified against their
-     * `resolveChildAgentOptions` (spreads `requested` verbatim) and
-     * `assertCapabilities` (does not gate `agentOptions`), so the extra field
-     * is harmless there.
+     * Optional frontmatter `thinking` level of the agent, projected verbatim
+     * into `SubagentStartRequest.agentOptions.reasoningEffort` — the host's
+     * native carrier (requires the provider's `agentOptions` capability, which
+     * the in-process `spawn` provider declares; the start service rejects
+     * loudly on a provider without it instead of dropping the value).
      */
     thinking?: ThinkingLevel;
 }
