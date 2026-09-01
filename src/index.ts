@@ -70,9 +70,17 @@ export function apply(ctx: Context, config: RunAgentConfig): void {
   }
   // TODO(alpha): upstream v0.1.2-alpha adds a read-only `list_subagent_models`
   // tool (model-selection policy; spawns nothing, so the maxAgents fence is
-  // untouched). Consider registering it — or surfacing the same catalog in the
-  // roster text — once the host floor reaches alpha, so users can preview the
-  // routes a pinned/model-chosen subagent may take.
+  // untouched). Investigated against the alpha.3 closure — NOT attachable from
+  // a third-party plugin today: `registerListSubagentModels(ctx, policy)` is a
+  // module-private function of @deepseek-ai/dsh-tool-subagent (its entry
+  // exports only `Config/apply/inject/name`), its required `policy` argument is
+  // the route list that plugin itself projects into each Session
+  // (`subagentModelSelectionPolicy` state key, fed by the host
+  // `subagent-model-selection` setting), and the global tool name is owned by
+  // that plugin's delegation-tool instances ("at most one instance in a tool
+  // scope may own model selection"). Revisit only if upstream exports a public
+  // discovery seam; until then the roster's frontmatter `model` routes stay
+  // the model-visible surface for where a pinned subagent may land.
   if (ctx.subagents.getProvider(config.provider) !== undefined) {
     registerTool()
     return
