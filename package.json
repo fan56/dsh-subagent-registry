@@ -32,6 +32,8 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "check": "tsc --noEmit -p tsconfig.json",
+    "link-closure": "node scripts/link-dsh-closure.mjs",
+    "smoke": "node scripts/smoke-boot.mjs",
     "test": "node test/deep-semantics.test.mjs && node test/display-name.test.mjs && node test/resume.test.mjs && node test/thinking-level.test.mjs && node test/agent-options.test.mjs && node test/apply-smoke.test.mjs && node test/seed-defaults.test.mjs"
   },
   "peerDependencies": {
