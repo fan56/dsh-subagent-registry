@@ -35,11 +35,11 @@
     "test": "node test/deep-semantics.test.mjs && node test/display-name.test.mjs && node test/resume.test.mjs && node test/effort-inject.test.mjs && node test/thinking-level.test.mjs && node test/effort-wiring.test.mjs && node test/apply-smoke.test.mjs && node test/seed-defaults.test.mjs"
   },
   "peerDependencies": {
-    "@deepseek-ai/dsh-tools": "0.1.0-rc.8",
-    "@deepseek-ai/dsh-subagent": "0.1.0-rc.8",
-    "@deepseek-ai/schemastery": "3.18.1",
-    "@deepseek-ai/dsh-llm": "0.1.0-rc.8",
-    "@deepseek-ai/dsh-agent": "0.1.0-rc.8"
+    "@deepseek-ai/dsh-tools": ">=0.1.2-alpha.3",
+    "@deepseek-ai/dsh-subagent": ">=0.1.2-alpha.3",
+    "@deepseek-ai/schemastery": "3.18.2",
+    "@deepseek-ai/dsh-llm": ">=0.1.2-alpha.3",
+    "@deepseek-ai/dsh-agent": ">=0.1.2-alpha.3"
   },
   "peerDependenciesMeta": {
     "@deepseek-ai/dsh-tools": {
@@ -59,13 +59,14 @@
     }
   },
   "devDependencies": {
-    "@deepseek-ai/cordis": "^4.0.1",
-    "@deepseek-ai/dsh-agent": "0.1.0-rc.8",
-    "@deepseek-ai/dsh-llm": "0.1.0-rc.8",
-    "@deepseek-ai/dsh-session": "0.1.0-rc.8",
-    "@deepseek-ai/dsh-subagent": "0.1.0-rc.8",
-    "@deepseek-ai/dsh-tools": "0.1.0-rc.8",
-    "@deepseek-ai/schemastery": "3.18.1",
+    "@deepseek-ai/cordis": "^4.0.2",
+    "@deepseek-ai/dsh-agent": "0.1.2-alpha.3",
+    "@deepseek-ai/dsh-llm": "0.1.2-alpha.3",
+    "@deepseek-ai/dsh-session": "0.1.2-alpha.3",
+    "@deepseek-ai/dsh-subagent": "0.1.2-alpha.3",
+    "@deepseek-ai/dsh-tools": "0.1.2-alpha.3",
+    "@deepseek-ai/dsh-util-values": "0.1.2-alpha.3",
+    "@deepseek-ai/schemastery": "3.18.2",
     "@types/node": "^24.0.0",
     "typescript": "^5.9.0"
   },
