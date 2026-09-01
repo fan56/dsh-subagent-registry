@@ -255,8 +255,9 @@ function fakeChildScope() {
 function fakeResumeBackend(prior, scriptTurn, { whenIdle = async () => {} } = {}) {
   const scope = fakeChildScope()
   const captured = { resumeOptions: undefined, followup: undefined, disposed: false, scope: scope.applied }
+  const childLog = [...prior]
   const child = {
-    session: { events: [...prior] },
+    session: { events: childLog, get seq() { return childLog.length }, snapshotEvents: () => childLog },
     followup(message) {
       captured.followup = message
       scriptTurn?.(child.session.events)

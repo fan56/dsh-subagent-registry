@@ -324,7 +324,7 @@ export async function driveResumedRun(input: ResumeDriveInput): Promise<ResumedR
   try {
     // Everything the replay loaded is prior work; the continuation turn's
     // own events start at this boundary.
-    const boundary = child.session.events.length
+    const boundary = child.session.seq
     if (!flags.cancelled) {
       child.followup(createUserMessage({
         content: [{ type: 'text', text: input.continuationPrompt }],
@@ -337,7 +337,7 @@ export async function driveResumedRun(input: ResumeDriveInput): Promise<ResumedR
       }))
       await child.whenIdle()
     }
-    const own = child.session.events.slice(boundary)
+    const own = child.session.snapshotEvents().slice(boundary)
     const output = finalAssistantOutput(own) ?? []
     const recorded = toStopReason(turnEndKind(accountingTurnEnd(own)))
     outcome = {

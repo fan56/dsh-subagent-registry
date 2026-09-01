@@ -299,7 +299,7 @@ function childTurnError(run: SubagentRun): string | undefined {
   const agent = run.localAgent
   if (agent === undefined) return undefined
   try {
-    const events = agent.session.events
+    const events = agent.session.snapshotEvents()
     for (let i = events.length - 1; i >= 0; i--) {
       const event = events[i]
       if (event.type !== 'turn/end') continue

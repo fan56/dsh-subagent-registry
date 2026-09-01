@@ -77,8 +77,9 @@ function fakeResumeBackend(prior, scriptTurn) {
     },
     tools: { restrict(filter) { applied.restrict = filter } },
   }
+  const childLog = [...prior]
   const child = {
-    session: { events: [...prior] },
+    session: { events: childLog, get seq() { return childLog.length }, snapshotEvents: () => childLog },
     followup(message) {
       scriptTurn?.(child.session.events)
       void message
