@@ -406,6 +406,15 @@ const signal = new AbortController().signal
 // The `use_agent` tool execute() glue — real tool, fake ctx doubles
 // ---------------------------------------------------------------------------
 
+// Hermetic model-profile environment (same as agent-options.test.mjs): the
+// tool's execute composes the runtime from `$DSH_HOME/model-profiles.json`
+// + `.dsh-profile` pins found from the cwd, so point DSH_HOME at a scratch
+// home to keep these dispatches deterministic regardless of the machine's
+// real profile store and pins.
+const HERMETIC_HOME = mkdtempSync(join(tmpdir(), 'registry-resume-home-'))
+const PREV_DSH_HOME = process.env.DSH_HOME
+process.env.DSH_HOME = HERMETIC_HOME
+
 const AGENTS_DIR = mkdtempSync(join(tmpdir(), 'registry-agents-'))
 writeFileSync(
   join(AGENTS_DIR, 'workhorse.md'),
@@ -548,6 +557,9 @@ try {
     console.log('PASS tool glue: fresh=true skips resume lookup')
   }
 } finally {
+  if (PREV_DSH_HOME === undefined) delete process.env.DSH_HOME
+  else process.env.DSH_HOME = PREV_DSH_HOME
+  rmSync(HERMETIC_HOME, { recursive: true, force: true })
   rmSync(AGENTS_DIR, { recursive: true, force: true })
 }
 

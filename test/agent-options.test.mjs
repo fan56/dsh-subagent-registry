@@ -12,6 +12,15 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { buildStartRequest, runAgentTool } from '../lib/tool-run-agent.js'
 
+// Hermetic model-profile environment: `composeAgentRuntime` (inside the tool
+// execute) reads `$DSH_HOME/model-profiles.json` and walks `.dsh-profile`
+// pins from the cwd. Point DSH_HOME at a scratch home so every dispatch
+// below resolves the frontmatter baseline deterministically, independent of
+// the machine's real profile store and pins.
+const HERMETIC_HOME = mkdtempSync(join(tmpdir(), 'registry-agent-options-home-'))
+const PREV_DSH_HOME = process.env.DSH_HOME
+process.env.DSH_HOME = HERMETIC_HOME
+
 // ---------------------------------------------------------------------------
 // Fixtures
 // ---------------------------------------------------------------------------
@@ -218,6 +227,63 @@ function fakeResumeBackend(prior, scriptTurn) {
   console.log('PASS failed fresh run: error surfaced to the caller')
 }
 
+// ---------------------------------------------------------------------------
+// Profile-composed runtime: a workspace pin + profile override reach BOTH
+// dispatch branches (fresh and resume) — the spawn uses the composed values,
+// not the raw frontmatter baseline.
+// ---------------------------------------------------------------------------
+
+{
+  const WS = mkdtempSync(join(tmpdir(), 'registry-agent-options-ws-'))
+  const prevCwd = process.cwd()
+  try {
+    writeFileSync(join(WS, '.dsh-profile'), 'work\n')
+    writeFileSync(join(HERMETIC_HOME, 'model-profiles.json'), JSON.stringify({
+      version: 1,
+      profiles: [{ name: 'work', agents: { thinker: { model: 'prov-x/overridden', thinking: 'low' } } }],
+    }))
+    process.chdir(WS)
+
+    // Fresh branch: the start request carries the composed route/effort.
+    {
+      const ctx = toolCtx()
+      const tool = runAgentTool(ctx, { agentsDir: AGENTS_DIR, provider: 'spawn', toolName: 'use_agent' })
+      await tool.execute({ agent: 'thinker', prompt: 'x' }, EXEC)
+      assert.equal(ctx.started.length, 1, 'exactly one fresh dispatch')
+      const options = ctx.started[0].request.agentOptions
+      assert.equal(options?.provider, 'prov-x', 'fresh dispatch composes the overridden provider')
+      assert.equal(options?.model, 'overridden', 'fresh dispatch composes the overridden model')
+      assert.equal(options?.reasoningEffort, 'low', 'fresh dispatch composes the overridden effort')
+      console.log('PASS composed fresh: profile override replaces the frontmatter baseline')
+    }
+
+    // Resume branch: the continuation drive receives the composed values too.
+    {
+      const children = [{ kind: 'child', id: 'child-1', activity: 'inactive', mode: 'one-shot', label: 'thinker' }]
+      const backend = fakeResumeBackend([...ERROR_LOG], (events) => {
+        events.push(ev('turn/start', { turn: 2 }), ev('step/start', { turn: 2, step: 0 }))
+        events.push({ type: 'assistant/message', data: { message: { role: 'assistant', content: [{ type: 'text', text: 'continued' }] } } })
+        events.push(ev('turn/end', { turn: 2, reason: { kind: 'completed' } }))
+      })
+      const ctx = toolCtx({ children, events: { 'child-1': ERROR_LOG }, resume: backend.resume })
+      const tool = runAgentTool(ctx, { agentsDir: AGENTS_DIR, provider: 'spawn', toolName: 'use_agent' })
+      const result = await tool.execute({ agent: 'thinker', prompt: 'finish it' }, EXEC)
+      const text = result.output.map((b) => b.text ?? '').join('')
+      assert.ok(text.includes('Resumed from the interrupted prior run'), 'resume provenance present')
+      assert.equal(backend.applied.agentOptions?.provider, 'prov-x', 'resume drive receives the overridden provider')
+      assert.equal(backend.applied.agentOptions?.model, 'overridden', 'resume drive receives the overridden model')
+      assert.equal(backend.applied.agentOptions?.reasoningEffort, 'low', 'resume drive receives the overridden effort')
+      console.log('PASS composed resume: continuation carries the profile override')
+    }
+  } finally {
+    process.chdir(prevCwd)
+    rmSync(WS, { recursive: true, force: true })
+  }
+}
+
+if (PREV_DSH_HOME === undefined) delete process.env.DSH_HOME
+else process.env.DSH_HOME = PREV_DSH_HOME
+rmSync(HERMETIC_HOME, { recursive: true, force: true })
 rmSync(AGENTS_DIR, { recursive: true, force: true })
 
 console.log('\nAll agent-options assertions passed.')
