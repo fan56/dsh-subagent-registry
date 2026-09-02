@@ -6,9 +6,12 @@
  * conversation model pick an agent by name. At execute time the target
  * `<agents-dir>/<name>.md` is re-read, its frontmatter `model` (a
  * `provider/model` route) is split into `agentOptions`, and its body is
- * passed as the child's `persona`. The delegation runs through the
- * already-assembled `spawn` subagent provider (same single-instance realm dsh
- * uses), so the child is a real dsh subagent with its own system prompt.
+ * passed as the child's `persona`. The effective model/thinking are the
+ * COMPOSED runtime (see ./profile-resolution.ts): the frontmatter is the
+ * baseline, and a workspace profile pin may override it per agent. The
+ * delegation runs through the already-assembled `spawn` subagent provider
+ * (same single-instance realm dsh uses), so the child is a real dsh
+ * subagent with its own system prompt.
  *
  * When the same agent was already run in this conversation and that run was
  * interrupted (error, cancellation, crash, token limit), the tool instead

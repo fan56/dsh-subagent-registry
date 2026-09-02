@@ -6,9 +6,12 @@
  * conversation model pick an agent by name. At execute time the target
  * `<agents-dir>/<name>.md` is re-read, its frontmatter `model` (a
  * `provider/model` route) is split into `agentOptions`, and its body is
- * passed as the child's `persona`. The delegation runs through the
- * already-assembled `spawn` subagent provider (same single-instance realm dsh
- * uses), so the child is a real dsh subagent with its own system prompt.
+ * passed as the child's `persona`. The effective model/thinking are the
+ * COMPOSED runtime (see ./profile-resolution.ts): the frontmatter is the
+ * baseline, and a workspace profile pin may override it per agent. The
+ * delegation runs through the already-assembled `spawn` subagent provider
+ * (same single-instance realm dsh uses), so the child is a real dsh
+ * subagent with its own system prompt.
  *
  * When the same agent was already run in this conversation and that run was
  * interrupted (error, cancellation, crash, token limit), the tool instead
@@ -28,6 +31,7 @@ import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import type { ContentBlock, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import { resolveChildDepth, type SubagentRun, type SubagentStartRequest } from '@deepseek-ai/dsh-subagent'
 import { expandHome, listAgentFiles, parseAgentMarkdown, type AgentFile, type ThinkingLevel } from './agents-dir.ts'
+import { composeAgentRuntime } from './profile-resolution.ts'
 import {
   buildContinuationPrompt,
   decideResume,
@@ -408,6 +412,15 @@ export function runAgentTool(ctx: Context, cfg: RunAgentConfig) {
       }
       // Re-check existence at execute time with a friendly, roster-aware error.
       const agent = loadAgent(dir, args.agent, nameList === '' ? [] : nameList.split(',').map((n) => n.trim()))
+      // Synthesize the effective model/thinking for this dispatch: the file
+      // frontmatter is the BASELINE and a workspace profile pin
+      // (`.dsh-profile` → `$DSH_HOME/model-profiles.json` per-agent override)
+      // may replace it. Both branches below — resume and fresh — consume the
+      // composed values, so a profile switch applies to continuations too.
+      const runtime = composeAgentRuntime(args.agent, {
+        model: agent.meta.model,
+        thinking: agent.meta.thinking,
+      })
       const label = agent.meta.displayName ?? args.agent
 
       // Resume decision: continue the parent's latest interrupted run of this
@@ -435,11 +448,11 @@ export function runAgentTool(ctx: Context, cfg: RunAgentConfig) {
       }
 
       if (decision === 'resume' && candidate !== undefined) {
-        const modelOptions = splitModel(agent.meta.model ?? '')
+        const modelOptions = splitModel(runtime.model ?? '')
         const resumeOptions = {
           ...modelOptions,
-          ...(agent.meta.thinking !== undefined
-            ? { reasoningEffort: agent.meta.thinking as ReasoningEffortId }
+          ...(runtime.thinking !== undefined
+            ? { reasoningEffort: runtime.thinking as ReasoningEffortId }
             : {}),
         }
         let resumed: Awaited<ReturnType<typeof driveResumedRun>>
@@ -476,9 +489,9 @@ export function runAgentTool(ctx: Context, cfg: RunAgentConfig) {
             deep: agent.meta.deep,
             toolName: cfg.toolName,
             leafDenyTools: cfg.leafDenyTools,
-            model: agent.meta.model,
+            model: runtime.model,
             displayName: agent.meta.displayName,
-            thinking: agent.meta.thinking,
+            thinking: runtime.thinking as ThinkingLevel | undefined,
           })
           const run = await ctx.subagents.start(cfg.provider, { ...freshRequest, signal: exec.signal })
           return {
@@ -519,9 +532,9 @@ export function runAgentTool(ctx: Context, cfg: RunAgentConfig) {
         deep: agent.meta.deep,
         toolName: cfg.toolName,
         leafDenyTools: cfg.leafDenyTools,
-        model: agent.meta.model,
+        model: runtime.model,
         displayName: agent.meta.displayName,
-        thinking: agent.meta.thinking,
+        thinking: runtime.thinking as ThinkingLevel | undefined,
       })
       const signal = exec.signal
 

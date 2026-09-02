@@ -64,7 +64,13 @@ export type AgentParseResult = {
 };
 /** Expand a leading `~` to the user's home directory. */
 export declare function expandHome(dir: string): string;
-/** The dsh agents directory default (`~/.dsh/agents`, under the dsh home). */
+/**
+ * The dsh home directory: `$DSH_HOME` when set, `~/.dsh` otherwise — the
+ * same resolution the dsh host and dsh-tui-pi use, so every dsh-owned file
+ * (agents, model-profiles.json, sessions, …) lives under one root.
+ */
+export declare function dshHome(): string;
+/** The dsh agents directory default (`$DSH_HOME/agents`, i.e. `~/.dsh/agents`). */
 export declare function agentsDir(): string;
 /**
  * Parse one agent markdown file. Tolerates CRLF, quotes, and non-key lines

@@ -14,6 +14,8 @@
 import z from '@deepseek-ai/schemastery';
 import type { Context } from '@deepseek-ai/cordis';
 import { type RunAgentConfig } from './tool-run-agent.ts';
+export { agentsDir, dshHome } from './agents-dir.ts';
+export { composeAgentRuntime, readModelProfilesDoc, workspaceProfileName } from './profile-resolution.ts';
 export declare const name = "dsh-subagent-registry";
 /**
  * Tool injection seam + the subagent (provider) seam + the agent factory seam
@@ -22,7 +24,8 @@ export declare const name = "dsh-subagent-registry";
  */
 export declare const inject: string[];
 /**
- * Plugin config. `agentsDir` defaults to `~/.dsh/agents`, `provider` reuses
+ * Plugin config. `agentsDir` defaults to the dsh-home agents dir
+ * (`$DSH_HOME/agents`, i.e. `~/.dsh/agents`), `provider` reuses
  * dsh-base's already-assembled `spawn` provider, `toolName` names the tool,
  * `leafDenyTools` overrides the tool list removed from `deep: 0` (leaf)
  * agents' children (default: all agent-spawning tools in the dsh base

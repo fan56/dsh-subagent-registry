@@ -45,7 +45,7 @@ it through a bundle patch (see `cordis.patch.yml` in this repo for the pattern).
 
 | Config field  | Default              | Description                                                              |
 | ------------- | -------------------- | ------------------------------------------------------------------------ |
-| `agentsDir`   | `~/.dsh/agents`      | Directory holding `<name>.md` agent definitions.                         |
+| `agentsDir`   | `$DSH_HOME/agents` (falls back to `~/.dsh/agents`) | Directory holding `<name>.md` agent definitions — resolved against the dsh home, the same root the model-profile store uses. |
 | `provider`    | `spawn`              | Subagent provider the child runs through (reuses dsh-base's `spawn`).    |
 | `toolName`    | `use_agent`          | Name of the registered tool.                                             |
 | `leafDenyTools` | `[]` (computed default) | Explicit tool-deny list installed on `deep: 0` (leaf) children. Empty = computed default (every agent-spawning tool in the dsh base distribution plus `toolName`). |

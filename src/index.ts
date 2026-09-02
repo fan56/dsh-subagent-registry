@@ -14,9 +14,14 @@
 
 import z from '@deepseek-ai/schemastery'
 import type { Context } from '@deepseek-ai/cordis'
-import { expandHome } from './agents-dir.ts'
+import { agentsDir, expandHome } from './agents-dir.ts'
 import { seedBundledAgents } from './seed-defaults.ts'
 import { runAgentTool, type RunAgentConfig } from './tool-run-agent.ts'
+
+// Profile-aware runtime synthesis (the read side of the model-profile
+// feature): dsh-tui-pi imports these from this package.
+export { agentsDir, dshHome } from './agents-dir.ts'
+export { composeAgentRuntime, readModelProfilesDoc, workspaceProfileName } from './profile-resolution.ts'
 
 export const name = 'dsh-subagent-registry'
 
@@ -28,7 +33,8 @@ export const name = 'dsh-subagent-registry'
 export const inject = ['tools', 'subagents', 'agents']
 
 /**
- * Plugin config. `agentsDir` defaults to `~/.dsh/agents`, `provider` reuses
+ * Plugin config. `agentsDir` defaults to the dsh-home agents dir
+ * (`$DSH_HOME/agents`, i.e. `~/.dsh/agents`), `provider` reuses
  * dsh-base's already-assembled `spawn` provider, `toolName` names the tool,
  * `leafDenyTools` overrides the tool list removed from `deep: 0` (leaf)
  * agents' children (default: all agent-spawning tools in the dsh base
@@ -44,6 +50,14 @@ export const Config = z.object({
 })
 
 export function apply(ctx: Context, config: RunAgentConfig): void {
+  // Resolve the agents dir against the dsh home: the schema default literal
+  // means "the agents dir under the dsh home", so `$DSH_HOME` is honored by
+  // the same resolution the host uses (dshHome) — this keeps seeding, the
+  // tool's roster and the profile store (`$DSH_HOME/model-profiles.json`)
+  // under one root. A configured custom path is taken verbatim (after `~`
+  // expansion).
+  const dir = config.agentsDir === '~/.dsh/agents' ? agentsDir() : expandHome(config.agentsDir)
+  const runConfig: RunAgentConfig = { ...config, agentsDir: dir }
   // One-time seeding of the bundled default roster (workhorse / oldfox /
   // rubber-duck) into the configured agents dir: a fresh install starts
   // with a usable roster. Runs synchronously BEFORE the tool registers, so
@@ -52,7 +66,7 @@ export function apply(ctx: Context, config: RunAgentConfig): void {
   // always user-owned. Best-effort: an unwritable dir must not break the
   // plugin mount, so failures are swallowed.
   try {
-    seedBundledAgents(expandHome(config.agentsDir))
+    seedBundledAgents(dir)
   } catch {
     // Seeding is an install convenience, never a hard dependency.
   }
@@ -66,7 +80,7 @@ export function apply(ctx: Context, config: RunAgentConfig): void {
   // before registering. The tool's execute always re-resolves the provider at
   // call time through ctx.subagents.start, so no further check is needed.
   const registerTool = (): void => {
-    ctx.effect(() => ctx.tools.register(runAgentTool(ctx, config)), `dsh-subagent-registry:${config.toolName}`)
+    ctx.effect(() => ctx.tools.register(runAgentTool(ctx, runConfig)), `dsh-subagent-registry:${config.toolName}`)
   }
   // TODO(alpha): upstream v0.1.2-alpha adds a read-only `list_subagent_models`
   // tool (model-selection policy; spawns nothing, so the maxAgents fence is
