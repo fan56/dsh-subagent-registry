@@ -6,12 +6,17 @@ can invoke any of them by name through the `use_agent` tool, and each runs as
 a real dsh subagent with its own persona (system prompt). When a run is
 interrupted (error, cancellation, crash, token limit), the next `use_agent`
 call for the same agent **resumes it from its saved partial work** instead of
-restarting from scratch.
+restarting from scratch. Since dsh **v0.1.2-alpha.4**, agents can also be
+dispatched as **durable background conversations** (`background: true`) and
+followed up interactively through the `ask_agent` tool — the parent and the
+child exchange messages in both directions.
 
 **中文简介**：把 `~/.dsh/agents/*.md` 定义的自定义 agent（frontmatter 元数据 +
 markdown 正文作为 persona）注册成 dsh 可按名调用的 subagent。主对话通过
 `use_agent` 工具点名调用；每个自定义 agent 以独立 subagent 运行，拥有自己
 的 system prompt，跑在 dsh 自带的 `spawn` provider 上，不需要 patch dsh 本体。
+基于 dsh v0.1.2-alpha.4 的父子代理双向通信（`send_message` / continuable
+子代理），本插件支持**后台派发 + `ask_agent` 追问等回复**的交互式用法。
 
 ## How it works
 
@@ -19,15 +24,19 @@ markdown 正文作为 persona）注册成 dsh 可按名调用的 subagent。主�
   frontmatter block (`name`, `description`, `model`, `deep`, `thinking`,
   `display_name`, …) followed by a markdown body that is used **verbatim** as
   the child's persona (system prompt).
-- **One tool**: at session startup the plugin registers `use_agent`
-  (configurable `toolName`). The tool's static description carries the roster
-  — every agent name plus its sanitized description — so the main model can
-  pick an agent by name.
+- **Two tools**: at session startup the plugin registers `use_agent`
+  (configurable `toolName`) and the follow-up tool `ask_agent` (configurable
+  `askToolName`). `use_agent`'s static description carries the roster — every
+  agent name plus its sanitized description — so the main model can pick an
+  agent by name; `ask_agent` sends follow-ups to background runs and waits
+  for their replies.
 - **At call time** the target file is re-read and parsed; the body becomes the
   child's `persona`, the frontmatter `model` (`provider/model` route) is split
   into `agentOptions`, and the child is started through the already-assembled
   `spawn` subagent provider (the same single-instance realm dsh uses for its
-  native subagent tool). The result is returned to the parent conversation.
+  native subagent tool) — foreground one-shot by default, or as a durable
+  continuable conversation when `background` is set. The result is returned
+  to the parent conversation.
 
 ## Installation
 
@@ -47,7 +56,8 @@ it through a bundle patch (see `cordis.patch.yml` in this repo for the pattern).
 | ------------- | -------------------- | ------------------------------------------------------------------------ |
 | `agentsDir`   | `$DSH_HOME/agents` (falls back to `~/.dsh/agents`) | Directory holding `<name>.md` agent definitions — resolved against the dsh home, the same root the model-profile store uses. |
 | `provider`    | `spawn`              | Subagent provider the child runs through (reuses dsh-base's `spawn`).    |
-| `toolName`    | `use_agent`          | Name of the registered tool.                                             |
+| `toolName`    | `use_agent`          | Name of the dispatch tool.                                               |
+| `askToolName` | `ask_agent`          | Name of the follow-up tool (send a message to a background run and wait for its reply). |
 | `leafDenyTools` | `[]` (computed default) | Explicit tool-deny list installed on `deep: 0` (leaf) children. Empty = computed default (every agent-spawning tool in the dsh base distribution plus `toolName`). |
 | `resume`      | `auto`               | When `use_agent` continues a prior interrupted run: `auto` resumes whenever one exists, `opt-in` only when the caller passes `resume: true`, `off` never (an explicit `resume: true` still overrides). |
 
@@ -103,6 +113,63 @@ descriptors (v3 since v0.1.2-alpha). A run interrupted under an older host is
 not resumable under a newer one — it folds into the fail-open path above
 (fresh dispatch), and an explicit `resume: true` reports it honestly. Resume
 covers runs produced within the same host version.
+
+## Interactive subagents (background + follow-ups, dsh ≥ 0.1.2-alpha.4)
+
+dsh v0.1.2-alpha.4 made parent↔child conversations bidirectional: a parent
+and its **continuable** children exchange follow-up messages via
+`send_message`, and every continuable child keeps a durable session across
+residency epochs (a finished child goes cold and is transparently resumed by
+the next message). This plugin brings custom agents onto that machinery:
+
+**Dispatch** — either declare it in the agent file or per call:
+
+```markdown
+---
+name: worker
+background: true
+---
+You are the worker …
+```
+
+```sh
+use_agent(agent: "worker", prompt: "…", background: true)   # per call overrides frontmatter
+# → started background agent "worker" (durable subagent id <id>)
+```
+
+The call returns the child's durable subagent id **immediately**; the parent
+keeps working while the child runs, and the runtime delivers a settlement
+notice when the run ends. `deep` semantics (leaf tool scoping / relative
+`maxDepth`), `model`, and `thinking` apply to continuable children exactly as
+they do to foreground ones. Background dispatch always opens the agent's
+**new** conversation — it is mutually exclusive with `resume: true` and
+ignores `fresh` (foreground calls keep resuming interrupted one-shot runs).
+
+**Follow up** — the new `ask_agent` tool closes the loop:
+
+```sh
+ask_agent(agent: "worker", message: "how far did you get?")
+```
+
+It addresses the newest background run of that agent (or any run by
+`agent_id`), and **waits for the reply**: a mid-turn child takes the message
+at its nearest step boundary; a finished child's durable session resumes and
+the message starts a new turn. The tool result is the child's reply text,
+with a status line when the turn ended abnormally (`max-tokens`, error, …)
+and the partial output preserved. Optional `timeout` (seconds) bounds the
+wait; without it the call waits until the conversation moves on. For
+fire-and-forget steering without a reply, use dsh's base `send_message` tool.
+
+Notes:
+
+- Background dispatch and follow-ups need the deployment's session
+  persistence (every standard dsh profile mounts it); `startContinuable`
+  fails loudly without it.
+- `send_message` / `interrupt_agent` / `list_agents` (registered by dsh-base)
+  stay visible to `deep: 0` leaf children — since alpha.4 this is a feature:
+  a leaf can proactively `send_message` its parent mid-task, and the reply
+  arrives in the parent's conversation as an agent message.
+- `use_agent` / `ask_agent` labels match `display_name ?? agent name`.
 
 ## `deep` semantics
 
@@ -247,9 +314,13 @@ conversation.
   it does not re-arm deeper descendants. Real recursion is additionally bounded
   by every spawning tool's own `maxDepth` (native subagent tools default to
   `maxDepth: 3`) as the outer backstop.
-- Continuable / background follow-up conversations with a custom agent
-  (`send_message`-style resumption) are **v2**; today every `use_agent` run is
-  one-shot (a resumed run is still one continuation turn on the old session).
+- Concurrent `ask_agent` calls to the **same** background run race on the
+  same reply boundary: the first-delivered message's reply is observed by
+  both waiters. Sequential follow-ups (the common case) are exact.
+- `ask_agent`'s reply wait observes the child's session on a poll (the
+  subagent seam exposes no reply subscription); a reply turn is recognised by
+  its accounting `turn/end`, so a steer that rides an in-flight turn returns
+  that turn's combined output rather than a message-isolated answer.
 - Resume matches by agent label within the same parent conversation: if you
   re-dispatch the same agent for a *different* task after an interruption,
   pass `fresh: true` (or the resumed agent will continue the old task).
@@ -282,7 +353,7 @@ for local typecheck/build), matching `@aiwayds/dsh-tui-pi`'s convention.
 ```sh
 npm run check    # tsc --noEmit -p tsconfig.json
 npm run build    # tsc -p tsconfig.json -> lib/
-npm test         # deep-semantics + display-name + resume (no LLM)
+npm test         # deep-semantics + display-name + resume + interactive + apply-smoke + … (no LLM)
 ```
 
 ## License

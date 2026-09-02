@@ -56,16 +56,20 @@ writeFileSync(
 
 {
   const ctx = mockCtx({ providerNames: ['spawn'] })
-  apply(ctx, { agentsDir: AGENTS_DIR, provider: 'spawn', toolName: 'use_agent' })
+  apply(ctx, { agentsDir: AGENTS_DIR, provider: 'spawn', toolName: 'use_agent', askToolName: 'ask_agent' })
 
-  // The use_agent tool was registered under the configured name, once.
-  assert.equal(ctx.registeredTools.length, 1, 'use_agent tool registered')
-  assert.equal(ctx.registeredTools[0].name, 'use_agent', 'tool carries the configured name')
+  // Both tools register under the configured names: use_agent + ask_agent.
+  assert.equal(ctx.registeredTools.length, 2, 'dispatch + follow-up tools registered')
+  assert.deepEqual(
+    ctx.registeredTools.map((tool) => tool.name),
+    ['use_agent', 'ask_agent'],
+    'tools carry the configured names',
+  )
   assert.deepEqual(ctx.effects, ['dsh-subagent-registry:use_agent'], 'registration wrapped in a named effect')
 
   // No stray listeners: apply() must not wire anything onto the event bus.
   assert.equal(ctx.listeners.length, 0, 'no event-bus listeners on the synchronous path')
-  console.log('PASS apply(): tool registered synchronously when the provider exists')
+  console.log('PASS apply(): tools registered synchronously when the provider exists')
 }
 
 // ---------------------------------------------------------------------------
@@ -74,14 +78,14 @@ writeFileSync(
 
 {
   const ctx = mockCtx()
-  apply(ctx, { agentsDir: AGENTS_DIR, provider: 'spawn', toolName: 'use_agent' })
+  apply(ctx, { agentsDir: AGENTS_DIR, provider: 'spawn', toolName: 'use_agent', askToolName: 'ask_agent' })
   assert.equal(ctx.registeredTools.length, 0, 'no tool before the provider exists')
   const added = ctx.listeners.find((l) => l.name === 'subagent/provider-added')
   assert.ok(added, 'waits on subagent/provider-added when the provider is missing')
   ctx.subagents.getProvider = () => ({ name: 'spawn' }) // provider shows up later
   added.listener()
-  assert.equal(ctx.registeredTools.length, 1, 'tool registers once the provider appears')
-  console.log('PASS apply(): deferred path registers the tool when the provider appears')
+  assert.equal(ctx.registeredTools.length, 2, 'tools register once the provider appears')
+  console.log('PASS apply(): deferred path registers the tools when the provider appears')
 }
 
 // ---------------------------------------------------------------------------

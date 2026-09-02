@@ -12,6 +12,7 @@
  *   model: opencode-go/deepseek-v4-flash
  *   thinking: high
  *   deep: 1
+ *   background: true
  *   ---
  *   You are 牛马狗 …
  *
@@ -19,8 +20,10 @@
  * quotes); `name` is required, `description` feeds the tool roster, `model`
  * is a dsh `provider/model` route, `deep` is the spawn-depth budget (the
  * dsh-ui /agent manager uses it: default 1 = may start subagents, 0 = leaf
- * that runs but cannot spawn), and `thinking` holds a reasoning effort id
- * from the THINKING_LEVELS whitelist (an unknown value marks the file broken).
+ * that runs but cannot spawn), `thinking` holds a reasoning effort id
+ * from the THINKING_LEVELS whitelist (an unknown value marks the file broken),
+ * and `background` opts the agent into continuable dispatch (a strict
+ * `true`/`false`; anything else marks the file broken).
  * The body is kept verbatim and doubles as the child's persona.
  *
  * This module is a self-contained copy of the parsing helpers from the dsh
@@ -47,6 +50,12 @@ export interface AgentMeta {
     thinking?: ThinkingLevel;
     /** Spawn-depth budget: default 1 (may start subagents), 0 = leaf (runs, no spawn). */
     deep: number;
+    /**
+     * Dispatch the agent as a durable continuable (background) child by default:
+     * `use_agent` returns the child's id immediately and follow-ups go through
+     * `ask_agent` / `send_message`. Absent = foreground one-shot.
+     */
+    background?: boolean;
 }
 /** A parsed agent file: metadata + the raw system-prompt body. */
 export interface AgentFile {

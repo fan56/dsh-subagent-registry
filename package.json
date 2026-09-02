@@ -1,7 +1,7 @@
 {
   "name": "@aiwayds/dsh-subagent-registry",
-  "version": "0.4.0",
-  "description": "dsh plugin: register locally-defined custom agents (~/.dsh/agents/*.md) as callable subagents via the use_agent tool",
+  "version": "0.7.0",
+  "description": "dsh plugin: register locally-defined custom agents (~/.dsh/agents/*.md) as callable subagents via the use_agent tool, with continuable background dispatch and ask_agent follow-ups",
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
@@ -12,6 +12,9 @@
     "subagent",
     "agent",
     "registry",
+    "interactive",
+    "background",
+    "send-message",
     "resume",
     "persistence"
   ],
@@ -34,7 +37,7 @@
     "check": "tsc --noEmit -p tsconfig.json",
     "link-closure": "node scripts/link-dsh-closure.mjs",
     "smoke": "node scripts/smoke-boot.mjs",
-    "test": "node test/deep-semantics.test.mjs && node test/display-name.test.mjs && node test/resume.test.mjs && node test/thinking-level.test.mjs && node test/agent-options.test.mjs && node test/apply-smoke.test.mjs && node test/seed-defaults.test.mjs && node test/profile-resolution.test.mjs"
+    "test": "node test/deep-semantics.test.mjs && node test/display-name.test.mjs && node test/resume.test.mjs && node test/thinking-level.test.mjs && node test/agent-options.test.mjs && node test/interactive.test.mjs && node test/apply-smoke.test.mjs && node test/seed-defaults.test.mjs && node test/profile-resolution.test.mjs"
   },
   "peerDependencies": {
     "@deepseek-ai/dsh-tools": ">=0.1.2-alpha.4",

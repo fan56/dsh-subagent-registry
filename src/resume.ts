@@ -323,7 +323,9 @@ export async function driveResumedRun(input: ResumeDriveInput): Promise<ResumedR
   let outcome: ResumedRunResult
   try {
     // Everything the replay loaded is prior work; the continuation turn's
-    // own events start at this boundary.
+    // own events start at this boundary. The on-demand read (alpha.4's
+    // `snapshotEvents(fromSeq)`) keeps the window offset-addressed instead
+    // of relying on array indices coinciding with log offsets.
     const boundary = child.session.seq
     if (!flags.cancelled) {
       child.followup(createUserMessage({
@@ -337,7 +339,7 @@ export async function driveResumedRun(input: ResumeDriveInput): Promise<ResumedR
       }))
       await child.whenIdle()
     }
-    const own = child.session.snapshotEvents().slice(boundary)
+    const own = child.session.snapshotEvents(boundary)
     const output = finalAssistantOutput(own) ?? []
     const recorded = toStopReason(turnEndKind(accountingTurnEnd(own)))
     outcome = {

@@ -22,7 +22,7 @@
  */
 import type { Context } from '@deepseek-ai/cordis';
 import { type SubagentStartRequest } from '@deepseek-ai/dsh-subagent';
-import { type ThinkingLevel } from './agents-dir.ts';
+import { type AgentFile, type ThinkingLevel } from './agents-dir.ts';
 import { type ResumeMode } from './resume.ts';
 /** The writable knob surface for this plugin (a subset of the Config schema). */
 export interface RunAgentConfig {
@@ -44,6 +44,11 @@ export interface RunAgentConfig {
      * default entirely — the caller then owns it, including our tool name.
      */
     leafDenyTools?: readonly string[];
+    /**
+     * The follow-up tool's registered name (`ask_agent` by default), referenced
+     * in the background dispatch's guidance text. Informational only.
+     */
+    askToolName?: string;
 }
 /**
  * Every tool in the stock dsh base distribution that can start agents,
@@ -62,6 +67,8 @@ export declare const SPAWN_TOOL_NAMES: readonly ["subagent", "subagent_fork", "w
  * this plugin's own `toolName`).
  */
 export declare function leafDenyList(toolName: string, leafDenyTools?: readonly string[]): readonly string[];
+/** Join text blocks from a canonical block array without trusting values. */
+export declare function textOf(output: readonly unknown[]): string;
 /**
  * Sanitize a frontmatter `description` into clean display prose:
  * 1. drop the leading run of backslashes left by an escaped-quote residue
@@ -137,5 +144,9 @@ export interface BuildStartRequestInput {
  *   default `maxDepth: 3`) take over as the recursion backstop.
  */
 export declare function buildStartRequest(input: BuildStartRequestInput): Omit<SubagentStartRequest, 'signal'>;
+/** Map a non-`completed` stop reason to a human headline for the parent model. */
+export declare function stopReasonError(reason: string): string;
+/** Read + parse one agent file, throwing a friendly, roster-aware error. */
+export declare function loadAgent(dir: string, name: string, available: string[]): AgentFile;
 /** The cordis `ctx.tools.register`-ready definition for the `use_agent` tool. */
 export declare function runAgentTool(ctx: Context, cfg: RunAgentConfig): import("@deepseek-ai/dsh-tools").ToolDefinition;

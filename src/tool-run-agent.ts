@@ -32,6 +32,7 @@ import type { ContentBlock, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import { resolveChildDepth, type SubagentRun, type SubagentStartRequest } from '@deepseek-ai/dsh-subagent'
 import { expandHome, listAgentFiles, parseAgentMarkdown, type AgentFile, type ThinkingLevel } from './agents-dir.ts'
 import { composeAgentRuntime } from './profile-resolution.ts'
+import { decideBackgroundMode } from './interactive.ts'
 import {
   buildContinuationPrompt,
   decideResume,
@@ -60,6 +61,11 @@ export interface RunAgentConfig {
    * default entirely — the caller then owns it, including our tool name.
    */
   leafDenyTools?: readonly string[]
+  /**
+   * The follow-up tool's registered name (`ask_agent` by default), referenced
+   * in the background dispatch's guidance text. Informational only.
+   */
+  askToolName?: string
 }
 
 /**
@@ -94,7 +100,7 @@ export function leafDenyList(toolName: string, leafDenyTools?: readonly string[]
 }
 
 /** Join text blocks from a canonical block array without trusting values. */
-function textOf(output: readonly unknown[]): string {
+export function textOf(output: readonly unknown[]): string {
   return output
     .flatMap((block) => {
       if (typeof block !== 'object' || block === null) return []
@@ -319,7 +325,7 @@ function childTurnError(run: SubagentRun): string | undefined {
 }
 
 /** Map a non-`completed` stop reason to a human headline for the parent model. */
-function stopReasonError(reason: string): string {
+export function stopReasonError(reason: string): string {
   switch (reason) {
     case 'completed': return ''
     case 'aborted': return 'subagent run was cancelled'
@@ -331,7 +337,7 @@ function stopReasonError(reason: string): string {
 }
 
 /** Read + parse one agent file, throwing a friendly, roster-aware error. */
-function loadAgent(dir: string, name: string, available: string[]): AgentFile {
+export function loadAgent(dir: string, name: string, available: string[]): AgentFile {
   const target = join(dir, `${name}.md`)
   let text: string
   try {
@@ -364,6 +370,12 @@ export function runAgentTool(ctx: Context, cfg: RunAgentConfig) {
     `only shown to the subagent as the reworded request (the original task is already ` +
     `in its context). Pass fresh=true to force a clean restart, or resume=true to ` +
     `require a resume.\n` +
+    `Set background=true to start the agent as a durable background conversation ` +
+    `instead: the call returns the subagent's id immediately, the agent keeps its ` +
+    `session across turns, and you can follow up with ${cfg.askToolName ?? 'ask_agent'} ` +
+    `(waits for the reply) or the base send_message (steer only) while the runtime ` +
+    `notifies you when the run settles. Background dispatch ignores resume/fresh — ` +
+    `it always opens the agent's new conversation.\n` +
     `Available agents:\n${rosterText}`
 
   return defineTool({
@@ -389,14 +401,21 @@ export function runAgentTool(ctx: Context, cfg: RunAgentConfig) {
         type: 'boolean',
         description: 'Force a clean start, ignoring any interrupted previous run of this agent.',
       },
+      background: {
+        type: 'boolean',
+        description:
+          'Start the agent as a durable background conversation and return its subagent id immediately instead of waiting for the result. Follow up with ask_agent or send_message. Defaults to the agent file\'s background frontmatter, else false. Mutually exclusive with resume.',
+      },
     },
     output: {
       schema: {
         type: 'object',
         additionalProperties: false,
         properties: {
-          kind: { type: 'string', required: true, const: 'agent-result' },
+          kind: { type: 'string', required: true },
           output: { type: 'array', required: true, items: { type: 'json' } },
+          subagentId: { type: 'string' },
+          label: { type: 'string' },
         },
       },
       render: (_args, value) => [{ type: 'text', text: textOf(value.output) }],
@@ -422,6 +441,58 @@ export function runAgentTool(ctx: Context, cfg: RunAgentConfig) {
         thinking: agent.meta.thinking,
       })
       const label = agent.meta.displayName ?? args.agent
+
+      // Background dispatch: a durable continuable conversation on the same
+      // provider (the alpha.4 interaction model). The call resolves at inbox
+      // acceptance with the child's durable id instead of the run result;
+      // follow-ups ride ask_agent / send_message and the runtime's settlement
+      // notice reports how the conversation ended. The resume machinery stays
+      // foreground-only: a background dispatch always opens the agent's NEW
+      // conversation (foreground calls keep resuming interrupted one-shot
+      // runs of the same agent).
+      const wantsBackground = decideBackgroundMode(args.background, agent.meta.background)
+      if (wantsBackground && args.resume === true) {
+        throw new Error(
+          `${cfg.toolName}: "background" and "resume" are mutually exclusive — a background dispatch always starts the agent's new conversation`,
+        )
+      }
+      if (wantsBackground) {
+        const { label: _requestLabel, ...request } = buildStartRequest({
+          agentName: args.agent,
+          prompt: args.prompt,
+          parent,
+          persona: agent.body,
+          deep: agent.meta.deep,
+          toolName: cfg.toolName,
+          leafDenyTools: cfg.leafDenyTools,
+          model: runtime.model,
+          displayName: agent.meta.displayName,
+          thinking: runtime.thinking as ThinkingLevel | undefined,
+        })
+        const { childId } = await ctx.subagents.startContinuable({
+          provider: cfg.provider,
+          label,
+          request,
+          signal: exec.signal,
+        })
+        const followUpTool = cfg.askToolName ?? 'ask_agent'
+        return {
+          kind: 'agent-start' as const,
+          subagentId: String(childId),
+          label,
+          output: [
+            {
+              type: 'text',
+              text:
+                `Started background agent "${label}" (durable subagent id ${String(childId)}). ` +
+                `It is now working on the task in its own conversation, so continue your own work in parallel. ` +
+                `Send follow-ups with ${followUpTool} (waits for the reply) or send_message (delivery only), ` +
+                `addressing it by agent name "${label}" or by id ${String(childId)}. ` +
+                `A runtime notice will report how this run settled.`,
+            },
+          ] as unknown as JsonValue[],
+        }
+      }
 
       // Resume decision: continue the parent's latest interrupted run of this
       // agent from its persisted partial log (see ./resume.ts). An explicit
