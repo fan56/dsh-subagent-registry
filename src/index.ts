@@ -99,9 +99,10 @@ export function apply(ctx: Context, config: RunAgentConfig): void {
       return [dispatch, followUp]
     }, `dsh-subagent-registry:${config.toolName}`)
   }
-  // TODO(alpha): upstream v0.1.2-alpha adds a read-only `list_subagent_models`
-  // tool (model-selection policy; spawns nothing, so the maxAgents fence is
-  // untouched). Investigated against the alpha.3 closure — NOT attachable from
+  // TODO(upstream): upstream added a read-only `list_subagent_models`
+  // tool on the 0.1.2 alpha line (model-selection policy; spawns nothing, so
+  // the maxAgents fence is untouched). Investigated against the 0.1.2-rc.1
+  // closure — still NOT attachable from
   // a third-party plugin today: `registerListSubagentModels(ctx, policy)` is a
   // module-private function of @deepseek-ai/dsh-tool-subagent (its entry
   // exports only `Config/apply/inject/name`), its required `policy` argument is

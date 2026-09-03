@@ -1,16 +1,17 @@
 # CI: build, typecheck, unit suite on Node 22/24, plus a real-host boot smoke
 # — on every push to main, every pull request, and a daily schedule.
 #
-# The @deepseek-ai/* devDeps are pinned exactly to 0.1.2-alpha.3 so installs
+# The @deepseek-ai/* devDeps are pinned exactly to 0.1.2-rc.1 so installs
 # resolve a real published surface, but typecheck/tests run against the GLOBAL
 # dsh CLI's own closure (scripts/link-dsh-closure.mjs re-points every
 # @deepseek-ai/* at it) — one cordis in the type graph, and the gate tracks
-# the alpha line the same way the running host does. The smoke job boots a
-# scratch profile with the plugin mounted via the real dsh CLI
+# the rolling rc/stable line the same way the running host does. The smoke job
+# boots a scratch profile with the plugin mounted via the real dsh CLI
 # (scripts/smoke-boot.mjs) so "loads under real cordis" is a gate, not a hope.
 #
-# The daily schedule is the rolling early-warning: an alpha-line drift that
-# breaks this plugin turns the scheduled run red without anyone re-pinning.
+# The daily schedule is the rolling early-warning: an rc/stable-line drift
+# that breaks this plugin turns the scheduled run red without anyone
+# re-pinning.
 name: CI
 
 on:
@@ -18,7 +19,7 @@ on:
     branches: [main]
   pull_request:
   schedule:
-    # Daily 02:37 UTC — catches upstream dsh alpha drift without hand-chasing.
+    # Daily 02:37 UTC — catches upstream dsh rc/stable drift without hand-chasing.
     - cron: '37 2 * * *'
 
 permissions:
@@ -58,8 +59,20 @@ jobs:
       - name: Install dependencies (frozen lockfile)
         run: pnpm install --frozen-lockfile
 
-      - name: Install dsh CLI (alpha line)
-        run: npm install -g @deepseek-ai/dsh@alpha --no-audit --no-fund
+      - name: Install dsh CLI (rolling rc/stable line — newest of latest/next, never alpha)
+        run: |
+          # Policy (2026-09-03): the alpha line is retired for CI. Resolve the
+          # newest of the `latest` (stable) and `next` (rc) dist-tags at
+          # runtime, never hand-pinned — when a stable 0.1.2+ lands on
+          # `latest` it wins over the rc by plain semver compare.
+          STABLE="$(npm view @deepseek-ai/dsh@latest version)"
+          RC="$(npm view @deepseek-ai/dsh@next version 2>/dev/null || true)"
+          DSH_VERSION="$STABLE"
+          if [ -n "$RC" ] && [ "$(printf '%s\n' "$STABLE" "$RC" | sort -V | tail -1)" = "$RC" ]; then
+            DSH_VERSION="$RC"
+          fi
+          echo "dsh closure: ${DSH_VERSION}"
+          npm install -g "@deepseek-ai/dsh@${DSH_VERSION}" --no-audit --no-fund
 
       # Re-point every @deepseek-ai/* at the CLI's own closure so typecheck
       # and the unit suite see exactly one copy of each host package.
@@ -98,8 +111,20 @@ jobs:
       - name: Install dependencies (frozen lockfile)
         run: pnpm install --frozen-lockfile
 
-      - name: Install dsh CLI (alpha line)
-        run: npm install -g @deepseek-ai/dsh@alpha --no-audit --no-fund
+      - name: Install dsh CLI (rolling rc/stable line — newest of latest/next, never alpha)
+        run: |
+          # Policy (2026-09-03): the alpha line is retired for CI. Resolve the
+          # newest of the `latest` (stable) and `next` (rc) dist-tags at
+          # runtime, never hand-pinned — when a stable 0.1.2+ lands on
+          # `latest` it wins over the rc by plain semver compare.
+          STABLE="$(npm view @deepseek-ai/dsh@latest version)"
+          RC="$(npm view @deepseek-ai/dsh@next version 2>/dev/null || true)"
+          DSH_VERSION="$STABLE"
+          if [ -n "$RC" ] && [ "$(printf '%s\n' "$STABLE" "$RC" | sort -V | tail -1)" = "$RC" ]; then
+            DSH_VERSION="$RC"
+          fi
+          echo "dsh closure: ${DSH_VERSION}"
+          npm install -g "@deepseek-ai/dsh@${DSH_VERSION}" --no-audit --no-fund
 
       - name: Link @deepseek-ai/* to the dsh closure
         run: node scripts/link-dsh-closure.mjs

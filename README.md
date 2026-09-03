@@ -6,7 +6,8 @@ can invoke any of them by name through the `use_agent` tool, and each runs as
 a real dsh subagent with its own persona (system prompt). When a run is
 interrupted (error, cancellation, crash, token limit), the next `use_agent`
 call for the same agent **resumes it from its saved partial work** instead of
-restarting from scratch. Since dsh **v0.1.2-alpha.4**, agents can also be
+restarting from scratch. Since dsh **v0.1.2-alpha.4** (carried through the
+0.1.2 RC line), agents can also be
 dispatched as **durable background conversations** (`background: true`) and
 followed up interactively through the `ask_agent` tool — the parent and the
 child exchange messages in both directions.
@@ -15,7 +16,7 @@ child exchange messages in both directions.
 markdown 正文作为 persona）注册成 dsh 可按名调用的 subagent。主对话通过
 `use_agent` 工具点名调用；每个自定义 agent 以独立 subagent 运行，拥有自己
 的 system prompt，跑在 dsh 自带的 `spawn` provider 上，不需要 patch dsh 本体。
-基于 dsh v0.1.2-alpha.4 的父子代理双向通信（`send_message` / continuable
+基于 dsh v0.1.2-alpha.4 起提供、并延续至 0.1.2 RC 线的父子代理双向通信（`send_message` / continuable
 子代理），本插件支持**后台派发 + `ask_agent` 追问等回复**的交互式用法。
 
 ## How it works
@@ -39,6 +40,8 @@ markdown 正文作为 persona）注册成 dsh 可按名调用的 subagent。主�
   to the parent conversation.
 
 ## Installation
+
+**Requires dsh >= 0.1.2-rc.1** — this plugin targets the dsh RC/stable line only (CI and releases resolve the newest of the `latest`/`next` dist-tags at runtime). **The alpha line is no longer supported.**
 
 Option A — add this checkout as a dsh plugin (tui profile):
 
@@ -109,14 +112,16 @@ plugin has always stamped `display_name ?? agent name` as the label, so
 pre-existing failed runs are resumable too.
 
 **Cross-host-version boundary**: dsh versions its subagent continuation
-descriptors (v3 since v0.1.2-alpha). A run interrupted under an older host is
+descriptors (v3 since v0.1.2-alpha, unchanged through 0.1.2-rc.1). A run
+interrupted under an older host is
 not resumable under a newer one — it folds into the fail-open path above
 (fresh dispatch), and an explicit `resume: true` reports it honestly. Resume
 covers runs produced within the same host version.
 
-## Interactive subagents (background + follow-ups, dsh ≥ 0.1.2-alpha.4)
+## Interactive subagents (background + follow-ups, dsh ≥ 0.1.2-rc.1)
 
-dsh v0.1.2-alpha.4 made parent↔child conversations bidirectional: a parent
+dsh v0.1.2-alpha.4 (carried through the 0.1.2 RC line) made parent↔child
+conversations bidirectional: a parent
 and its **continuable** children exchange follow-up messages via
 `send_message`, and every continuable child keeps a durable session across
 residency epochs (a finished child goes cold and is transparently resumed by
@@ -166,7 +171,8 @@ Notes:
   persistence (every standard dsh profile mounts it); `startContinuable`
   fails loudly without it.
 - `send_message` / `interrupt_agent` / `list_agents` (registered by dsh-base)
-  stay visible to `deep: 0` leaf children — since alpha.4 this is a feature:
+  stay visible to `deep: 0` leaf children — a feature since alpha.4, carried
+  through the RC line:
   a leaf can proactively `send_message` its parent mid-task, and the reply
   arrives in the parent's conversation as an agent message.
 - `use_agent` / `ask_agent` labels match `display_name ?? agent name`.
