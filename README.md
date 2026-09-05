@@ -53,6 +53,32 @@ Option B — npm dependency: `npm i @aiwayds/dsh-subagent-registry`, then load
 the plugin under the stable id `dsh-subagent-registry` in your profile's config, or mount
 it through a bundle patch (see `cordis.patch.yml` in this repo for the pattern).
 
+## Uninstall
+
+```sh
+dsh plugin --profile <name> remove @aiwayds/dsh-subagent-registry
+```
+
+The host auto-cleans: the bundles entry is spliced out of the profile's
+`package.json`, the dependency is removed, and the plugin's patch layer drops
+with the package. Restart dsh and the `use_agent` / `ask_agent` tools are gone.
+
+**What stays on disk** — the agent definitions in `~/.dsh/agents/`. The three
+seeded personas (`workhorse.md`, `oldfox.md`, `rubber-duck.md`) are
+user-editable files and are deliberately kept: seeding only ever fills an
+empty directory and never overwrites an existing file, so on a reinstall
+nothing re-seeds while your agents exist. Any agent files you wrote yourself
+stay too. To purge everything, delete the `.md` files by hand.
+
+Two behavioral notes for after removal:
+
+- **dsh-tui-pi** probes this package at runtime and degrades gracefully when
+  it is absent — no hard breakage, you just lose the custom-agent dispatch.
+- In-flight continuable child agents you dispatched via `use_agent`
+  (`background: true`) become unreachable follow-up targets: without the
+  plugin there is no `ask_agent` to address them. Their sessions remain on
+  disk and resumable.
+
 ## Configuration
 
 | Config field  | Default              | Description                                                              |
