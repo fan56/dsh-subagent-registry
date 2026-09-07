@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.4] - 2026-09-07
+
+### Changed
+
+- **README is now Chinese-first with a separate English edition** — the quick-start README was a Chinese/English mix; `README.md` is now fully Chinese with a `[English](./README.en.md)` link at the top, and the English edition lives in `README.en.md` (linking back). Both carry identical content; the full reference stays in `docs/AGENT-FORMAT.md`.
+
 ## [0.8.3] - 2026-09-07
 
 ### Changed

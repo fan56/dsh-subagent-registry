@@ -1,15 +1,13 @@
 # dsh-subagent-registry
 
-Define your own subagents as plain markdown files (`~/.dsh/agents/*.md`) and
-call them by name in [dsh](https://github.com/deepseek-ai/deepseek-harness) —
-no host patching, no code.
+[English](./README.en.md)
 
-**中文简介**：把 `~/.dsh/agents/*.md` 定义的自定义 agent（frontmatter 元数据 +
-markdown 正文作为 persona/system prompt）注册成 dsh 可按名调用的 subagent。
-主对话通过 `use_agent` 点名调用，`ask_agent` 对后台代理追问等回复。跑在 dsh
-自带的 `spawn` provider 上，纯插件、不改 dsh 本体。
+把 `~/.dsh/agents/*.md` 定义的自定义 agent（frontmatter 元数据 + markdown
+正文作为 persona/system prompt）注册成 [dsh](https://github.com/deepseek-ai/deepseek-harness)
+可按名调用的 subagent：主对话通过 `use_agent` 点名调用，`ask_agent` 对后台
+代理追问并等回复。跑在 dsh 自带的 `spawn` provider 上，纯插件、不改 dsh 本体。
 
-## Why
+## 特点
 
 - **一个 markdown 文件就是一个 agent** — frontmatter 写模型/思考强度，正文就是
   system prompt，改完即生效。
@@ -21,11 +19,10 @@ markdown 正文作为 persona/system prompt）注册成 dsh 可按名调用的 s
   三个预置 agent（见下）。
 - **纯插件** — 只依赖 dsh ≥ 0.1.2-rc.1 的公开 subagent 机制，可随时干净卸载。
 
-## The three shipped agents
+## 三个预置 agent
 
-Seeded into `~/.dsh/agents/` on first start (only when the directory holds no
-parsable agent — your edits are never overwritten). All three are ordinary
-markdown files: edit them freely.
+首次启动时植入 `~/.dsh/agents/`（仅当目录里还没有可解析的 agent 时；你的修改
+永远不会被覆盖）。它们就是普通的 markdown 文件，随便改。
 
 | Agent | 一句话 | 典型用法 |
 | ----- | ------ | -------- |
@@ -33,75 +30,69 @@ markdown files: edit them freely.
 | **oldfox**（老法师） | 顾问不干活：分析、trouble shooting、review 挑刺，只把关不动手；`glm-5.3` | 「让 oldfox 审一下这个方案」 |
 | **rubber-duck**（小黄鸭） | 多模态视觉 agent：看截图/图表/手写字，画 plotext/mermaid/matplotlib 图；跑在支持图像的模型上 | 「用 rubber-duck 看这个截图，提取页面文字」 |
 
-## Usage
+## 用法
 
-Install, restart dsh, then just ask in the conversation — the main model picks
-the agent by name:
+装好、重启 dsh，然后在对话里直接说——主模型会按名字挑 agent：
 
 > 用 workhorse 把今天的发布清单整理成表格
 
-Under the hood that is `use_agent(agent: "workhorse", prompt: "…")`. For
-background runs, follow up with `ask_agent(agent: "worker", message: "…")` —
-it waits for the reply.
+底层就是 `use_agent(agent: "workhorse", prompt: "…")`。后台代理用
+`ask_agent(agent: "worker", message: "…")` 追问，会等它的回复。
 
-## Define your own
+## 定义自己的 agent
 
-Drop a file into `~/.dsh/agents/`:
+往 `~/.dsh/agents/` 丢一个文件：
 
 ```markdown
 ---
 name: my-agent
-description: "One-line subtitle shown in the use_agent roster"
+description: "一行简介，显示在 use_agent 名册里"
 model: opencode-go/deepseek-v4-flash
 thinking: high
 ---
 
-You are my-agent. This markdown body is used verbatim as the system prompt.
+You are my-agent. 这段 markdown 正文会原样作为 system prompt。
 ```
 
-Frontmatter keys: `name`（必填）、`description`、`display_name`、`model`
+Frontmatter 字段：`name`（必填）、`description`、`display_name`、`model`
 （`provider/model`，缺省继承）、`thinking`（`off/low/medium/high/max`，缺省继承）、
 `deep`（`0` = 叶子不许再开子代理，缺省 `1`）、`background`（`true` = 默认后台跑）。
-Unknown keys are silently ignored.
+未知字段静默忽略。
 
-→ **Full reference**: [docs/AGENT-FORMAT.md](docs/AGENT-FORMAT.md) — every key's
-validation and failure modes, `deep`/`thinking` semantics, resume mechanics,
-background dispatch, configuration fields, known limitations.
+→ **完整参考**：[docs/AGENT-FORMAT.md](./docs/AGENT-FORMAT.md)（英文）——每个字段
+的校验与失败行为、`deep`/`thinking` 语义、续跑机制、后台派发、配置项、已知边界。
 
-## Installation
+## 安装
 
-**Requires dsh >= 0.1.2-rc.1** (the RC/stable line; the alpha line is not
-supported).
+**要求 dsh >= 0.1.2-rc.1**（RC/稳定线；alpha 线不再支持）。
 
-Option A — mount a checkout into a dsh profile:
+方式 A — 把本地 checkout 挂进 dsh profile：
 
 ```sh
 dsh plugin --profile tui add ~/github/dsh-subagent-registry
 ```
 
-Option B — npm dependency: `npm i @aiwayds/dsh-subagent-registry`, then load
-the plugin under the stable id `dsh-subagent-registry` in your profile's
-config, or mount it through a bundle patch (see `cordis.patch.yml` in this
-repo for the pattern).
+方式 B — npm 依赖：`npm i @aiwayds/dsh-subagent-registry`，然后在 profile
+配置里以稳定 id `dsh-subagent-registry` 加载，或通过 bundle patch 挂载
+（挂法见本仓 `cordis.patch.yml`）。
 
-## Uninstall
+## 卸载
 
 ```sh
 dsh plugin --profile <name> remove @aiwayds/dsh-subagent-registry
 ```
 
-The host splices the plugin out of the profile; restart dsh and the
-`use_agent` / `ask_agent` tools are gone. **Your agent files in
-`~/.dsh/agents/` stay** — they are user-owned and never re-seeded or
-overwritten. dsh-tui-pi degrades gracefully without this plugin (you just
-lose custom-agent dispatch).
+宿主会把插件从 profile 里摘除；重启 dsh 后 `use_agent` / `ask_agent` 工具
+消失。**`~/.dsh/agents/` 里的 agent 文件会保留**——它们归你所有，不会被
+重新植入或覆盖。没有本插件时 dsh-tui-pi 会优雅降级（只是失去自定义 agent
+派发能力）。
 
-## Development
+## 开发
 
 ```sh
 npm run check    # tsc --noEmit
 npm run build    # tsc -> lib/
-npm test         # all unit tests (no LLM, no network)
+npm test         # 全部单元测试（无 LLM、无网络）
 ```
 
 ## License
