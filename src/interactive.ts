@@ -269,7 +269,7 @@ export function askAgentTool(ctx: Context, cfg: AskAgentConfig) {
       },
       agent_id: {
         type: 'string',
-        description: 'The exact durable subagent id a background dispatch returned. Takes precedence over `agent`.',
+        description: 'The exact durable subagent id a background dispatch returned. Mutually exclusive with `agent` — pass exactly one of the two.',
       },
       message: {
         type: 'string',
