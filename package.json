@@ -30,7 +30,8 @@
     "lib",
     "cordis.patch.yml",
     "src",
-    "templates"
+    "templates",
+    "docs"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",

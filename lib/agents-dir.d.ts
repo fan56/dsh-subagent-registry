@@ -42,8 +42,6 @@ export interface AgentMeta {
     displayName?: string;
     /** Optional one-line summary used as the tool-roster subtitle. */
     description?: string;
-    /** Optional 8-color label (red/blue/green/yellow/purple/orange/pink/cyan). */
-    color?: string;
     /** dsh model route (`provider/model`); absent = inherit the default. */
     model?: string;
     /** Reasoning effort id (one of THINKING_LEVELS); absent = inherit. */

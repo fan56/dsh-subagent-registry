@@ -49,8 +49,6 @@ export interface AgentMeta {
   displayName?: string
   /** Optional one-line summary used as the tool-roster subtitle. */
   description?: string
-  /** Optional 8-color label (red/blue/green/yellow/purple/orange/pink/cyan). */
-  color?: string
   /** dsh model route (`provider/model`); absent = inherit the default. */
   model?: string
   /** Reasoning effort id (one of THINKING_LEVELS); absent = inherit. */
@@ -165,8 +163,6 @@ export function parseAgentMarkdown(text: string, path: string): AgentParseResult
   if (displayName !== undefined && displayName !== '') meta.displayName = displayName
   const description = values['description']?.trim()
   if (description !== undefined && description !== '') meta.description = description
-  const color = values['color']?.trim()
-  if (color !== undefined && color !== '') meta.color = color
   const model = values['model']?.trim()
   if (model !== undefined && model !== '') meta.model = model
   const thinking = values['thinking']?.trim()
