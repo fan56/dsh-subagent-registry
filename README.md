@@ -17,6 +17,10 @@
   `ask_agent` 发追问并等它的回复。
 - **开箱即用三个人物** — 装好即自动植入 `workhorse` / `oldfox` / `rubber-duck`
   三个预置 agent（见下）。
+- **站在官方 subagent 机制之上** — 不自建执行器：每个自定义 agent 都通过 dsh
+  官方的 `spawn` provider 启动，子代理就是货真价实的 dsh subagent（完整会话、
+  持久化、continuable）。官方 subagent 栈的新能力（如双向通信）本插件自动
+  继承；官方原生 `subagent` 工具继续可用，两者并存、互不干扰。
 - **纯插件** — 只依赖 dsh ≥ 0.1.2-rc.1 的公开 subagent 机制，可随时干净卸载。
 
 ## 三个预置 agent

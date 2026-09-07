@@ -20,6 +20,12 @@ partial work. No host patching, no code — a markdown file per agent.
   `ask_agent` sends a follow-up and waits for the reply.
 - **Three personas out of the box** — `workhorse` / `oldfox` / `rubber-duck`
   are seeded on first start (see below).
+- **Built on the official subagent machinery** — no reimplementation: every
+  custom agent starts through dsh's stock `spawn` provider, so each child is a
+  real dsh subagent (full session, persistence, continuable). New capabilities
+  in the official subagent stack (bidirectional messaging, say) are inherited
+  automatically; the native `subagent` tool keeps working alongside — the two
+  coexist without interference.
 - **Pure plugin** — only relies on dsh ≥ 0.1.2-rc.1's public subagent
   machinery; uninstalls cleanly at any time.
 
