@@ -2,7 +2,6 @@
 name: workhorse
 display_name: 牛马狗
 description: "牛马狗：干活的主力。写代码、调查、测试、部署、实现功能，所有脏活累活都干。默认模型 deepseek-v4-flash（正式版），思考强度 high。受 workhorse-gate 扩展保护：禁止修改 $HOME 之外的文件、禁止危险命令（sudo/rm -rf/chmod 777 等）、禁止写 ~/.pi/agent 配置目录。"
-extensions: ["*", "workhorse-gate"]
 model: volc-ark-plan/deepseek-v4-flash
 thinking: high
 deep: 0

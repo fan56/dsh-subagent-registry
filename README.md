@@ -1,7 +1,7 @@
 # dsh-subagent-registry
 
 Register locally-defined custom agents (`~/.dsh/agents/*.md`) as callable
-subagents in [dsh](https://github.com/deepseek-ai/dsh): the main conversation
+subagents in [dsh](https://github.com/deepseek-ai/deepseek-harness): the main conversation
 can invoke any of them by name through the `use_agent` tool, and each runs as
 a real dsh subagent with its own persona (system prompt). When a run is
 interrupted (error, cancellation, crash, token limit), the next `use_agent`
@@ -22,9 +22,10 @@ markdown 正文作为 persona）注册成 dsh 可按名调用的 subagent。主�
 ## How it works
 
 - **One file per agent**: `<agents-dir>/<name>.md` — a loose `key: value`
-  frontmatter block (`name`, `description`, `model`, `deep`, `thinking`,
-  `display_name`, …) followed by a markdown body that is used **verbatim** as
-  the child's persona (system prompt).
+  frontmatter block (`name`, `display_name`, `description`, `color`,
+  `model`, `thinking`, `deep`, `background`; see *Agent definition format*
+  below for the full reference) followed by a markdown body that is used
+  **verbatim** as the child's persona (system prompt).
 - **Two tools**: at session startup the plugin registers `use_agent`
   (configurable `toolName`) and the follow-up tool `ask_agent` (configurable
   `askToolName`). `use_agent`'s static description carries the roster — every
@@ -39,9 +40,56 @@ markdown 正文作为 persona）注册成 dsh 可按名调用的 subagent。主�
   continuable conversation when `background` is set. The result is returned
   to the parent conversation.
 
+## Agent definition format
+
+An agent is `<agents-dir>/<name>.md` — a loose `key: value` frontmatter block
+(delimited by `---` lines) followed by a markdown body that is used **verbatim**
+as the child's persona (system prompt). The frontmatter below lists every key
+this plugin recognizes:
+
+| Key            | Type                              | Default                  | Validation / failure mode                                                                                                                                                                                       |
+| -------------- | --------------------------------- | ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `name`         | string                            | —                        | **Required.** Missing or empty → whole file dropped: `` missing required frontmatter key `name` ``.                                                                                                             |
+| `deep`         | non-negative integer              | `1`                      | Missing → `1`. **Non-integer or negative drops the whole file**: `` invalid `deep`: expected a non-negative integer, got "<value>" ``. `0` = leaf (deny list, no `maxDepth`); `>= 1` = relative depth budget.        |
+| `display_name` | string                            | absent                   | Optional UI label; this plugin stamps every child with the single label `display_name ?? name`, so `use_agent` resume and `ask_agent` follow-ups can both find a prior run (see *Resuming interrupted runs* below). |
+| `description`  | string                            | absent                   | One-line roster subtitle; rendered under the agent name in the `use_agent` tool description.                                                                                                                     |
+| `color`        | string                            | absent                   | Free-form label (no whitelist enforced by this plugin).                                                                                                                                                         |
+| `model`        | `provider/model` route            | absent (= inherit)       | Split at the first `/` into `agentOptions.{provider,model}`; a value with no slash is taken as a provider name with an inherited model. Absent → the child inherits the deployment's default model.                |
+| `thinking`     | `off` / `low` / `medium` / `high` / `max` | absent (= inherit) | Case-sensitive. **Any other value drops the whole file** at parse time: `` invalid `thinking`: expected one of off/low/medium/high/max, got "<value>" ``. See *Adapter support* under `thinking` semantics below.     |
+| `background`   | strict `true` / `false`           | absent (= foreground)    | Case-sensitive, no abbreviations. **Any other value drops the whole file**: `` invalid `background`: expected true or false, got "<value>" ``. When `true`, `use_agent` dispatches as a durable background conversation. |
+
+The parser is deliberately tolerant: `key: value`, optional surrounding
+quotes, CRLF or LF, no template substitution. **Unknown frontmatter keys are
+silently ignored** — no warning, no error. In particular, the `extensions`
+field from the pi-side fun-agent convention **is not supported here**:
+writing `extensions: ["*", "workhorse-gate"]` parses cleanly, then does
+nothing. Leave it out. The same is true for `tools`, `system_prompt`, or any
+other field the parser doesn't read. Note the empty-value asymmetry: a key
+line that parses to `''` (`name:` with nothing after the colon) drops the
+file only for `name` and `deep` (they require a value); for `thinking`,
+`background`, and the optional `display_name` / `description` / `color` /
+`model` keys, an empty value is treated as if the key were absent and the
+file is kept. Frontmatter lines that do not match `<key>: <value>` — leading
+whitespace, comment-looking lines, etc. — are silently ignored.
+
+Minimal working template:
+
+```markdown
+---
+name: my-agent
+display_name: 我的代理
+description: "Short subtitle shown in the use_agent roster"
+model: opencode-go/deepseek-v4-flash
+thinking: high
+deep: 0
+---
+
+You are my-agent. The markdown body is used verbatim as the system prompt.
+```
+
 ## Installation
 
-**Requires dsh >= 0.1.2-rc.1** — this plugin targets the dsh RC/stable line only (CI and releases resolve the newest of the `latest`/`next` dist-tags at runtime). **The alpha line is no longer supported.**
+**Requires dsh >= 0.1.2-rc.1** — this plugin targets the dsh RC/stable line only (CI resolves the newest of the `latest`/`next` dist-tags at runtime; releases build against the pinned dev closure). **The alpha line is no longer supported.**
 
 Option A — add this checkout as a dsh plugin (tui profile):
 
@@ -83,7 +131,7 @@ Two behavioral notes for after removal:
 
 | Config field  | Default              | Description                                                              |
 | ------------- | -------------------- | ------------------------------------------------------------------------ |
-| `agentsDir`   | `$DSH_HOME/agents` (falls back to `~/.dsh/agents`) | Directory holding `<name>.md` agent definitions — resolved against the dsh home, the same root the model-profile store uses. |
+| `agentsDir`   | `$DSH_HOME/agents` (falls back to `~/.dsh/agents`) | Directory holding `<name>.md` agent definitions. Only the schema default literal `~/.dsh/agents` is resolved against the dsh home (so `$DSH_HOME` is honored); any other value is used verbatim after `~` expansion, NOT re-anchored to the dsh home. |
 | `provider`    | `spawn`              | Subagent provider the child runs through (reuses dsh-base's `spawn`).    |
 | `toolName`    | `use_agent`          | Name of the dispatch tool.                                               |
 | `askToolName` | `ask_agent`          | Name of the follow-up tool (send a message to a background run and wait for its reply). |
@@ -105,9 +153,10 @@ recall layer, which this plugin now provides on top of the stock mechanisms:
    prior one-shot children (`ctx.subagents.listChildren`, which merges the
    live store with session persistence) and picks the newest inactive child
    whose creation label matches the requested agent.
-2. The child's persisted event log is classified by its **last** `turn/end`:
-   anything other than `completed` (error, aborted, max-tokens, crash with no
-   recorded turn result) marks the run as interrupted and resumable.
+2. The child's persisted event log is classified by its **last accounting
+   `turn/end`**: anything other than `completed` (error, aborted, max-tokens,
+   crash with no recorded turn result) marks the run as interrupted and
+   resumable.
 3. The child session is resumed (`ctx.agents.resume`) with the same
    composition a fresh dispatch applies — the current agent-file body as the
    persona, the frontmatter `model` route, and the leaf tool scoping for
@@ -127,22 +176,27 @@ Tool-call parameters:
 | `fresh: true`  | Force a clean start, ignoring any interrupted prior run.                 |
 | `resume: true` | Require resuming; the call fails loudly if no interrupted run exists.    |
 
-Lookups (and the resume itself) fail open: with no session persistence
-mounted, an unreadable log, any enumeration error, or a resume that cannot
-even start (e.g. a concurrent duplicate resume raced to the session id), the
-tool silently falls back to a fresh dispatch — resume is an optimization,
-never a blocker. A continuation turn that runs and fails again is different:
-its partial output is kept and surfaced as an error, never silently thrown
-away. Note that only runs dispatched with a `label` are discoverable; this
-plugin has always stamped `display_name ?? agent name` as the label, so
-pre-existing failed runs are resumable too.
+Lookups fail open silently: with no session persistence mounted, an unreadable
+log, any enumeration error, or any other infrastructure snag in the lookup
+chain, the resume candidate comes back as "none" and the tool starts fresh
+— resume is an optimization, never a blocker. A resume that *starts* but
+fails is different: when the host cannot actually resume the picked session
+(e.g. a concurrent duplicate resume raced to the same id), the call falls
+back to a fresh dispatch and the result's first line announces it
+(`Resume of the interrupted prior run failed (…); started a fresh run
+instead.`) — partial work from the continuation turn is preserved, never
+silently thrown away. Note that only runs dispatched with a `label` are
+discoverable; this plugin has always stamped `display_name ?? agent name` as
+the label, so pre-existing failed runs are resumable too.
 
 **Cross-host-version boundary**: dsh versions its subagent continuation
-descriptors (v3 since v0.1.2-alpha, unchanged through 0.1.2-rc.1). A run
-interrupted under an older host is
-not resumable under a newer one — it folds into the fail-open path above
-(fresh dispatch), and an explicit `resume: true` reports it honestly. Resume
-covers runs produced within the same host version.
+descriptors — the gate is the descriptor format version in
+`@deepseek-ai/dsh-subagent` (`SUBAGENT_DESCRIPTOR_VERSION`; currently v3, see
+that package for the authoritative value). A run produced under a different
+descriptor version is not resumable: the host's parser returns `undefined`
+and the candidate folds into the fail-open path above (fresh dispatch), with
+an explicit `resume: true` reporting it honestly. Same descriptor version
+→ resumable across host versions.
 
 ## Interactive subagents (background + follow-ups, dsh ≥ 0.1.2-rc.1)
 
@@ -185,11 +239,15 @@ ask_agent(agent: "worker", message: "how far did you get?")
 It addresses the newest background run of that agent (or any run by
 `agent_id`), and **waits for the reply**: a mid-turn child takes the message
 at its nearest step boundary; a finished child's durable session resumes and
-the message starts a new turn. The tool result is the child's reply text,
-with a status line when the turn ended abnormally (`max-tokens`, error, …)
-and the partial output preserved. Optional `timeout` (seconds) bounds the
-wait; without it the call waits until the conversation moves on. For
-fire-and-forget steering without a reply, use dsh's base `send_message` tool.
+the message starts a new turn. Pass **exactly one** of `agent` (an agent
+name) or `agent_id` (the durable id a background dispatch returned); passing
+both or neither is rejected at validation. The tool result is the child's
+reply text, with a status line when the turn ended abnormally
+(`max-tokens`, error, …) and the partial output preserved. Optional
+`timeout` (seconds) bounds the wait; passing `0` or a negative number is
+treated as omitting it (the call waits until the conversation moves on).
+For fire-and-forget steering without a reply, use dsh's base `send_message`
+tool.
 
 Notes:
 
@@ -201,7 +259,10 @@ Notes:
   through the RC line:
   a leaf can proactively `send_message` its parent mid-task, and the reply
   arrives in the parent's conversation as an agent message.
-- `use_agent` / `ask_agent` labels match `display_name ?? agent name`.
+- This plugin labels every child with `display_name ?? agent name`.
+  `use_agent` resume looks for an exact match against that single label;
+  `ask_agent` (when addressing by `agent`) tries the two candidates
+  `[display_name ?? name, name]` and picks the newest match.
 
 ## `deep` semantics
 
@@ -282,18 +343,22 @@ You are 牛马狗，干活的主力。……（这里写完整的 system prompt�
 
 ## Default agent roster
 
-Three default agents ship with this package in `templates/agents/`: `workhorse`
-(牛马狗, the general workhorse), `oldfox` (老法师, the review/audit oracle),
-and **`rubber-duck`** (小黄鸭). `rubber-duck` is the **multimodal visual
-agent**: it reads screenshots / charts / OCR text and draws plotext / mermaid /
-matplotlib figures, running on an image-capable model. It occupies the role
-formerly filled by the removed `ArtyDuck` (艺术鸭) in this setup.
+The default agents ship with this package in `templates/agents/`:
+`workhorse` (牛马狗, the general workhorse), `oldfox` (老法师, the
+review/audit oracle), and **`rubber-duck`** (小黄鸭). `rubber-duck` is the
+**multimodal visual agent**: it reads screenshots / charts / OCR text and
+draws plotext / mermaid / matplotlib figures, running on an image-capable
+model. It occupies the role formerly filled by the removed `ArtyDuck`
+(艺术鸭) in this setup.
 
-**Auto-install**: on startup the plugin seeds these three into
+**Auto-install**: on startup the plugin seeds the templates into
 `~/.dsh/agents/` — exactly once, and only while that directory holds no
-agents at all. Any existing file is user-owned and never overwritten, and a
-default you delete stays deleted; to get the roster back, empty the directory
-(or copy the templates over by hand).
+*parsable* agent (a file the roster loader can decode). A same-named file
+in the dir, including one broken or malformed by hand, is overwritten by
+the template on the next fresh install. Once any parsable agent exists,
+the seed is a no-op and never runs again: every later state of the
+directory is user-owned, deletions stay deleted, and editing a default
+doesn't get re-stamped on update.
 
 ## Usage example
 
@@ -306,7 +371,6 @@ display_name: 小黄鸭
 description: "小黄鸭：多模态视觉 agent，看图识别、OCR、画 plotext/mermaid 图……"
 model: digitalvolvo/kimi-k2.7-code
 thinking: max
-extensions: ["*"]
 ---
 你是「小黄鸭」——多模态视觉 agent。……（这里写完整的 system prompt）
 ```
@@ -385,8 +449,12 @@ for local typecheck/build), matching `@aiwayds/dsh-tui-pi`'s convention.
 ```sh
 npm run check    # tsc --noEmit -p tsconfig.json
 npm run build    # tsc -p tsconfig.json -> lib/
-npm test         # deep-semantics + display-name + resume + interactive + apply-smoke + … (no LLM)
+npm test         # all unit tests under test/ (no LLM, no network)
 ```
+
+The exact list lives in `package.json#scripts.test`; new suites are added by
+appending another `node test/<name>.test.mjs && …` entry there. The count
+fluctuates — see the `test/` directory for the current roster.
 
 ## License
 

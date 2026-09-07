@@ -2,7 +2,6 @@
 name: rubber-duck
 display_name: 小黄鸭
 description: "小黄鸭：多模态视觉 agent。看图识别：截图、界面、图表、手写、OCR 文字提取与页面状态描述；画图：用 plotext/mermaid/matplotlib 把数据画出来。运行在支持图像的模型上，思考强度 max。"
-extensions: ["*"]
 model: digitalvolvo/kimi-k2.7-code
 thinking: max
 deep: 0
