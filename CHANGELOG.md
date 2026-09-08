@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0] - 2026-09-08
+
+### Added
+
+- **Bundled usage & configuration skill** — the package now ships `skills/dsh-subagent-registry/SKILL.md`, registered through `ctx.skills.registerProvider` (the dsh-llm-proxy / dsh-vault mechanism): a Chinese guide covering the agent-file frontmatter (all seven keys and their exact drop-file failure modes), the six entry-config keys, resume / `ask_agent` semantics, and an interactive `ask_user_question` wizard that writes agent files on the user's behalf — including the verified effectiveness timing (a new agent is dispatchable by name immediately; the `use_agent` roster picks it up after a restart). `inject` gains the `skills` seam, `@deepseek-ai/dsh-skill` joins the peer/dev closure, and an anti-drift test (`test/skill.test.mjs`) keeps the hardcoded routing description byte-identical to the packaged frontmatter.
+
 ## [0.8.5] - 2026-09-07
 
 ### Documentation

@@ -77,6 +77,16 @@ background by default). Unknown keys are silently ignored.
 validation and failure modes, `deep`/`thinking` semantics, resume mechanics,
 background dispatch, configuration fields, known limitations.
 
+## Bundled skill
+
+The plugin ships a bundled skill named `dsh-subagent-registry`. Whenever the
+conversation touches custom subagents, agent `.md` authoring, resume semantics,
+or this plugin's configuration, dsh loads the bundled usage & configuration
+guide, so the model can write agent files for you (collecting choices via
+`ask_user_question`) and adjust the plugin config without digging through the
+README. The skill is versioned and published with the package
+(`skills/dsh-subagent-registry/SKILL.md`).
+
 ## Installation
 
 **Requires dsh >= 0.1.2-rc.1** (the RC/stable line; the alpha line is not

@@ -16,16 +16,19 @@ import { apply } from '../lib/index.js'
  * Minimal cordis ctx double for apply(): records event listeners, effects,
  * and tool registrations. `providerNames` models the live provider registry
  * so a test can register a provider after apply() (the deferred path
- * re-checks getProvider when the event fires).
+ * re-checks getProvider when the event fires). `skills` is recorded too:
+ * apply() registers the bundled-skill provider unconditionally at the top.
  */
 function mockCtx({ providerNames = [] } = {}) {
   const listeners = []
   const registeredTools = []
+  const registeredSkillProviders = []
   const effects = []
   const providers = new Set(providerNames)
   return {
     listeners,
     registeredTools,
+    registeredSkillProviders,
     effects,
     on(name, listener) {
       listeners.push({ name, listener })
@@ -40,6 +43,16 @@ function mockCtx({ providerNames = [] } = {}) {
     },
     tools: {
       register: (tool) => registeredTools.push(tool),
+    },
+    skills: {
+      registerProvider(create) {
+        const provider = create({
+          signal: new AbortController().signal,
+          invalidate() {},
+        })
+        registeredSkillProviders.push(provider)
+        return () => {}
+      },
     },
   }
 }
@@ -66,6 +79,10 @@ writeFileSync(
     'tools carry the configured names',
   )
   assert.deepEqual(ctx.effects, ['dsh-subagent-registry:use_agent'], 'registration wrapped in a named effect')
+
+  // The bundled usage/config skill provider registers unconditionally.
+  assert.equal(ctx.registeredSkillProviders.length, 1, 'one bundled-skill provider registered')
+  assert.equal(ctx.registeredSkillProviders[0].name, 'dsh-subagent-registry')
 
   // No stray listeners: apply() must not wire anything onto the event bus.
   assert.equal(ctx.listeners.length, 0, 'no event-bus listeners on the synchronous path')

@@ -22,9 +22,21 @@ export { agentsDir, dshHome } from './agents-dir.ts';
 export { composeAgentRuntime, readModelProfilesDoc, workspaceProfileName } from './profile-resolution.ts';
 export declare const name = "dsh-subagent-registry";
 /**
+ * Strip a leading YAML frontmatter block (`---` / body / `---`) from a skill
+ * markdown file. `SkillDefinition.content` must be the instruction body after
+ * metadata removal — the same shape the filesystem provider serves — so the
+ * bundled SKILL.md, which keeps its frontmatter for the GitHub/manual install
+ * paths, has the block removed when served through {@link skillProvider.get}.
+ * Tolerant by design: input that does not open with a `---` line, or whose
+ * frontmatter block is never closed, is returned unchanged. Mirrors the
+ * delimiter semantics of the upstream skill-filesystem provider.
+ */
+export declare function stripFrontmatter(raw: string): string;
+/**
  * Tool injection seam + the subagent (provider) seam + the agent factory seam
  * (`ctx.agents.resume` drives interrupted-run continuation), like
- * dsh-tool-subagent plus the resume dependency.
+ * dsh-tool-subagent plus the resume dependency — plus the skill registry that
+ * serves the bundled usage/config guide.
  */
 export declare const inject: string[];
 /**
