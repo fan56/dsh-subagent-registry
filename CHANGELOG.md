@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.0] - 2026-09-09
+
+### Added
+- **Per-agent round cap** — agent `.md` frontmatter gains a `maxRounds` key (positive integer; anything else marks the file broken, same fail-loud policy as `thinking`/`background`), the per-agent tier of the host TUI's subagent round policy: children dispatched under an agent whose file declares `maxRounds` are capped at that value instead of the deployment's global `dsh-tui.maxRounds`. Absent = the global cap applies.
+- **`readAgentMaxRounds(label, dir)` export** — the label→cap lookup host UIs consume: an exact agent-name hit wins, then a unique `display_name` hit; an ambiguous display name, an unknown label, or an unreadable dir all resolve to `undefined` (fail-closed — a lookup failure can only narrow the resolution to the global cap, never widen it). Re-reads the dir per call: the roster is user-owned and editable at runtime. Consumed through dsh-tui-pi's dynamic probe as an optional contract member, so registries older than this release degrade cleanly to the global cap.
+- The bundled skill's frontmatter key table, routing description, and README enumerate the new key.
+
 ## [0.9.1] - 2026-09-09
 
 ### Changed
