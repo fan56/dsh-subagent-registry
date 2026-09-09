@@ -1,5 +1,5 @@
 ---
-name: dsh-subagent-registry
+name: dsh-subagent-registry-config
 description: "dsh 子代理注册表插件（@aiwayds/dsh-subagent-registry）使用与配置指南。凡涉及自定义子代理、use_agent/ask_agent、agents 目录、agent .md 编写、子代理续跑，或要调整本插件配置时先读本指南：~/.dsh/agents/*.md frontmatter 全键（name/deep/display_name/description/model/thinking/background）、entry config 六键（agentsDir/provider/toolName/askToolName/leafDenyTools/resume）、ask_user_question 代写 agent 文件向导、中断 run 续跑语义。触发词：子代理、agent、use_agent、ask_agent、agents 目录、续跑、resume。"
 ---
 

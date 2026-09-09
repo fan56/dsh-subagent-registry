@@ -68,10 +68,10 @@ Frontmatter 字段：`name`（必填）、`description`、`display_name`、`mode
 
 ## 内置技能
 
-插件随包注册一个名为 `dsh-subagent-registry` 的技能（bundled skill）。对话涉及自定义
+插件随包注册一个名为 `dsh-subagent-registry-config` 的技能（bundled skill）。对话涉及自定义
 子代理、agent `.md` 编写、子代理续跑或本插件配置时，dsh 会自动加载这份使用与配置指南，
 主模型可以据此用 `ask_user_question` 代写 agent 文件、调整插件配置，无需翻 README。
-技能与插件同版本发布，随 npm 包携带（`skills/dsh-subagent-registry/SKILL.md`）。
+技能与插件同版本发布，随 npm 包携带（`skills/dsh-subagent-registry-config/SKILL.md`）。
 
 ## 安装
 

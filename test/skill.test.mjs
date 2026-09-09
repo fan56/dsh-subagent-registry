@@ -1,5 +1,5 @@
 // Anti-drift tests for the bundled usage/config skill: the packaged
-// skills/dsh-subagent-registry/SKILL.md must be served through
+// skills/dsh-subagent-registry-config/SKILL.md must be served through
 // ctx.skills.registerProvider with a routing description that matches the
 // frontmatter byte for byte (the description is the model's routing surface —
 // drift between it and the packaged body misroutes skill discovery).
@@ -79,13 +79,13 @@ test('apply registers the bundled skill provider on ctx.skills', async () => {
   })
   assert.equal(ctx.registered.length, 1)
   const provider = ctx.registered[0]
-  assert.equal(provider.name, 'dsh-subagent-registry')
+  assert.equal(provider.name, 'dsh-subagent-registry-config')
 
   const candidates = await provider.list({})
   assert.equal(candidates.length, 1)
   const candidate = candidates[0]
-  assert.equal(candidate.name, 'dsh-subagent-registry')
-  assert.equal(candidate.provider, 'dsh-subagent-registry')
+  assert.equal(candidate.name, 'dsh-subagent-registry-config')
+  assert.equal(candidate.provider, 'dsh-subagent-registry-config')
   assert.equal(candidate.source, 'bundled')
   assert.equal(typeof candidate.rank, 'number')
   assert.ok(Number.isFinite(candidate.rank))
@@ -97,7 +97,7 @@ test('apply registers the bundled skill provider on ctx.skills', async () => {
   // (fileURLToPath keeps the trailing slash of the URL path).
   assert.equal(candidate.resourceBase.kind, 'directory')
   assert.ok(
-    candidate.resourceBase.path.replace(/\/$/, '').endsWith('skills/dsh-subagent-registry'),
+    candidate.resourceBase.path.replace(/\/$/, '').endsWith('skills/dsh-subagent-registry-config'),
     `unexpected resourceBase path: ${candidate.resourceBase.path}`,
   )
 })
@@ -114,7 +114,7 @@ test('provider.get loads the packaged SKILL.md with matching metadata', async ()
   const [candidate] = await provider.list({})
 
   const definition = await provider.get(candidate, {})
-  assert.equal(definition.name, 'dsh-subagent-registry')
+  assert.equal(definition.name, 'dsh-subagent-registry-config')
   assert.equal(definition.description, candidate.description)
   // SkillDefinition.content is the instruction body after metadata removal:
   // the bundled get() must strip the raw frontmatter the file keeps for the
@@ -128,10 +128,10 @@ test('provider.get loads the packaged SKILL.md with matching metadata', async ()
   // Anti-drift: the hardcoded routing description must equal the SKILL.md
   // frontmatter, and the frontmatter itself must satisfy the registry grammar.
   const markdown = await readFile(
-    new URL('../skills/dsh-subagent-registry/SKILL.md', import.meta.url),
+    new URL('../skills/dsh-subagent-registry-config/SKILL.md', import.meta.url),
     'utf8',
   )
-  assert.equal(frontmatterValue(markdown, 'name'), 'dsh-subagent-registry')
+  assert.equal(frontmatterValue(markdown, 'name'), 'dsh-subagent-registry-config')
   assert.equal(frontmatterValue(markdown, 'description'), candidate.description)
 })
 
