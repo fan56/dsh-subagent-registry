@@ -60,7 +60,7 @@ You are my-agent. 这段 markdown 正文会原样作为 system prompt。
 
 Frontmatter 字段：`name`（必填）、`description`、`display_name`、`model`
 （`provider/model`，缺省继承）、`thinking`（`off/low/medium/high/max`，缺省继承）、
-`deep`（`0` = 叶子不许再开子代理，缺省 `1`）、`background`（`true` = 默认后台跑）。
+`deep`（`0` = 叶子不许再开子代理，缺省 `1`）、`background`（`true` = 默认后台跑）、`maxRounds`（正整数，per-agent 轮数上限，覆盖 `dsh-tui.maxRounds` 全局值；宿主 TUI 的硬停梯消费）。
 未知字段静默忽略。
 
 → **完整参考**：[docs/AGENT-FORMAT.md](./docs/AGENT-FORMAT.md)（英文）——每个字段

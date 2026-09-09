@@ -1,6 +1,6 @@
 ---
 name: dsh-subagent-registry-config
-description: "dsh 子代理注册表插件（@aiwayds/dsh-subagent-registry）使用与配置指南。凡涉及自定义子代理、use_agent/ask_agent、agents 目录、agent .md 编写、子代理续跑，或要调整本插件配置时先读本指南：~/.dsh/agents/*.md frontmatter 全键（name/deep/display_name/description/model/thinking/background）、entry config 六键（agentsDir/provider/toolName/askToolName/leafDenyTools/resume）、ask_user_question 代写 agent 文件向导、中断 run 续跑语义。触发词：子代理、agent、use_agent、ask_agent、agents 目录、续跑、resume。"
+description: "dsh 子代理注册表插件（@aiwayds/dsh-subagent-registry）使用与配置指南。凡涉及自定义子代理、use_agent/ask_agent、agents 目录、agent .md 编写、子代理续跑，或要调整本插件配置时先读本指南：~/.dsh/agents/*.md frontmatter 全键（name/deep/display_name/description/model/thinking/background/maxRounds）、entry config 六键（agentsDir/provider/toolName/askToolName/leafDenyTools/resume）、ask_user_question 代写 agent 文件向导、中断 run 续跑语义。触发词：子代理、agent、use_agent、ask_agent、agents 目录、续跑、resume。"
 ---
 
 # dsh-subagent-registry 使用指南（自定义子代理 / use_agent）
@@ -24,6 +24,7 @@ description: "dsh 子代理注册表插件（@aiwayds/dsh-subagent-registry）�
 | `model`        | 否   | 缺省 = 继承        | `provider/model` 路由；无斜杠的值视为 provider 名 + 继承该部署默认模型。                                |
 | `thinking`     | 否   | 缺省 = 继承        | `off`/`low`/`medium`/`high`/`max`，**大小写敏感**；其他值 → 整文件丢弃。                                |
 | `background`   | 否   | 缺省 = 前台        | 严格 `true`/`false`（大小写敏感、无缩写）；其他值 → 整文件丢弃。`true` = 默认后台派发，可用 ask_agent 追问。 |
+| `maxRounds`    | 否   | 缺省 = 全局        | 正整数，per-agent 轮数上限（覆盖 `dsh-tui.maxRounds` 全局值）；非正整数 → 整文件丢弃。供 TUI 硬停梯消费。 |
 
 最小模板：
 
