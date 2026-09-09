@@ -39,7 +39,7 @@
     "check": "tsc --noEmit -p tsconfig.json",
     "link-closure": "node scripts/link-dsh-closure.mjs",
     "smoke": "node scripts/smoke-boot.mjs",
-    "test": "node test/deep-semantics.test.mjs && node test/display-name.test.mjs && node test/resume.test.mjs && node test/thinking-level.test.mjs && node test/agent-options.test.mjs && node test/interactive.test.mjs && node test/apply-smoke.test.mjs && node test/skill.test.mjs && node test/seed-defaults.test.mjs && node test/profile-resolution.test.mjs"
+    "test": "node test/deep-semantics.test.mjs && node test/display-name.test.mjs && node test/resume.test.mjs && node test/thinking-level.test.mjs && node test/agent-options.test.mjs && node test/interactive.test.mjs && node test/apply-smoke.test.mjs && node test/skill.test.mjs && node test/seed-defaults.test.mjs && node test/profile-resolution.test.mjs && node test/agent-caps.test.mjs"
   },
   "peerDependencies": {
     "@deepseek-ai/dsh-tools": ">=0.1.2-rc.1",

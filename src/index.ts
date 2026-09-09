@@ -40,6 +40,7 @@ import { askAgentTool } from './interactive.ts'
 // Profile-aware runtime synthesis (the read side of the model-profile
 // feature): dsh-tui-pi imports these from this package.
 export { agentsDir, dshHome } from './agents-dir.ts'
+export { readAgentMaxRounds } from './agent-caps.ts'
 export { composeAgentRuntime, readModelProfilesDoc, workspaceProfileName } from './profile-resolution.ts'
 
 export const name = 'dsh-subagent-registry'

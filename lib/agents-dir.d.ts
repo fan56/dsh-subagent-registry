@@ -13,6 +13,7 @@
  *   thinking: high
  *   deep: 1
  *   background: true
+ *   maxRounds: 60
  *   ---
  *   You are 牛马狗 …
  *
@@ -22,8 +23,11 @@
  * dsh-ui /agent manager uses it: default 1 = may start subagents, 0 = leaf
  * that runs but cannot spawn), `thinking` holds a reasoning effort id
  * from the THINKING_LEVELS whitelist (an unknown value marks the file broken),
- * and `background` opts the agent into continuable dispatch (a strict
- * `true`/`false`; anything else marks the file broken).
+ * `background` opts the agent into continuable dispatch (a strict
+ * `true`/`false`; anything else marks the file broken), and `maxRounds` is a
+ * per-agent round cap (a positive integer; anything else marks the file
+ * broken) consumed by the host UI's subagent policy — absent means the
+ * deployment's global cap applies.
  * The body is kept verbatim and doubles as the child's persona.
  *
  * This module is a self-contained copy of the parsing helpers from the dsh
@@ -54,6 +58,12 @@ export interface AgentMeta {
      * `ask_agent` / `send_message`. Absent = foreground one-shot.
      */
     background?: boolean;
+    /**
+     * Per-agent round cap (positive integer) the host UI's subagent policy
+     * applies to children dispatched under this agent, overriding the
+     * deployment's global round cap. Absent = the global cap applies.
+     */
+    maxRounds?: number;
 }
 /** A parsed agent file: metadata + the raw system-prompt body. */
 export interface AgentFile {
