@@ -21,7 +21,7 @@
   官方的 `spawn` provider 启动，子代理就是货真价实的 dsh subagent（完整会话、
   持久化、continuable）。官方 subagent 栈的新能力（如双向通信）本插件自动
   继承；官方原生 `subagent` 工具继续可用，两者并存、互不干扰。
-- **纯插件** — 只依赖 dsh ≥ 0.1.2-rc.1 的公开 subagent 机制，可随时干净卸载。
+- **纯插件** — 只依赖 dsh ≥ 0.1.5-rc.1 的公开 subagent 机制，可随时干净卸载。
 
 ## 三个预置 agent
 
@@ -30,7 +30,7 @@
 
 | Agent | 一句话 | 典型用法 |
 | ----- | ------ | -------- |
-| **workhorse**（牛马狗） | 干活的主力：写代码、调查、测试、部署，脏活累活全包；默认 `deepseek-v4-flash`，受保护禁止危险操作 | 「用 workhorse 把发布清单整理成表格」 |
+| **workhorse**（牛马狗） | 干活的主力：写代码、调查、测试、部署，脏活累活全包；默认 `deepseek-flash`，受保护禁止危险操作 | 「用 workhorse 把发布清单整理成表格」 |
 | **oldfox**（老法师） | 顾问不干活：分析、trouble shooting、review 挑刺，只把关不动手；`glm-5.3` | 「让 oldfox 审一下这个方案」 |
 | **rubber-duck**（小黄鸭） | 多模态视觉 agent：看截图/图表/手写字，画 plotext/mermaid/matplotlib 图；跑在支持图像的模型上 | 「用 rubber-duck 看这个截图，提取页面文字」 |
 
@@ -51,7 +51,7 @@
 ---
 name: my-agent
 description: "一行简介，显示在 use_agent 名册里"
-model: opencode-go/deepseek-v4-flash
+model: opencode-go/deepseek-flash
 thinking: high
 ---
 
@@ -75,7 +75,7 @@ Frontmatter 字段：`name`（必填）、`description`、`display_name`、`mode
 
 ## 安装
 
-**要求 dsh >= 0.1.2-rc.1**（RC/稳定线；alpha 线不再支持）。
+**要求 dsh >= 0.1.5-rc.1**（RC/稳定线；alpha 线不再支持）。
 
 方式 A — 把本地 checkout 挂进 dsh profile：
 
