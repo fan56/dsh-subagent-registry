@@ -118,7 +118,7 @@ function fakeSessions(map) {
   const persisted = [ev('a'), ev('b'), ev('c')]
   const coldCtx = {
     get(name) {
-      if (name === 'sessionPersistence') return { inspect: async () => ({ events: persisted }) }
+      if (name === 'sessionPersistence') return { open: async () => ({ read: async () => ({ events: persisted }), close: async () => {} }) }
       return undefined
     },
   }
@@ -126,11 +126,11 @@ function fakeSessions(map) {
   assert.equal(await childEventBoundary({ get: () => undefined }, 'x'), undefined, 'no store + no persistence -> undefined')
   const brokenCtx = {
     get(name) {
-      if (name === 'sessionPersistence') return { inspect: async () => { throw new Error('unreadable') } }
+      if (name === 'sessionPersistence') return { open: async () => { throw new Error("unreadable") } }
       return undefined
     },
   }
-  assert.equal(await childEventBoundary(brokenCtx, 'x'), undefined, 'inspect failure -> undefined (deliver without waiting)')
+  assert.equal(await childEventBoundary(brokenCtx, 'x'), undefined, 'open failure -> undefined (deliver without waiting)')
   console.log('PASS getLiveSession / childEventBoundary')
 }
 
@@ -182,7 +182,7 @@ function fakeSessions(map) {
   const ctx = {
     get(name) {
       if (name === 'sessions') return { get: () => (liveGone ? undefined : live) }
-      if (name === 'sessionPersistence') return { inspect: async () => ({ events: persisted }) }
+      if (name === 'sessionPersistence') return { open: async () => ({ read: async () => ({ events: persisted }), close: async () => {} }) }
       return undefined
     },
   }
@@ -355,7 +355,7 @@ try {
       },
       get(name) {
         if (name === 'sessions') return { get: (id) => (String(id) === 'cold' ? live : undefined) }
-        if (name === 'sessionPersistence') return { inspect: async () => ({ events: prior }) }
+        if (name === 'sessionPersistence') return { open: async () => ({ read: async () => ({ events: prior }), close: async () => {} }) }
         return undefined
       },
     }

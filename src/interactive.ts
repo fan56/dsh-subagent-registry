@@ -37,7 +37,7 @@ import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import { listAgentFiles } from './agents-dir.ts'
 import {
   accountingTurnEnd,
-  getPersistence,
+  readStoredEvents,
   toStopReason,
   type ChildListEntry,
   type MinimalSessionEvent,
@@ -125,20 +125,14 @@ export async function childEventBoundary(
 ): Promise<number | undefined> {
   const live = getLiveSession(ctx, childId)
   if (live !== undefined) return live.seq
-  const persistence = getPersistence(ctx)
-  if (persistence === undefined) return undefined
-  try {
-    const { events } = await persistence.inspect(childId, signal)
-    return events.length
-  } catch {
-    return undefined
-  }
+  const events = await readStoredEvents(ctx, childId, { signal })
+  return events === undefined ? undefined : events.length
 }
 
 /**
  * Events appended after `boundary`: the live session's on-demand read when
  * resident, the persistence log otherwise (both logs are contiguous from
- * offset 0, so a slice at the boundary offset is the same window). All
+ * offset 0, so a read at the boundary offset is the same window). All
  * failures degrade to an empty window — a lost wait yields a delivery
  * notice, never a thrown tool error over an observation gap.
  */
@@ -156,14 +150,8 @@ async function readEventsAfter(
       // Fall through to persistence: the child may have left the registry.
     }
   }
-  const persistence = getPersistence(ctx)
-  if (persistence === undefined) return []
-  try {
-    const { events } = await persistence.inspect(childId, signal)
-    return events.slice(boundary)
-  } catch {
-    return []
-  }
+  const stored = await readStoredEvents(ctx, childId, { offset: boundary, signal })
+  return stored ?? []
 }
 
 /** The child's reply to one follow-up: final output plus the turn's stop reason. */

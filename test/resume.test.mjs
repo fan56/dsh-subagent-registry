@@ -174,7 +174,7 @@ const NOOP_TRAILING_LOG = [
 // ---------------------------------------------------------------------------
 
 /** Minimal fake satisfying what findResumableRun reads from ctx. */
-function fakeCtx({ children, inspect, throwOnList = false } = {}) {
+function fakeCtx({ children, stored, throwOnList = false } = {}) {
   return {
     subagents: {
       async listChildren() {
@@ -184,8 +184,13 @@ function fakeCtx({ children, inspect, throwOnList = false } = {}) {
     },
     get(name) {
       if (name !== 'sessionPersistence') return undefined
-      if (inspect === undefined) return undefined
-      return { inspect: (id) => inspect(id) }
+      if (stored === undefined) return undefined
+      return {
+        open: async (id) => ({
+          read: async () => ({ events: await stored(id) }),
+          close: async () => {},
+        }),
+      }
     },
   }
 }
@@ -200,7 +205,7 @@ const PARENT = { id: 'session-parent' }
   const events = { 'child-failed': ERROR_LOG, 'child-completed': COMPLETED_LOG }
 
   const run = await findResumableRun(
-    fakeCtx({ children: entries, inspect: (id) => Promise.resolve({ events: events[id] ?? [] }) }),
+    fakeCtx({ children: entries, stored: (id) => events[id] ?? [] }),
     PARENT,
     'oldfox',
   )
@@ -208,7 +213,7 @@ const PARENT = { id: 'session-parent' }
   assert.equal(run?.classification.status, 'resumable', 'failed run classified resumable')
 
   const done = await findResumableRun(
-    fakeCtx({ children: entries, inspect: (id) => Promise.resolve({ events: events[id] ?? [] }) }),
+    fakeCtx({ children: entries, stored: (id) => events[id] ?? [] }),
     PARENT,
     'workhorse',
   )
@@ -218,12 +223,12 @@ const PARENT = { id: 'session-parent' }
   assert.equal(await findResumableRun(fakeCtx({ throwOnList: true }), PARENT, 'oldfox'), undefined, 'listChildren failure -> no candidate')
   assert.equal(
     await findResumableRun(
-      fakeCtx({ children: entries, inspect: () => Promise.reject(new Error('unreadable')) }),
+      fakeCtx({ children: entries, stored: () => Promise.reject(new Error("unreadable")) }),
       PARENT,
       'oldfox',
     ),
     undefined,
-    'inspect failure -> no candidate',
+    'open/read failure -> no candidate',
   )
   console.log('PASS findResumableRun (happy path + fail-open paths)')
 }
@@ -442,7 +447,7 @@ function toolCtx({ children = [], events = {}, resume } = {}) {
     },
     get(name) {
       if (name !== 'sessionPersistence') return undefined
-      return { inspect: async (id) => ({ events: events[id] ?? [] }) }
+      return { open: async (id) => ({ read: async () => ({ events: events[id] ?? [] }), close: async () => {} }) }
     },
     agents: resume === undefined ? undefined : { resume },
   }

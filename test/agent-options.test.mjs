@@ -67,7 +67,7 @@ function toolCtx({ children = [], events = {}, resume, start } = {}) {
     },
     get(name) {
       if (name !== 'sessionPersistence') return undefined
-      return { inspect: async (id) => ({ events: events[id] ?? [] }) }
+      return { open: async (id) => ({ read: async () => ({ events: events[id] ?? [] }), close: async () => {} }) }
     },
     agents: resume === undefined ? undefined : { resume },
   }

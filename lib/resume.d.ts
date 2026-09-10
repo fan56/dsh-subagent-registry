@@ -99,10 +99,22 @@ export declare function decideResume(mode: ResumeMode, options: {
  * original task itself.
  */
 export declare function buildContinuationPrompt(endedAs: string, callerPrompt?: string): string;
-/** The `sessionPersistence` surface this module reads (registered by the deployment profile). */
+/**
+ * The `sessionPersistence` surface this module reads (registered by the
+ * deployment profile). 0.1.5 replaced the whole-log `inspect` read with
+ * per-handle reads: `open(id, 'read')` never takes write ownership and works
+ * while another process drives the session.
+ */
 export interface PersistenceLike {
-    inspect(id: SessionId, signal?: AbortSignal): Promise<{
-        events: readonly MinimalSessionEvent[];
+    open(id: SessionId, access: 'read' | 'write', options?: {
+        signal?: AbortSignal;
+    }): Promise<{
+        read(offset?: number, length?: number, options?: {
+            signal?: AbortSignal;
+        }): Promise<{
+            events: readonly MinimalSessionEvent[];
+        }>;
+        close(): Promise<void>;
     }>;
 }
 /**
@@ -111,6 +123,17 @@ export interface PersistenceLike {
  * service being mounted.
  */
 export declare function getPersistence(ctx: Context): PersistenceLike | undefined;
+/**
+ * Read stored events through a read handle — the whole log by default, the
+ * suffix from `offset` when given. Returns undefined when the log is
+ * unreadable (persistence absent, session missing, decode failure); every
+ * failure stays contained for the callers' fail-open contracts. The handle
+ * is always closed.
+ */
+export declare function readStoredEvents(ctx: Context, id: SessionId, options?: {
+    offset?: number;
+    signal?: AbortSignal;
+}): Promise<readonly MinimalSessionEvent[] | undefined>;
 /** A prior run selected for continuation. */
 export interface ResumableRun {
     readonly childId: SessionId;

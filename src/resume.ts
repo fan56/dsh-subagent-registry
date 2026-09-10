@@ -206,9 +206,25 @@ export function buildContinuationPrompt(endedAs: string, callerPrompt?: string):
 // Persistence lookup (fail-open: resume is an optimization, never a blocker)
 // ---------------------------------------------------------------------------
 
-/** The `sessionPersistence` surface this module reads (registered by the deployment profile). */
+/**
+ * The `sessionPersistence` surface this module reads (registered by the
+ * deployment profile). 0.1.5 replaced the whole-log `inspect` read with
+ * per-handle reads: `open(id, 'read')` never takes write ownership and works
+ * while another process drives the session.
+ */
 export interface PersistenceLike {
-  inspect(id: SessionId, signal?: AbortSignal): Promise<{ events: readonly MinimalSessionEvent[] }>
+  open(
+    id: SessionId,
+    access: 'read' | 'write',
+    options?: { signal?: AbortSignal },
+  ): Promise<{
+    read(
+      offset?: number,
+      length?: number,
+      options?: { signal?: AbortSignal },
+    ): Promise<{ events: readonly MinimalSessionEvent[] }>
+    close(): Promise<void>
+  }>
 }
 
 /**
@@ -218,6 +234,36 @@ export interface PersistenceLike {
  */
 export function getPersistence(ctx: Context): PersistenceLike | undefined {
   return (ctx as unknown as { get(name: string): unknown }).get('sessionPersistence') as PersistenceLike | undefined
+}
+
+/**
+ * Read stored events through a read handle — the whole log by default, the
+ * suffix from `offset` when given. Returns undefined when the log is
+ * unreadable (persistence absent, session missing, decode failure); every
+ * failure stays contained for the callers' fail-open contracts. The handle
+ * is always closed.
+ */
+export async function readStoredEvents(
+  ctx: Context,
+  id: SessionId,
+  options: { offset?: number; signal?: AbortSignal } = {},
+): Promise<readonly MinimalSessionEvent[] | undefined> {
+  const persistence = getPersistence(ctx)
+  if (persistence === undefined) return undefined
+  let handle: Awaited<ReturnType<PersistenceLike['open']>>
+  try {
+    handle = await persistence.open(id, 'read', { signal: options.signal })
+  } catch {
+    return undefined
+  }
+  try {
+    const { events } = await handle.read(options.offset, undefined, { signal: options.signal })
+    return events
+  } catch {
+    return undefined
+  } finally {
+    await handle.close().catch(() => {})
+  }
 }
 
 /** A prior run selected for continuation. */
@@ -246,14 +292,8 @@ export async function findResumableRun(
   }
   const candidate = pickLatestLabeledChild(entries, label)
   if (candidate === undefined) return undefined
-  const persistence = getPersistence(ctx)
-  if (persistence === undefined) return undefined
-  let events: readonly MinimalSessionEvent[]
-  try {
-    ({ events } = await persistence.inspect(candidate.id as SessionId, signal))
-  } catch {
-    return undefined
-  }
+  const events = await readStoredEvents(ctx, candidate.id as SessionId, { signal })
+  if (events === undefined) return undefined
   const classification = classifyPriorRun(events)
   if (classification.status !== 'resumable') return undefined
   return { childId: candidate.id as SessionId, classification }
