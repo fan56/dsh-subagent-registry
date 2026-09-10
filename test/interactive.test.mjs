@@ -25,7 +25,7 @@ const ev = (type, data = {}) => ({ type, data })
 function appendTurn(events, n, endKind, text) {
   events.push(ev('turn/start', { turn: n }), ev('step/start', { turn: n, step: 0 }))
   if (text !== undefined) {
-    events.push({ type: 'assistant/message', data: { message: { role: 'assistant', content: [{ type: 'text', text }] } } })
+    events.push({ type: 'assistant/message', data: { message: { role: 'assistant', content: [{ type: 'text', text }] }, stream: [] } })
   }
   if (endKind !== undefined) events.push(ev('turn/end', { turn: n, reason: { kind: endKind } }))
 }
@@ -174,7 +174,7 @@ function fakeSessions(map) {
   // Persistence fallback: the child settled and left the registry mid-wait.
   const persisted = [
     ev('turn/start', { turn: 1 }), ev('step/start', { turn: 1, step: 0 }),
-    { type: 'assistant/message', data: { message: { role: 'assistant', content: [{ type: 'text', text: 'settled answer' }] } } },
+    { type: 'assistant/message', data: { message: { role: 'assistant', content: [{ type: 'text', text: 'settled answer' }] }, stream: [] } },
     ev('turn/end', { turn: 1, reason: { kind: 'completed' } }),
   ]
   let liveGone = false

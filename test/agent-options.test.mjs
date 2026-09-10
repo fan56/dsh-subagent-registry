@@ -82,7 +82,7 @@ function fakeResumeBackend(prior, scriptTurn) {
       getContextOrder: () => 0,
       getSectionOrder: () => 0,
       context() {},
-      section(sec) { if (sec.name === 'deployment:persona') applied.persona = sec.text },
+      section(sec) { if (sec.name === 'deployment:persona-prefix' || sec.name === 'deployment:persona') applied.persona = sec.text },
     },
     tools: { restrict(filter) { applied.restrict = filter } },
   }
@@ -170,7 +170,7 @@ function fakeResumeBackend(prior, scriptTurn) {
   const children = [{ kind: 'child', id: 'child-1', activity: 'inactive', mode: 'one-shot', label: 'thinker' }]
   const backend = fakeResumeBackend([...ERROR_LOG], (events) => {
     events.push(ev('turn/start', { turn: 2 }), ev('step/start', { turn: 2, step: 0 }))
-    events.push({ type: 'assistant/message', data: { message: { role: 'assistant', content: [{ type: 'text', text: 'continued' }] } } })
+    events.push({ type: 'assistant/message', data: { message: { role: 'assistant', content: [{ type: 'text', text: 'continued' }] }, stream: [] } })
     events.push(ev('turn/end', { turn: 2, reason: { kind: 'completed' } }))
   })
   const ctx = toolCtx({ children, events: { 'child-1': ERROR_LOG }, resume: backend.resume })
@@ -262,7 +262,7 @@ function fakeResumeBackend(prior, scriptTurn) {
       const children = [{ kind: 'child', id: 'child-1', activity: 'inactive', mode: 'one-shot', label: 'thinker' }]
       const backend = fakeResumeBackend([...ERROR_LOG], (events) => {
         events.push(ev('turn/start', { turn: 2 }), ev('step/start', { turn: 2, step: 0 }))
-        events.push({ type: 'assistant/message', data: { message: { role: 'assistant', content: [{ type: 'text', text: 'continued' }] } } })
+        events.push({ type: 'assistant/message', data: { message: { role: 'assistant', content: [{ type: 'text', text: 'continued' }] }, stream: [] } })
         events.push(ev('turn/end', { turn: 2, reason: { kind: 'completed' } }))
       })
       const ctx = toolCtx({ children, events: { 'child-1': ERROR_LOG }, resume: backend.resume })

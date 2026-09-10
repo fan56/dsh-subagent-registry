@@ -242,7 +242,9 @@ function fakeChildScope() {
       getContextOrder: () => 0,
       getSectionOrder: () => 0,
       context(sec) { applied.contexts.push(sec) },
-      section(sec) { if (sec.name === 'deployment:persona') applied.persona = sec.text },
+      // dsh 0.1.5-rc.1 split the persona section into prefix/suffix — the
+      // child composition shadows the PREFIX half.
+      section(sec) { if (sec.name === 'deployment:persona-prefix' || sec.name === 'deployment:persona') applied.persona = sec.text },
     },
     tools: { restrict(filter) { applied.restrict = filter } },
   }
@@ -290,7 +292,7 @@ const signal = new AbortController().signal
   const prior = [...ERROR_LOG]
   const script = (events) => {
     events.push(ev('turn/start', { turn: 2 }), ev('step/start', { turn: 2, step: 0 }), ev('user/message'))
-    events.push({ type: 'assistant/message', data: { message: { role: 'assistant', content: [{ type: 'text', text: 'all done now' }] } } })
+    events.push({ type: 'assistant/message', data: { message: { role: 'assistant', content: [{ type: 'text', text: 'all done now' }] }, stream: [] } })
     events.push(ev('turn/end', { turn: 2, reason: { kind: 'completed' } }))
   }
   const { ctx, captured } = fakeResumeBackend(prior, script)
@@ -323,7 +325,7 @@ const signal = new AbortController().signal
   // disposal still happens, partial output is kept.
   const script = (events) => {
     events.push(ev('turn/start', { turn: 2 }), ev('step/start', { turn: 2, step: 0 }))
-    events.push({ type: 'assistant/message', data: { message: { role: 'assistant', content: [{ type: 'text', text: 'halfway there' }] } } })
+    events.push({ type: 'assistant/message', data: { message: { role: 'assistant', content: [{ type: 'text', text: 'halfway there' }] }, stream: [] } })
     events.push(ev('turn/end', { turn: 2, reason: { kind: 'error', error: { message: 'api down' } } }))
   }
   const { ctx, captured } = fakeResumeBackend([...CRASH_LOG], script)
@@ -385,12 +387,12 @@ const signal = new AbortController().signal
   // the returned answer.
   const prior = [
     ev('turn/start', { turn: 1 }), ev('step/start', { turn: 1, step: 0 }),
-    { type: 'assistant/message', data: { message: { role: 'assistant', content: [{ type: 'text', text: 'OLD PARTIAL' }] } } },
+    { type: 'assistant/message', data: { message: { role: 'assistant', content: [{ type: 'text', text: 'OLD PARTIAL' }] }, stream: [] } },
     ev('turn/end', { turn: 1, reason: { kind: 'interrupted' } }),
   ]
   const script = (events) => {
     events.push(ev('turn/start', { turn: 2 }), ev('step/start', { turn: 2, step: 0 }))
-    events.push({ type: 'assistant/message', data: { message: { role: 'assistant', content: [{ type: 'text', text: 'NEW ANSWER' }] } } })
+    events.push({ type: 'assistant/message', data: { message: { role: 'assistant', content: [{ type: 'text', text: 'NEW ANSWER' }] }, stream: [] } })
     events.push(ev('turn/end', { turn: 2, reason: { kind: 'completed' } }))
   }
   const { ctx } = fakeResumeBackend(prior, script)
@@ -477,7 +479,7 @@ try {
     const children = [{ kind: 'child', id: 'child-1', activity: 'inactive', mode: 'one-shot', label: 'workhorse' }]
     const backend = fakeResumeBackend([...ERROR_LOG], (events) => {
       events.push(ev('turn/start', { turn: 2 }), ev('step/start', { turn: 2, step: 0 }))
-      events.push({ type: 'assistant/message', data: { message: { role: 'assistant', content: [{ type: 'text', text: 'continued' }] } } })
+      events.push({ type: 'assistant/message', data: { message: { role: 'assistant', content: [{ type: 'text', text: 'continued' }] }, stream: [] } })
       events.push(ev('turn/end', { turn: 2, reason: { kind: 'completed' } }))
     })
     const tool = runAgentTool(toolCtx({ children, events: { 'child-1': ERROR_LOG }, resume: backend.ctx.agents.resume }), {
@@ -499,7 +501,7 @@ try {
     const children = [{ kind: 'child', id: 'child-1', activity: 'inactive', mode: 'one-shot', label: 'workhorse' }]
     const backend = fakeResumeBackend([...ERROR_LOG], (events) => {
       events.push(ev('turn/start', { turn: 2 }), ev('step/start', { turn: 2, step: 0 }))
-      events.push({ type: 'assistant/message', data: { message: { role: 'assistant', content: [{ type: 'text', text: 'still half done' }] } } })
+      events.push({ type: 'assistant/message', data: { message: { role: 'assistant', content: [{ type: 'text', text: 'still half done' }] }, stream: [] } })
       events.push(ev('turn/end', { turn: 2, reason: { kind: 'error', error: { message: 'api flaked' } } }))
     })
     const ctx = toolCtx({ children, events: { 'child-1': ERROR_LOG }, resume: backend.ctx.agents.resume })
