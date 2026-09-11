@@ -21,7 +21,7 @@
   官方的 `spawn` provider 启动，子代理就是货真价实的 dsh subagent（完整会话、
   持久化、continuable）。官方 subagent 栈的新能力（如双向通信）本插件自动
   继承；官方原生 `subagent` 工具继续可用，两者并存、互不干扰。
-- **纯插件** — 只依赖 dsh ≥ 0.1.5-rc.1 的公开 subagent 机制，可随时干净卸载。
+- **纯插件** — 只依赖 dsh ≥ 0.1.5-rc.2 的公开 subagent 机制，可随时干净卸载。
 
 ## 三个预置 agent
 
@@ -75,7 +75,7 @@ Frontmatter 字段：`name`（必填）、`description`、`display_name`、`mode
 
 ## 安装
 
-**要求 dsh >= 0.1.5-rc.1**（RC/稳定线；alpha 线不再支持）。
+**要求 dsh >= 0.1.5-rc.2**（RC/稳定线；alpha 线不再支持）。
 
 方式 A — 把本地 checkout 挂进 dsh profile：
 

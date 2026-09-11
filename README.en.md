@@ -26,7 +26,7 @@ partial work. No host patching, no code — a markdown file per agent.
   in the official subagent stack (bidirectional messaging, say) are inherited
   automatically; the native `subagent` tool keeps working alongside — the two
   coexist without interference.
-- **Pure plugin** — only relies on dsh ≥ 0.1.5-rc.1's public subagent
+- **Pure plugin** — only relies on dsh ≥ 0.1.5-rc.2's public subagent
   machinery; uninstalls cleanly at any time.
 
 ## The three shipped agents
@@ -89,7 +89,7 @@ README. The skill is versioned and published with the package
 
 ## Installation
 
-**Requires dsh >= 0.1.5-rc.1** (the RC/stable line; the alpha line is not
+**Requires dsh >= 0.1.5-rc.2** (the RC/stable line; the alpha line is not
 supported).
 
 Option A — mount a checkout into a dsh profile:

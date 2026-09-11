@@ -7,7 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ## [Unreleased]
 
 ### Changed
-- **dsh closure moved to 0.1.5-rc.1** (dev pins, locks).
+- **dsh closure moved to 0.1.5-rc.2** (dev pins, locks).
 - Test fixtures follow the 0.1.5 shapes: `assistant/message` carries `stream: []`, the persona section is `deployment:persona-prefix`, and the publication-window regression splices through the durable `agent/inbox/spliced` append (the `Inbox` runtime class is gone).
 
 
