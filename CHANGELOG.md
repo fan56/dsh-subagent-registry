@@ -4,12 +4,14 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.11.0] - 2026-09-11
+
+### Fixed
+- **Stored-log reads go through `open('read')` handles** — dsh 0.1.5 removed the whole-log `inspect()` accessor the persistence seam still declared. The structural seam compiled and unit-tested fine (fakes implement the declared shape) but failed at runtime, silently degrading resume lookup, the child event boundary, and cold-child reply observation to their fail-open paths. `readStoredEvents()` now opens a read handle (never takes write ownership, works while another process drives the child), reads the requested suffix, and always closes the handle.
 
 ### Changed
-- **dsh closure moved to 0.1.5-rc.2** (dev pins, locks).
+- **dsh support floor raised to 0.1.5-rc.2** (peer floors, dev pins, locks; READMEs updated). The closure rides the 0.1.5-rc.2 shapes.
 - Test fixtures follow the 0.1.5 shapes: `assistant/message` carries `stream: []`, the persona section is `deployment:persona-prefix`, and the publication-window regression splices through the durable `agent/inbox/spliced` append (the `Inbox` runtime class is gone).
-
 
 ## [0.10.0] - 2026-09-09
 
