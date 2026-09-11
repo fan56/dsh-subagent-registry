@@ -1,7 +1,7 @@
 # CI: build, typecheck, unit suite on Node 22/24, plus a real-host boot smoke
 # — on every push to main, every pull request, and a daily schedule.
 #
-# The @deepseek-ai/* devDeps are pinned exactly to 0.1.5-rc.1 so installs
+# The @deepseek-ai/* devDeps are pinned exactly to 0.1.5-rc.2 so installs
 # resolve a real published surface, but typecheck/tests run against the GLOBAL
 # dsh CLI's own closure (scripts/link-dsh-closure.mjs re-points every
 # @deepseek-ai/* at it) — one cordis in the type graph, and the gate tracks
