@@ -140,8 +140,10 @@ export interface BuildStartRequestInput {
  *   relative budget that can never reject the start (`childDepth <=
  *   childDepth + deep` always holds), while keeping the "deep = generations
  *   of spawns" reading: a `deep: 1` agent's children may themselves sit one
- *   level deeper before their own per-request caps (native subagent tools
- *   default `maxDepth: 3`) take over as the recursion backstop.
+ *   level deeper before their own per-request caps take over as the
+ *   recursion backstop. The host's native default — `3` in dsh ≤ 0.1.5,
+ *   lowered to `1` from 0.1.6-alpha.1 (upstream B-04) — is never binding
+ *   here, since this plugin always passes an explicit `maxDepth`.
  */
 export declare function buildStartRequest(input: BuildStartRequestInput): Omit<SubagentStartRequest, 'signal'>;
 /** Map a non-`completed` stop reason to a human headline for the parent model. */

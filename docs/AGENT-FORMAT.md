@@ -213,9 +213,11 @@ Implementation, at `use_agent` execute time:
   depth **plus** `deep` — a *relative* budget. Start can never be blocked by
   the depth check (`childDepth ≤ childDepth + deep` always holds), while the
   "deep = how many generations of subagents I may open" reading is preserved.
-  Each subsequent delegation level enforces its own per-request caps (the
-  native subagent tool defaults to `maxDepth: 3`), which acts as the outer
-  recursion backstop.
+  Each subsequent delegation level enforces its own per-request caps. This
+  plugin always passes an explicit `maxDepth` (`childDepth + deep`) and never
+  relies on the host's native default — for context, that default was `3` in
+  dsh ≤ 0.1.5 and was lowered to `1` from 0.1.6-alpha.1 (upstream B-04). The
+  deepest enforced cap acts as the outer recursion backstop.
 
 ## `thinking` semantics
 
@@ -249,8 +251,10 @@ the selected model.
 
 - `deep` is a **per-agent** relative budget enforced at each `use_agent` call;
   it does not re-arm deeper descendants. Real recursion is additionally bounded
-  by every spawning tool's own `maxDepth` (native subagent tools default to
-  `maxDepth: 3`) as the outer backstop.
+  by every spawning tool's own `maxDepth` as the outer backstop — note this
+  plugin always passes an explicit `maxDepth` (`childDepth + deep`), so the
+  host's native default (which was `3` in dsh ≤ 0.1.5 and was lowered to `1`
+  from 0.1.6-alpha.1, upstream B-04) is never the binding constraint.
 - Concurrent `ask_agent` calls to the **same** background run race on the
   same reply boundary: the first-delivered message's reply is observed by
   both waiters. Sequential follow-ups (the common case) are exact.
