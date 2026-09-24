@@ -26,7 +26,7 @@ partial work. No host patching, no code — a markdown file per agent.
   in the official subagent stack (bidirectional messaging, say) are inherited
   automatically; the native `subagent` tool keeps working alongside — the two
   coexist without interference.
-- **Pure plugin** — only relies on dsh ≥ 0.1.5-rc.2's public subagent
+- **Pure plugin** — only relies on dsh ≥ 0.1.7-rc.1's public subagent
   machinery; uninstalls cleanly at any time.
 
 ## The three shipped agents
@@ -73,6 +73,22 @@ Frontmatter keys: `name` (required), `description`, `display_name`, `model`
 spawn subagents; default `1`), `background` (`true` = dispatch in the
 background by default). Unknown keys are silently ignored.
 
+### Concurrency and round limits (since 0.1.7)
+
+**Concurrency and nesting depth are owned by the official dsh-subagent
+service** — this plugin keeps no concurrency counter or queue of its own (the
+official ActivationManager schedules): `maxActiveSubagents` (live-children
+cap, default `8`) and `maxDepth` (delegation-depth cap, default `1`). Both are
+volatile fields, tunable without a restart — via a profile patch
+`subagent: { maxActiveSubagents: N, maxDepth: M }` or at runtime with
+`settings.update('subagent', …)`. The `use_agent` `deep` frontmatter only
+tightens within that official depth budget (`deep: 0` leaves strip every
+agent-spawning tool outright).
+
+`maxRounds` (a per-agent turn budget) **stays**: the official subagent seam
+has no round-budget capability, and the key is still consumed by the host
+TUI's hard-stop ladder.
+
 → **Full reference**: [docs/AGENT-FORMAT.md](docs/AGENT-FORMAT.md) — every key's
 validation and failure modes, `deep`/`thinking` semantics, resume mechanics,
 background dispatch, configuration fields, known limitations.
@@ -89,7 +105,7 @@ README. The skill is versioned and published with the package
 
 ## Installation
 
-**Requires dsh >= 0.1.5-rc.2** (the RC/stable line; the alpha line is not
+**Requires dsh >= 0.1.7-rc.1** (the RC/stable line; the alpha line is not
 supported).
 
 Option A — mount a checkout into a dsh profile:

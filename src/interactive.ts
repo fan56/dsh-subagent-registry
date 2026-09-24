@@ -70,9 +70,11 @@ export function decideBackgroundMode(
  * Pick the newest listable continuable child whose label matches one of
  * `labels`. `listChildren` orders entries by header `createdAt`, so the LAST
  * match wins. Both a resident (running) and a cold (inactive) continuable
- * child qualify — delivery steers the former and cold-resumes the latter.
- * One-shot children never qualify: their sessions have no continuation state
- * (`sendMessage` rejects them with `NOT_RESUMABLE`).
+ * child qualify — delivery steers the former and cold-resumes the latter
+ * (0.1.7's durable catalog no longer carries a liveness flag, and none is
+ * needed here). One-shot children never qualify: their sessions have no
+ * continuation state (`sendMessage` rejects them with `NOT_RESUMABLE`), and
+ * an `unknown`-mode row is not provably continuable.
  */
 export function pickLatestContinuableChild<T extends ChildListEntry>(
   entries: readonly T[],
@@ -80,7 +82,6 @@ export function pickLatestContinuableChild<T extends ChildListEntry>(
 ): T | undefined {
   for (let i = entries.length - 1; i >= 0; i--) {
     const entry = entries[i]
-    if (entry.kind !== 'child') continue
     if (entry.mode !== 'continuable') continue
     if (entry.label === undefined || !labels.includes(entry.label)) continue
     return entry
@@ -96,7 +97,16 @@ export function pickLatestContinuableChild<T extends ChildListEntry>(
 export interface LiveSessionLike {
   /** The log offset (event count) the session has appended through. */
   readonly seq: number
-  /** On-demand events read from `fromSeq` (inclusive) to the end. */
+  /**
+   * On-demand events read from `fromSeq` (inclusive) to the end.
+   *
+   * `snapshotEvents` is @deprecated on the 0.1.7 Session (replacement:
+   * registered projections or persistence-handle reads) but still functional
+   * — soft deprecation, existing logic may remain unmigrated. Kept here
+   * deliberately: the poll loop needs a cheap synchronous window read on the
+   * resident session, and the cold path already reads through persistence
+   * ({@link readStoredEvents}). Revisit only if the soft deprecation hardens.
+   */
   snapshotEvents(fromSeq?: number): readonly MinimalSessionEvent[]
 }
 
@@ -156,7 +166,7 @@ async function readEventsAfter(
 
 /** The child's reply to one follow-up: final output plus the turn's stop reason. */
 export interface ChildReply {
-  readonly output: ContentBlock[]
+  readonly output: readonly ContentBlock[]
   readonly stopReason: string
 }
 

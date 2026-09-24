@@ -24,6 +24,28 @@ import type { Agent, AgentOptions } from '@deepseek-ai/dsh-agent';
 import type { SessionId } from '@deepseek-ai/dsh-session';
 import type { ToolRestriction } from '@deepseek-ai/dsh-tools';
 import { type SubagentStopReason } from '@deepseek-ai/dsh-subagent';
+/**
+ * Durable attribution for the continuation notice this plugin injects into a
+ * resumed child (`child.followup`). 0.1.7 removed the shared catch-all
+ * `plugin` source kind — every producer declares its OWN kind through the
+ * merge-extensible `MessageSourceMap` (the same move the official
+ * `agent-message`/`subagent-settled` sources and the dsh-feishu/dsh-dcp
+ * adapters make); consumers that switch on `kind` fall through unknown
+ * values by contract. The notice keeps the official `form: 'notice'`
+ * context shape (bounded one-line `summary`, ≤120 chars).
+ */
+export interface RegistryNoticeMessageSource {
+    readonly kind: 'dsh-subagent-registry';
+    /** A one-off account of something that just happened (`notice` context form). */
+    readonly form: 'notice';
+    /** One-line account of what this plugin did, ellipsized to the bound. */
+    readonly summary: string;
+}
+declare module '@deepseek-ai/dsh-llm' {
+    interface MessageSourceMap {
+        'dsh-subagent-registry': RegistryNoticeMessageSource;
+    }
+}
 /** Structural minimum of a persisted session event the classification reads. */
 export interface MinimalSessionEvent {
     readonly type: string;
@@ -59,20 +81,30 @@ export interface PriorRunClassification {
  * before any turn closed over work) counts as interrupted.
  */
 export declare function classifyPriorRun(events: readonly MinimalSessionEvent[]): PriorRunClassification;
-/** Structural minimum of a `listChildren` entry the picker reads. */
+/**
+ * Structural minimum of a `listChildren` entry the pickers read. 0.1.7
+ * reshaped the read: `listChildren` returns `SubagentCatalogEntry[]` — the
+ * durable direct-child catalog rows `{ id, createdAt, mode, label? }` — so
+ * the old `SubagentListEntry` fields are gone: every row IS a child (no
+ * `kind` discriminator), and liveness is no longer carried (`activity` was
+ * dropped; the catalog holds durable parent facts only, and `mode: 'unknown'`
+ * marks a row whose descriptor could not be folded). Liveness for the
+ * one-shot picker is instead resolved against the live agent registry — see
+ * {@link findResumableRun}.
+ */
 export interface ChildListEntry {
-    readonly kind: 'child' | 'diagnostic';
     readonly id: unknown;
-    readonly activity?: 'running' | 'inactive';
-    readonly mode?: 'one-shot' | 'continuable';
+    readonly mode?: 'one-shot' | 'continuable' | 'unknown';
     readonly label?: string;
 }
 /**
  * Pick the newest listable prior child for one agent label. `listChildren`
  * returns entries ordered by header `createdAt`, so the LAST match wins.
- * Only inactive one-shot children are eligible: a live child cannot be
- * resumed (its session id is taken), and continuable children keep their own
- * `send_message` cold-resume path.
+ * Only one-shot children are eligible: continuable children keep their own
+ * `send_message` cold-resume path, and an `unknown`-mode row (descriptor
+ * never folded) is not provably a one-shot run. Liveness is filtered by the
+ * caller ({@link findResumableRun}): a live child cannot be resumed (its
+ * session id is taken).
  */
 export declare function pickLatestLabeledChild<T extends ChildListEntry>(entries: readonly T[], label: string): T | undefined;
 /** When `use_agent` should continue a prior interrupted run. */
@@ -144,6 +176,11 @@ export interface ResumableRun {
  * by design: any lookup error (projection registry absent, persistence
  * missing, unreadable log) degrades to "no candidate" and the caller starts
  * fresh — resume must never block a dispatch.
+ *
+ * Liveness filter: the 0.1.7 catalog no longer carries an `activity` flag, so
+ * a picked one-shot child still resident in the live agent registry is
+ * skipped — a live child cannot be resumed (its session id is taken), exactly
+ * what the pre-0.1.7 `activity: 'inactive'` prefilter expressed.
  */
 export declare function findResumableRun(ctx: Context, parent: Pick<Agent, 'id'>, label: string, signal?: AbortSignal): Promise<ResumableRun | undefined>;
 /** Inputs of the resume driver. */
@@ -169,7 +206,7 @@ export interface ResumeDriveInput {
 }
 /** Terminal outcome of one resumed continuation turn. */
 export interface ResumedRunResult {
-    readonly output: ContentBlock[];
+    readonly output: readonly ContentBlock[];
     readonly stopReason: SubagentStopReason;
 }
 /**

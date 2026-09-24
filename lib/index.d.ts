@@ -50,19 +50,19 @@ export declare const inject: string[];
  * `toolName` itself), and `resume` selects when `use_agent` continues a
  * prior interrupted run of the same agent (default `auto`).
  */
-export declare const Config: z<Schemastery.ObjectS<{
-    agentsDir: z<string, string>;
-    provider: z<string, string>;
-    toolName: z<string, string>;
-    askToolName: z<string, string>;
-    leafDenyTools: z<string[], string[]>;
-    resume: z<"off" | "auto" | "opt-in", "off" | "auto" | "opt-in">;
-}>, Schemastery.ObjectT<{
-    agentsDir: z<string, string>;
-    provider: z<string, string>;
-    toolName: z<string, string>;
-    askToolName: z<string, string>;
-    leafDenyTools: z<string[], string[]>;
-    resume: z<"off" | "auto" | "opt-in", "off" | "auto" | "opt-in">;
-}>>;
+export declare const Config: z<Schemastery.ObjectS<NoInfer<{
+    agentsDir: z<string, string, "defined">;
+    provider: z<string, string, "defined">;
+    toolName: z<string, string, "defined">;
+    askToolName: z<string, string, "defined">;
+    leafDenyTools: z<string[], string[], "defined">;
+    resume: z<"off" | "auto" | "opt-in", "off" | "auto" | "opt-in", "defined">;
+}>>, Schemastery.ObjectT<NoInfer<{
+    agentsDir: z<string, string, "defined">;
+    provider: z<string, string, "defined">;
+    toolName: z<string, string, "defined">;
+    askToolName: z<string, string, "defined">;
+    leafDenyTools: z<string[], string[], "defined">;
+    resume: z<"off" | "auto" | "opt-in", "off" | "auto" | "opt-in", "defined">;
+}>>, "plain">;
 export declare function apply(ctx: Context, config: RunAgentConfig): void;

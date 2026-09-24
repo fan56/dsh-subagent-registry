@@ -167,7 +167,7 @@ function fakeResumeBackend(prior, scriptTurn) {
 // ---------------------------------------------------------------------------
 
 {
-  const children = [{ kind: 'child', id: 'child-1', activity: 'inactive', mode: 'one-shot', label: 'thinker' }]
+  const children = [{ id: 'child-1', createdAt: 1, mode: 'one-shot', label: 'thinker' }]
   const backend = fakeResumeBackend([...ERROR_LOG], (events) => {
     events.push(ev('turn/start', { turn: 2 }), ev('step/start', { turn: 2, step: 0 }))
     events.push({ type: 'assistant/message', data: { message: { role: 'assistant', content: [{ type: 'text', text: 'continued' }] }, stream: [] } })
@@ -191,7 +191,7 @@ function fakeResumeBackend(prior, scriptTurn) {
 // ---------------------------------------------------------------------------
 
 {
-  const children = [{ kind: 'child', id: 'child-1', activity: 'inactive', mode: 'one-shot', label: 'thinker' }]
+  const children = [{ id: 'child-1', createdAt: 1, mode: 'one-shot', label: 'thinker' }]
   const ctx = toolCtx({ children, events: { 'child-1': ERROR_LOG } })
   ctx.agents = { resume: async () => { throw new Error('session id already registered') } }
   const tool = runAgentTool(ctx, { agentsDir: AGENTS_DIR, provider: 'spawn', toolName: 'use_agent' })
@@ -259,7 +259,7 @@ function fakeResumeBackend(prior, scriptTurn) {
 
     // Resume branch: the continuation drive receives the composed values too.
     {
-      const children = [{ kind: 'child', id: 'child-1', activity: 'inactive', mode: 'one-shot', label: 'thinker' }]
+      const children = [{ id: 'child-1', createdAt: 1, mode: 'one-shot', label: 'thinker' }]
       const backend = fakeResumeBackend([...ERROR_LOG], (events) => {
         events.push(ev('turn/start', { turn: 2 }), ev('step/start', { turn: 2, step: 0 }))
         events.push({ type: 'assistant/message', data: { message: { role: 'assistant', content: [{ type: 'text', text: 'continued' }] }, stream: [] } })

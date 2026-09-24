@@ -40,16 +40,27 @@ export declare function decideBackgroundMode(explicit: boolean | undefined, fron
  * Pick the newest listable continuable child whose label matches one of
  * `labels`. `listChildren` orders entries by header `createdAt`, so the LAST
  * match wins. Both a resident (running) and a cold (inactive) continuable
- * child qualify — delivery steers the former and cold-resumes the latter.
- * One-shot children never qualify: their sessions have no continuation state
- * (`sendMessage` rejects them with `NOT_RESUMABLE`).
+ * child qualify — delivery steers the former and cold-resumes the latter
+ * (0.1.7's durable catalog no longer carries a liveness flag, and none is
+ * needed here). One-shot children never qualify: their sessions have no
+ * continuation state (`sendMessage` rejects them with `NOT_RESUMABLE`), and
+ * an `unknown`-mode row is not provably continuable.
  */
 export declare function pickLatestContinuableChild<T extends ChildListEntry>(entries: readonly T[], labels: readonly string[]): T | undefined;
 /** Structural minimum of the live-session surface the wait loop reads. */
 export interface LiveSessionLike {
     /** The log offset (event count) the session has appended through. */
     readonly seq: number;
-    /** On-demand events read from `fromSeq` (inclusive) to the end. */
+    /**
+     * On-demand events read from `fromSeq` (inclusive) to the end.
+     *
+     * `snapshotEvents` is @deprecated on the 0.1.7 Session (replacement:
+     * registered projections or persistence-handle reads) but still functional
+     * — soft deprecation, existing logic may remain unmigrated. Kept here
+     * deliberately: the poll loop needs a cheap synchronous window read on the
+     * resident session, and the cold path already reads through persistence
+     * ({@link readStoredEvents}). Revisit only if the soft deprecation hardens.
+     */
     snapshotEvents(fromSeq?: number): readonly MinimalSessionEvent[];
 }
 /**
@@ -67,7 +78,7 @@ export declare function getLiveSession(ctx: Context, childId: SessionId): LiveSe
 export declare function childEventBoundary(ctx: Context, childId: SessionId, signal?: AbortSignal): Promise<number | undefined>;
 /** The child's reply to one follow-up: final output plus the turn's stop reason. */
 export interface ChildReply {
-    readonly output: ContentBlock[];
+    readonly output: readonly ContentBlock[];
     readonly stopReason: string;
 }
 /**

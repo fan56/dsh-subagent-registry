@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "dsh-subagent-registry",
+    "description": "Registers ~/.dsh/agents/*.md as callable subagents (use_agent) with continuable background dispatch and ask_agent follow-ups."
+  }
+}

@@ -92,6 +92,16 @@ cordis.patch.yml `insert` 项的 `config:` 段，即 entry config）：
 | `leafDenyTools` | `[]`           | 空 = 计算默认（`subagent`/`subagent_fork`/`workflow`/`ralph` + `toolName`）；非空整体替换默认。     |
 | `resume`        | `auto`         | 续跑档位，见下节。                                                                                |
 
+### 并发与深度上限（dsh 0.1.7 起，官方托管）
+
+同时活跃的子代理数与嵌套深度由**官方 dsh-subagent 服务**托管（本插件不自管并发
+计数/排队）：`maxActiveSubagents`（默认 `8`）、`maxDepth`（默认 `1`），都是
+volatile 字段、免重启热调。用户要"多开几个并行子代理 / 允许更深的嵌套"时，在
+profile patch 写 `subagent: { maxActiveSubagents: N, maxDepth: M }`，或运行时
+`settings.update('subagent', …)`；agent 文件的 `deep` 只是在这条官方预算内收紧
+（`deep: 0` 叶子直接拔掉派发工具）。`maxRounds`（per-agent 轮数上限）仍是本插件
+frontmatter 键，官方没有轮数预算能力，继续由宿主 TUI 硬停梯消费。
+
 ## 续跑与追问
 
 - **resume 三档**：`auto`（默认）= 本对话里该 agent 有中断 run 就自动续跑；

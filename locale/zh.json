@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "dsh-subagent-registry",
+    "description": "将 ~/.dsh/agents/*.md 注册为可调用子代理（use_agent），支持可续跑的后台派发与 ask_agent 追问。"
+  }
+}

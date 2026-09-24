@@ -99,22 +99,21 @@ const NOOP_TRAILING_LOG = [
 // ---------------------------------------------------------------------------
 
 {
-  const child = (over) => ({ kind: 'child', id: 'x', activity: 'inactive', mode: 'one-shot', label: 'workhorse', ...over })
+  // 0.1.7 catalog row shape: { id, createdAt, mode, label? } — every row is a
+  // child (no `kind` discriminator), liveness is no longer carried, and
+  // `mode: 'unknown'` marks a row whose descriptor never folded.
+  const child = (over) => ({ id: 'x', createdAt: 1, mode: 'one-shot', label: 'workhorse', ...over })
   const entries = [
     child({ id: 'old-ok', label: 'other-agent' }),
     child({ id: 'older-failed', label: 'workhorse' }),
-    child({ id: 'running', activity: 'running' }),
     child({ id: 'continuable', mode: 'continuable', label: 'workhorse' }),
-    { kind: 'diagnostic', id: 'broken', reason: 'corrupt' },
+    child({ id: 'unknown-mode', mode: 'unknown' }),
     child({ id: 'newest-failed' }),
   ]
-  assert.equal(pickLatestLabeledChild(entries, 'workhorse')?.id, 'newest-failed', 'newest matching inactive one-shot wins')
+  assert.equal(pickLatestLabeledChild(entries, 'workhorse')?.id, 'newest-failed', 'newest matching one-shot wins')
   assert.equal(pickLatestLabeledChild(entries, 'other-agent')?.id, 'old-ok', 'label match filters')
   assert.equal(pickLatestLabeledChild(entries, 'missing'), undefined, 'no match -> undefined')
   assert.equal(pickLatestLabeledChild([], 'workhorse'), undefined, 'empty list -> undefined')
-  // If the newest matching child is running, an older inactive one is picked.
-  const runningNewest = [child({ id: 'a' }), child({ id: 'b', activity: 'running' })]
-  assert.equal(pickLatestLabeledChild(runningNewest, 'workhorse')?.id, 'a', 'skips live children, falls back to older inactive')
   console.log('PASS pickLatestLabeledChild selection')
 }
 
@@ -174,7 +173,7 @@ const NOOP_TRAILING_LOG = [
 // ---------------------------------------------------------------------------
 
 /** Minimal fake satisfying what findResumableRun reads from ctx. */
-function fakeCtx({ children, stored, throwOnList = false } = {}) {
+function fakeCtx({ children, stored, throwOnList = false, live } = {}) {
   return {
     subagents: {
       async listChildren() {
@@ -183,6 +182,10 @@ function fakeCtx({ children, stored, throwOnList = false } = {}) {
       },
     },
     get(name) {
+      if (name === 'agents') {
+        // Live agent registry double: `live` is the set of resident child ids.
+        return { get: (id) => (live?.has(String(id)) ? { id } : undefined) }
+      }
       if (name !== 'sessionPersistence') return undefined
       if (stored === undefined) return undefined
       return {
@@ -198,9 +201,10 @@ function fakeCtx({ children, stored, throwOnList = false } = {}) {
 const PARENT = { id: 'session-parent' }
 
 {
+  // 0.1.7 catalog row shape (durable facts only — no kind/activity).
   const entries = [
-    { kind: 'child', id: 'child-completed', activity: 'inactive', mode: 'one-shot', label: 'workhorse' },
-    { kind: 'child', id: 'child-failed', activity: 'inactive', mode: 'one-shot', label: 'oldfox' },
+    { id: 'child-completed', createdAt: 1, mode: 'one-shot', label: 'workhorse' },
+    { id: 'child-failed', createdAt: 2, mode: 'one-shot', label: 'oldfox' },
   ]
   const events = { 'child-failed': ERROR_LOG, 'child-completed': COMPLETED_LOG }
 
@@ -231,6 +235,29 @@ const PARENT = { id: 'session-parent' }
     'open/read failure -> no candidate',
   )
   console.log('PASS findResumableRun (happy path + fail-open paths)')
+
+  // Liveness filter: 0.1.7's catalog dropped the `activity` flag, so a picked
+  // child still resident in the live agent registry is skipped — the exact
+  // pre-0.1.7 `activity: 'inactive'` semantics, resolved against ctx.agents.
+  {
+    const liveRun = await findResumableRun(
+      fakeCtx({ children: entries, stored: (id) => events[id] ?? [], live: new Set(['child-failed']) }),
+      PARENT,
+      'oldfox',
+    )
+    assert.equal(liveRun, undefined, 'live one-shot child is not a candidate')
+    const olderWins = await findResumableRun(
+      fakeCtx({
+        children: [...entries, { id: 'child-old', createdAt: 0, mode: 'one-shot', label: 'oldfox' }],
+        stored: (id) => (id === 'child-old' ? ERROR_LOG : events[id] ?? []),
+        live: new Set(['child-failed']),
+      }),
+      PARENT,
+      'oldfox',
+    )
+    assert.equal(olderWins?.childId, 'child-old', 'falls back to the older inactive child')
+  }
+  console.log('PASS findResumableRun liveness filter (replaces the dropped activity flag)')
 }
 
 // ---------------------------------------------------------------------------
@@ -317,7 +344,11 @@ const signal = new AbortController().signal
   assert.ok(String(captured.resumeOptions.resumeSessionId) === 'child-failed', 'resumes the persisted child id')
   assert.equal(captured.resumeOptions.agentOptions.provider, 'parent-prov', 'parent provider inherited')
   assert.equal(captured.resumeOptions.agentOptions.subagentDepth, 1, 'child depth = parent depth + 1')
-  assert.equal(captured.followup?.source?.plugin, 'dsh-subagent-registry', 'followup arrives as a plugin notice')
+  // 0.1.7: no shared 'plugin' source kind — the notice carries this plugin's
+  // own merge-extensible producer kind plus the official notice context form.
+  assert.equal(captured.followup?.source?.kind, 'dsh-subagent-registry', 'followup carries the plugin producer kind')
+  assert.equal(captured.followup?.source?.form, 'notice', 'followup uses the notice context form')
+  assert.equal(captured.followup?.source?.summary, 'resume interrupted "workhorse" subagent run', 'followup notice summary present')
   assert.ok(captured.followup?.content[0]?.text?.includes('without redoing completed steps'), 'followup is the continuation prompt')
   assert.equal(captured.scope.persona, 'You are the workhorse.', 'persona section re-applied on resume')
   assert.deepEqual(captured.scope.restrict, { deny: ['subagent', 'use_agent'] }, 'leaf tool restriction re-applied on resume')
@@ -481,7 +512,7 @@ try {
 
   // Auto resume happy path: provenance prefix, caller prompt in the followup.
   {
-    const children = [{ kind: 'child', id: 'child-1', activity: 'inactive', mode: 'one-shot', label: 'workhorse' }]
+    const children = [{ id: 'child-1', createdAt: 1, mode: 'one-shot', label: 'workhorse' }]
     const backend = fakeResumeBackend([...ERROR_LOG], (events) => {
       events.push(ev('turn/start', { turn: 2 }), ev('step/start', { turn: 2, step: 0 }))
       events.push({ type: 'assistant/message', data: { message: { role: 'assistant', content: [{ type: 'text', text: 'continued' }] }, stream: [] } })
@@ -503,7 +534,7 @@ try {
   // (with partial output) — it must NOT fall back to a fresh dispatch and
   // throw the partial work away.
   {
-    const children = [{ kind: 'child', id: 'child-1', activity: 'inactive', mode: 'one-shot', label: 'workhorse' }]
+    const children = [{ id: 'child-1', createdAt: 1, mode: 'one-shot', label: 'workhorse' }]
     const backend = fakeResumeBackend([...ERROR_LOG], (events) => {
       events.push(ev('turn/start', { turn: 2 }), ev('step/start', { turn: 2, step: 0 }))
       events.push({ type: 'assistant/message', data: { message: { role: 'assistant', content: [{ type: 'text', text: 'still half done' }] }, stream: [] } })
@@ -526,7 +557,7 @@ try {
 
   // Drive failure falls back to a fresh dispatch (auto mode, no explicit resume).
   {
-    const children = [{ kind: 'child', id: 'child-1', activity: 'inactive', mode: 'one-shot', label: 'workhorse' }]
+    const children = [{ id: 'child-1', createdAt: 1, mode: 'one-shot', label: 'workhorse' }]
     const ctx = toolCtx({ children, events: { 'child-1': ERROR_LOG } })
     ctx.agents = { resume: async () => { throw new Error('session id already registered') } }
     const tool = runAgentTool(ctx, { agentsDir: AGENTS_DIR, provider: 'spawn', toolName: 'use_agent' })
@@ -540,7 +571,7 @@ try {
 
   // Explicit resume does NOT swallow a drive failure.
   {
-    const children = [{ kind: 'child', id: 'child-1', activity: 'inactive', mode: 'one-shot', label: 'workhorse' }]
+    const children = [{ id: 'child-1', createdAt: 1, mode: 'one-shot', label: 'workhorse' }]
     const ctx = toolCtx({ children, events: { 'child-1': ERROR_LOG } })
     ctx.agents = { resume: async () => { throw new Error('session id already registered') } }
     const tool = runAgentTool(ctx, { agentsDir: AGENTS_DIR, provider: 'spawn', toolName: 'use_agent' })

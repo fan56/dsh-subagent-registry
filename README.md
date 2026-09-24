@@ -21,7 +21,7 @@
   官方的 `spawn` provider 启动，子代理就是货真价实的 dsh subagent（完整会话、
   持久化、continuable）。官方 subagent 栈的新能力（如双向通信）本插件自动
   继承；官方原生 `subagent` 工具继续可用，两者并存、互不干扰。
-- **纯插件** — 只依赖 dsh ≥ 0.1.5-rc.2 的公开 subagent 机制，可随时干净卸载。
+- **纯插件** — 只依赖 dsh ≥ 0.1.7-rc.1 的公开 subagent 机制，可随时干净卸载。
 
 ## 三个预置 agent
 
@@ -63,6 +63,18 @@ Frontmatter 字段：`name`（必填）、`description`、`display_name`、`mode
 `deep`（`0` = 叶子不许再开子代理，缺省 `1`）、`background`（`true` = 默认后台跑）、`maxRounds`（正整数，per-agent 轮数上限，覆盖 `dsh-tui.maxRounds` 全局值；宿主 TUI 的硬停梯消费）。
 未知字段静默忽略。
 
+### 并发与轮数上限（0.1.7 起）
+
+**并发数与嵌套深度由官方 dsh-subagent 托管**，本插件不自管并发计数与排队
+（官方 ActivationManager 统一调度）：`maxActiveSubagents`（同时活跃子代理上限，
+默认 `8`）与 `maxDepth`（委托嵌套深度上限，默认 `1`）。两者都是 volatile 字段，
+免重启热调——在 profile patch 里写 `subagent: { maxActiveSubagents: N, maxDepth: M }`，
+或运行时 `settings.update('subagent', …)`。`use_agent` 的 `deep` frontmatter
+只是在这条官方深度预算内再收紧（`deep: 0` 叶子直接拔掉所有开代理的工具）。
+
+`maxRounds`（per-agent 轮数上限）**本插件继续保留**：官方 subagent seam 没有轮数
+预算能力，该键仍由宿主 TUI 的硬停梯消费。
+
 → **完整参考**：[docs/AGENT-FORMAT.md](./docs/AGENT-FORMAT.md)（英文）——每个字段
 的校验与失败行为、`deep`/`thinking` 语义、续跑机制、后台派发、配置项、已知边界。
 
@@ -75,7 +87,7 @@ Frontmatter 字段：`name`（必填）、`description`、`display_name`、`mode
 
 ## 安装
 
-**要求 dsh >= 0.1.5-rc.2**（RC/稳定线；alpha 线不再支持）。
+**要求 dsh >= 0.1.7-rc.1**（RC/稳定线；alpha 线不再支持）。
 
 方式 A — 把本地 checkout 挂进 dsh profile：
 

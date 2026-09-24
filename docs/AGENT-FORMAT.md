@@ -219,6 +219,29 @@ Implementation, at `use_agent` execute time:
   dsh ≤ 0.1.5 and was lowered to `1` from 0.1.6-alpha.1 (upstream B-04). The
   deepest enforced cap acts as the outer recursion backstop.
 
+### Who owns the concurrency and depth limits (since dsh 0.1.7)
+
+The official dsh-subagent service owns both budgets; this plugin keeps **no
+concurrency counter or queue of its own** (the official ActivationManager
+admits, parks, and drains children):
+
+- `maxActiveSubagents` — maximum live children sharing uninterrupted
+  continuable parent links. Volatile, default `8`.
+- `maxDepth` — the default delegation depth for tools without an explicit
+  limit. Volatile, default `1`. `use_agent` always passes an explicit
+  `maxDepth`, so this default is never binding for its own dispatches — but it
+  IS the binding budget for the native `subagent` tool and any other delegator
+  that relies on the default.
+
+Tune them without a restart (both fields are `.volatile()`): put
+`subagent: { maxActiveSubagents: N, maxDepth: M }` into the profile patch, or
+call `settings.update('subagent', …)` at runtime. `deep: 0` leaves stay
+tool-denied regardless of these values.
+
+The per-agent frontmatter `maxRounds` key is **unaffected**: the official
+subagent seam has no round-budget capability, so this plugin keeps parsing it
+and the host TUI's hard-stop ladder keeps consuming it.
+
 ## `thinking` semantics
 
 The optional frontmatter `thinking` key sets the reasoning effort used for
@@ -254,7 +277,13 @@ the selected model.
   by every spawning tool's own `maxDepth` as the outer backstop — note this
   plugin always passes an explicit `maxDepth` (`childDepth + deep`), so the
   host's native default (which was `3` in dsh ≤ 0.1.5 and was lowered to `1`
-  from 0.1.6-alpha.1, upstream B-04) is never the binding constraint.
+  from 0.1.6-alpha.1, upstream B-04) is never the binding constraint. Since
+  dsh 0.1.7 the concurrency cap (`maxActiveSubagents`, default 8) and the
+  native depth default (`maxDepth`, default 1) live in the official
+  dsh-subagent volatile config — tune them via a profile patch
+  (`subagent: { maxActiveSubagents: N, maxDepth: M }`) or
+  `settings.update('subagent', …)`; see "Who owns the concurrency and depth
+  limits" above.
 - Concurrent `ask_agent` calls to the **same** background run race on the
   same reply boundary: the first-delivered message's reply is observed by
   both waiters. Sequential follow-ups (the common case) are exact.

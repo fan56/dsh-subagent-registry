@@ -268,7 +268,7 @@ export function buildStartRequest(input: BuildStartRequestInput): Omit<SubagentS
  * meaningful `result` failure. When both fail, both errors are surfaced as an
  * AggregateError.
  */
-async function settleForegroundRun(run: SubagentRun, agentName: string): Promise<ContentBlock[]> {
+async function settleForegroundRun(run: SubagentRun, agentName: string): Promise<readonly ContentBlock[]> {
   const [execution] = await Promise.allSettled([
     run.result.then((result) => {
       if (result.stopReason !== 'completed') {
@@ -306,6 +306,11 @@ async function settleForegroundRun(run: SubagentRun, agentName: string): Promise
  * seam only reports `stopReason: 'error'` with no failure detail, but a local
  * in-process child records the structured `turn/end` reason verbatim; a remote
  * child exposes nothing and yields `undefined`.
+ *
+ * `snapshotEvents` is @deprecated on the 0.1.7 Session (soft deprecation,
+ * still functional); kept here because this is a sync, diagnostics-only read
+ * of an already-settled in-process child — the persistence-handle replacement
+ * would add async failure modes to an error path for no behavioral gain.
  */
 function childTurnError(run: SubagentRun): string | undefined {
   const agent = run.localAgent

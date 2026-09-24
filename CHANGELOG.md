@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+- **dsh support floor raised to 0.1.7-rc.1** (peer floors `>=0.1.7-rc.1`, dev pins exact `0.1.7-rc.1`; `@deepseek-ai/cordis` → `~4.0.4`, `@deepseek-ai/schemastery` → `~3.18.4`; READMEs updated). The closure rides the 0.1.7 shapes.
+- **Child discovery follows the 0.1.7 durable catalog** — `ctx.subagents.listChildren()` now returns `SubagentCatalogEntry[]` (`{ id, createdAt, mode, label? }`): the old `SubagentListEntry` fields are gone (every row is a child — no `kind` discriminator; `mode` gains `'unknown'`; liveness is no longer carried). The one-shot resume picker's `activity: 'inactive'` prefilter is replaced by a live agent registry check (`ctx.agents.get`) inside `findResumableRun`; the continuable picker is unchanged in behavior (resident and cold continuable children both stay addressable; `unknown`-mode rows qualify as neither).
+- **The continuation notice declares its own message-source kind** — 0.1.7 removed the shared catch-all `plugin` source kind; the resume follow-up now carries `kind: 'dsh-subagent-registry'` (with the official `form: 'notice'` context shape) declared through the merge-extensible `MessageSourceMap` (`declare module '@deepseek-ai/dsh-llm'`), the same move the official `agent-message`/`subagent-settled` sources make.
+- **Concurrency and depth limits are official-owned (R0 decision)** — this plugin keeps no concurrency counter or queue of its own; the official dsh-subagent volatile config (`maxActiveSubagents`, default 8; `maxDepth`, default 1; ActivationManager-enforced) is the single authority. Tune via a profile patch `subagent: { maxActiveSubagents: N, maxDepth: M }` or `settings.update('subagent', …)`. The per-agent `maxRounds` frontmatter key is retained (the official seam has no round budget; the host TUI hard-stop ladder still consumes it). README/README.en/AGENT-FORMAT/SKILL document the semantics and the patch recipe.
+- `finalAssistantOutput`/`SubagentResult.output` became `readonly ContentBlock[]` in 0.1.7; the tool result contracts follow (`ChildReply`/`ResumedRunResult`/`settleForegroundRun`).
+- `resolveChildDepth(parent, maxDepth?)` is signature-identical in 0.1.7 — the three call sites (`buildStartRequest`, the resume drive, `resolveChildAgentOptions` stamping) are verified unchanged.
+- **Plugin Manager metadata.** Added `icon.svg` and `locale/{en,zh}.json` (`meta.title`/`meta.description` per the official `readPluginMeta` contract); `package.json` now declares the `icon` and ships both in the tarball.
+
+### Unchanged by decision
+- `session.snapshotEvents()` stays in use at the four read sites (wait-loop poll, reply window, resumed-turn result read, child error diagnostics): the 0.1.7 deprecation is soft (`@deprecated`, functional), the persistence-handle/projection replacements would add async failure modes to hot or sync-only paths. Marked with notes; revisit if the deprecation hardens.
+
 ## [0.11.0] - 2026-09-11
 
 ### Fixed

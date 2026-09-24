@@ -35,6 +35,34 @@ import {
 } from '@deepseek-ai/dsh-subagent'
 
 // ---------------------------------------------------------------------------
+// Producer message source (0.1.7 merge-extensible `MessageSourceMap`)
+// ---------------------------------------------------------------------------
+
+/**
+ * Durable attribution for the continuation notice this plugin injects into a
+ * resumed child (`child.followup`). 0.1.7 removed the shared catch-all
+ * `plugin` source kind — every producer declares its OWN kind through the
+ * merge-extensible `MessageSourceMap` (the same move the official
+ * `agent-message`/`subagent-settled` sources and the dsh-feishu/dsh-dcp
+ * adapters make); consumers that switch on `kind` fall through unknown
+ * values by contract. The notice keeps the official `form: 'notice'`
+ * context shape (bounded one-line `summary`, ≤120 chars).
+ */
+export interface RegistryNoticeMessageSource {
+  readonly kind: 'dsh-subagent-registry'
+  /** A one-off account of something that just happened (`notice` context form). */
+  readonly form: 'notice'
+  /** One-line account of what this plugin did, ellipsized to the bound. */
+  readonly summary: string
+}
+
+declare module '@deepseek-ai/dsh-llm' {
+  interface MessageSourceMap {
+    'dsh-subagent-registry': RegistryNoticeMessageSource
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Pure classification helpers (unit-testable without a cordis context)
 // ---------------------------------------------------------------------------
 
@@ -126,27 +154,35 @@ export function classifyPriorRun(events: readonly MinimalSessionEvent[]): PriorR
 // Candidate selection and resume-vs-fresh decision
 // ---------------------------------------------------------------------------
 
-/** Structural minimum of a `listChildren` entry the picker reads. */
+/**
+ * Structural minimum of a `listChildren` entry the pickers read. 0.1.7
+ * reshaped the read: `listChildren` returns `SubagentCatalogEntry[]` — the
+ * durable direct-child catalog rows `{ id, createdAt, mode, label? }` — so
+ * the old `SubagentListEntry` fields are gone: every row IS a child (no
+ * `kind` discriminator), and liveness is no longer carried (`activity` was
+ * dropped; the catalog holds durable parent facts only, and `mode: 'unknown'`
+ * marks a row whose descriptor could not be folded). Liveness for the
+ * one-shot picker is instead resolved against the live agent registry — see
+ * {@link findResumableRun}.
+ */
 export interface ChildListEntry {
-  readonly kind: 'child' | 'diagnostic'
   readonly id: unknown
-  readonly activity?: 'running' | 'inactive'
-  readonly mode?: 'one-shot' | 'continuable'
+  readonly mode?: 'one-shot' | 'continuable' | 'unknown'
   readonly label?: string
 }
 
 /**
  * Pick the newest listable prior child for one agent label. `listChildren`
  * returns entries ordered by header `createdAt`, so the LAST match wins.
- * Only inactive one-shot children are eligible: a live child cannot be
- * resumed (its session id is taken), and continuable children keep their own
- * `send_message` cold-resume path.
+ * Only one-shot children are eligible: continuable children keep their own
+ * `send_message` cold-resume path, and an `unknown`-mode row (descriptor
+ * never folded) is not provably a one-shot run. Liveness is filtered by the
+ * caller ({@link findResumableRun}): a live child cannot be resumed (its
+ * session id is taken).
  */
 export function pickLatestLabeledChild<T extends ChildListEntry>(entries: readonly T[], label: string): T | undefined {
   for (let i = entries.length - 1; i >= 0; i--) {
     const entry = entries[i]
-    if (entry.kind !== 'child') continue
-    if (entry.activity !== 'inactive') continue
     if (entry.mode !== 'one-shot') continue
     if (entry.label !== label) continue
     return entry
@@ -277,6 +313,11 @@ export interface ResumableRun {
  * by design: any lookup error (projection registry absent, persistence
  * missing, unreadable log) degrades to "no candidate" and the caller starts
  * fresh — resume must never block a dispatch.
+ *
+ * Liveness filter: the 0.1.7 catalog no longer carries an `activity` flag, so
+ * a picked one-shot child still resident in the live agent registry is
+ * skipped — a live child cannot be resumed (its session id is taken), exactly
+ * what the pre-0.1.7 `activity: 'inactive'` prefilter expressed.
  */
 export async function findResumableRun(
   ctx: Context,
@@ -292,6 +333,12 @@ export async function findResumableRun(
   }
   const candidate = pickLatestLabeledChild(entries, label)
   if (candidate === undefined) return undefined
+  // Read the live agent registry without a hard dependency (a bare context —
+  // tests, exotic deployments — may omit the service).
+  const agents = (ctx as unknown as { get(name: string): unknown }).get('agents') as
+    | { get(id: SessionId): unknown }
+    | undefined
+  if (agents?.get(candidate.id as SessionId) !== undefined) return undefined
   const events = await readStoredEvents(ctx, candidate.id as SessionId, { signal })
   if (events === undefined) return undefined
   const classification = classifyPriorRun(events)
@@ -327,7 +374,7 @@ export interface ResumeDriveInput {
 
 /** Terminal outcome of one resumed continuation turn. */
 export interface ResumedRunResult {
-  readonly output: ContentBlock[]
+  readonly output: readonly ContentBlock[]
   readonly stopReason: SubagentStopReason
 }
 
@@ -363,16 +410,19 @@ export async function driveResumedRun(input: ResumeDriveInput): Promise<ResumedR
   let outcome: ResumedRunResult
   try {
     // Everything the replay loaded is prior work; the continuation turn's
-    // own events start at this boundary. The on-demand read (alpha.4's
+    // own events start at this boundary. The on-demand read (the session's
     // `snapshotEvents(fromSeq)`) keeps the window offset-addressed instead
-    // of relying on array indices coinciding with log offsets.
+    // of relying on array indices coinciding with log offsets. The read is
+    // @deprecated on 0.1.7 (soft; replacement = persistence-handle reads)
+    // but stays here: the result read of the just-driven turn must observe
+    // the live child before disposal and fail identically in bare contexts
+    // without persistence.
     const boundary = child.session.seq
     if (!flags.cancelled) {
       child.followup(createUserMessage({
         content: [{ type: 'text', text: input.continuationPrompt }],
         source: {
-          kind: 'plugin',
-          plugin: 'dsh-subagent-registry',
+          kind: 'dsh-subagent-registry',
           form: 'notice',
           summary: input.noticeSummary.slice(0, 120),
         },

@@ -79,21 +79,20 @@ function appendTurn(events, n, endKind, text) {
 // ---------------------------------------------------------------------------
 
 {
-  const child = (over) => ({ kind: 'child', id: 'x', activity: 'inactive', mode: 'continuable', label: 'workhorse', ...over })
+  // 0.1.7 catalog row shape: { id, createdAt, mode, label? } — every row is a
+  // child (no `kind`), liveness is not carried (a continuable child is
+  // addressable resident OR cold), `mode: 'unknown'` exists.
+  const child = (over) => ({ id: 'x', createdAt: 1, mode: 'continuable', label: 'workhorse', ...over })
   const entries = [
     child({ id: 'old', label: 'other-agent' }),
     child({ id: 'one-shot', mode: 'one-shot', label: 'workhorse' }),
-    child({ id: 'running', activity: 'running' }),
-    { kind: 'diagnostic', id: 'broken', reason: 'corrupt' },
+    child({ id: 'unknown-mode', mode: 'unknown' }),
     child({ id: 'newest' }),
   ]
   assert.equal(pickLatestContinuableChild(entries, ['workhorse'])?.id, 'newest', 'newest matching continuable wins')
   assert.equal(pickLatestContinuableChild(entries, ['other-agent'])?.id, 'old', 'label match filters')
   assert.equal(pickLatestContinuableChild(entries, ['missing']), undefined, 'no match -> undefined')
   assert.equal(pickLatestContinuableChild([], ['workhorse']), undefined, 'empty list -> undefined')
-  // Running children qualify too: delivery steers a live child.
-  const live = [child({ id: 'a' }), child({ id: 'b', activity: 'running' })]
-  assert.equal(pickLatestContinuableChild(live, ['workhorse'])?.id, 'b', 'a running continuable child is addressable')
   console.log('PASS pickLatestContinuableChild selection')
 }
 
@@ -222,9 +221,12 @@ const PARENT = {
 }
 const EXEC = { agent: PARENT, signal: new AbortController().signal }
 
-/** Continuable child row with the display label the tool resolves by. */
+/** Continuable child row with the display label the tool resolves by.
+ * 0.1.7 catalog shape — `createdAt` must increase per row so "last match
+ * wins" ordering stays exercisable. */
+let __childSeq = 0
 const WORKHORSE_CHILD = (id, over = {}) => (
-  { kind: 'child', id, activity: 'running', mode: 'continuable', label: '牛马狗', ...over }
+  { id, createdAt: ++__childSeq, mode: 'continuable', label: '牛马狗', ...over }
 )
 
 try {
@@ -247,8 +249,8 @@ try {
       subagents: {
         async listChildren() {
           return [
-            WORKHORSE_CHILD('old-one-shot', { mode: 'one-shot', activity: 'inactive' }),
-            WORKHORSE_CHILD('older', { activity: 'inactive' }),
+            WORKHORSE_CHILD('old-one-shot', { mode: 'one-shot' }),
+            WORKHORSE_CHILD('older'),
             WORKHORSE_CHILD('newest'),
           ]
         },
@@ -298,7 +300,7 @@ try {
   {
     const ctx = {
       subagents: {
-        async listChildren() { return [WORKHORSE_CHILD('x', { mode: 'one-shot', activity: 'inactive' })] },
+        async listChildren() { return [WORKHORSE_CHILD('x', { mode: 'one-shot' })] },
         async sendMessage() { throw new Error('must not be reached') },
       },
       get: () => undefined,
@@ -345,7 +347,7 @@ try {
     const ctx = {
       sent: [],
       subagents: {
-        async listChildren() { return [WORKHORSE_CHILD('cold', { activity: 'inactive' })] },
+        async listChildren() { return [WORKHORSE_CHILD('cold')] },
         async sendMessage(sender, targetId) {
           ctx.sent.push({ targetId: String(targetId) })
           appendTurn(log, 2, 'completed', 'resumed and answered')
