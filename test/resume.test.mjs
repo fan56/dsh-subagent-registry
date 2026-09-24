@@ -165,6 +165,27 @@ const NOOP_TRAILING_LOG = [
   )
   assert.deepEqual([...leafDenyList('my_tool', ['only-this'])], ['only-this'], 'explicit override replaces the default')
   assert.deepEqual([...leafDenyList('use_agent', [])], [...leafDenyList('use_agent')], 'empty override falls back to default')
+
+  // hostKnownTools intersection (dsh 0.1.7-rc.1 fail-fast restrict): the
+  // DEFAULT list drops names the host no longer registers (e.g. ralph),
+  // an explicit override is passed through verbatim.
+  const hostWithoutRalph = new Set(['subagent', 'subagent_fork', 'workflow', 'use_agent'])
+  assert.deepEqual(
+    [...leafDenyList('use_agent', undefined, hostWithoutRalph)],
+    ['subagent', 'subagent_fork', 'workflow', 'use_agent'],
+    'default list drops host-unknown names (stale ralph)',
+  )
+  assert.deepEqual(
+    [...leafDenyList('use_agent', ['ralph'], hostWithoutRalph)],
+    ['ralph'],
+    'explicit override is NOT intersected — host validation stays the caller feedback',
+  )
+  const fullHost = new Set(['subagent', 'subagent_fork', 'workflow', 'ralph', 'use_agent'])
+  assert.deepEqual(
+    [...leafDenyList('use_agent', undefined, fullHost)],
+    [...leafDenyList('use_agent')],
+    'full host registry keeps the whole default list',
+  )
   console.log('PASS leafDenyList')
 }
 

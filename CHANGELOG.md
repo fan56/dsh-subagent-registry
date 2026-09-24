@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Fixed
+- **Leaf deny list is now intersected with the host's registered global tools** — the stock default names are a static enumeration over a distribution that moves: dsh 0.1.7-rc.1 stopped registering `dsh-tool-ralph` while `tools.restrict()` became fail-fast on unknown names, so every leaf (`deep: 0`) dispatch aborted before the child even started (`Error: tools.restrict() names unknown global tool "ralph"`). The default list is now filtered through `ctx.tools.view().restrictableNames` at tool-registration time (read defensively; an unavailable view degrades to the pre-0.1.7 verbatim pass). An explicit `leafDenyTools` override is NOT intersected — the caller owns that list and the host's strict validation is the right feedback. Surfaced by the dsh-tui-pi podman e2e hard-stop ladder (zero `hs-loop` mock phases).
+
 ### Changed
 - **dsh support floor raised to 0.1.7-rc.1** (peer floors `>=0.1.7-rc.1`, dev pins exact `0.1.7-rc.1`; `@deepseek-ai/cordis` → `~4.0.4`, `@deepseek-ai/schemastery` → `~3.18.4`; READMEs updated). The closure rides the 0.1.7 shapes.
 - **Child discovery follows the 0.1.7 durable catalog** — `ctx.subagents.listChildren()` now returns `SubagentCatalogEntry[]` (`{ id, createdAt, mode, label? }`): the old `SubagentListEntry` fields are gone (every row is a child — no `kind` discriminator; `mode` gains `'unknown'`; liveness is no longer carried). The one-shot resume picker's `activity: 'inactive'` prefilter is replaced by a live agent registry check (`ctx.agents.get`) inside `findResumableRun`; the continuable picker is unchanged in behavior (resident and cold continuable children both stay addressable; `unknown`-mode rows qualify as neither).

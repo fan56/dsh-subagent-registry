@@ -65,8 +65,25 @@ export declare const SPAWN_TOOL_NAMES: readonly ["subagent", "subagent_fork", "w
  * dispatch and again at resume: an explicit non-empty `leafDenyTools` replaces
  * the default (every agent-spawning tool in the dsh base distribution plus
  * this plugin's own `toolName`).
+ *
+ * `hostKnown` is the host's currently-registered global tool names (see
+ * `resolveHostToolNames`); when provided, the DEFAULT list is intersected
+ * with it. The stock spawn-tool names are a static enumeration over a
+ * distribution whose composition moves — dsh 0.1.7-rc.1 stopped registering
+ * `dsh-tool-ralph` while its `tools.restrict()` became fail-fast on unknown
+ * names, so passing a stale default verbatim aborts the whole spawn. An
+ * explicit `leafDenyTools` is NOT intersected: the caller owns that list and
+ * the host's strict validation is the right feedback for a stale entry.
  */
-export declare function leafDenyList(toolName: string, leafDenyTools?: readonly string[]): readonly string[];
+export declare function leafDenyList(toolName: string, leafDenyTools?: readonly string[], hostKnown?: ReadonlySet<string>): readonly string[];
+/**
+ * The names the host would accept in a `tools.restrict()` filter for the
+ * plugin's own context — `ctx.tools.view().restrictableNames`, read
+ * defensively: older hosts may lack `view()`, and anything unexpected here
+ * must degrade to "pass the default list verbatim" (the pre-0.1.7 behavior),
+ * never to "deny nothing".
+ */
+export declare function resolveHostToolNames(ctx: Context): ReadonlySet<string> | undefined;
 /** Join text blocks from a canonical block array without trusting values. */
 export declare function textOf(output: readonly unknown[]): string;
 /**
@@ -110,6 +127,11 @@ export interface BuildStartRequestInput {
     toolName: string;
     /** Optional explicit replacement for the default leaf deny list. */
     leafDenyTools?: readonly string[];
+    /**
+     * The host's registered global tool names (`resolveHostToolNames`), used to
+     * intersect the DEFAULT leaf deny list — see `leafDenyList`.
+     */
+    hostKnownTools?: ReadonlySet<string>;
     /** Optional dsh `provider/model` route from the agent frontmatter. */
     model?: string;
     /** Optional display name used as the running child's display label (falls back to agentName). */
