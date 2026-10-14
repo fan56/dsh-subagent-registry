@@ -27,18 +27,12 @@ export function registerDelegationGuidance(ctx: Context, dispatch: ToolDefinitio
       hostDelegationNames(section.text).filter(name => visible.has(name)),
     ))]
     const text = [
-      `When delegating a self-contained task, prefer \`${dispatch.name}\` if a custom agent in its roster matches the task; choose by the listed role and include the context it needs.`,
-      ...(nativeNames.length > 0 ? [
-        `If no custom role fits, use ${nativeNames.map(name => `\`${name}\``).join(' or ')} as appropriate for the task.`,
-      ] : []),
-      ...(nativeNames.includes('subagent_fork') ? [
-        'When the child needs to inherit the current conversation, use `subagent_fork`; custom agents receive a self-contained prompt instead.',
-      ] : []),
-      `Start independent delegations together in one assistant message and continue useful work while they run. Use \`${dispatch.name}\` with background=true for independent custom-agent work; wait in the foreground only when your next action depends on its result.`,
+      `When delegating, use a matching role from the \`${dispatch.name}\` roster with a self-contained prompt.${nativeNames.includes('subagent_fork') ? ' Use `subagent_fork` only when inheriting the current conversation is necessary.' : ''}`,
+      'Start independent calls together; use `background=true` for custom agents and continue useful work. Wait in the foreground only when your next step depends on the result.',
       ...(visible.has(askToolName) ? [
         `Use \`${askToolName}\` to follow up with a background custom agent and wait for its reply.`,
       ] : []),
-    ].join('\n')
+    ].join('\n\n')
 
     // Preserve every tool schema, runtime context and unrelated prompt section.
     let replaced = false

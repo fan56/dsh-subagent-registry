@@ -89,10 +89,15 @@ try {
   const baseline = await assemble()
   const registry = await ctx.plugin(Registry, { agentsDir, provider: 'spawn', toolName: 'use_agent', askToolName: 'ask_agent' })
   const guided = await assemble()
-  assert.match(textOfAssembly(guided), /prefer `use_agent`/)
+  const guidance = guided.sections.find(section => section.text.startsWith('When delegating,'))?.text
+  assert.equal(guidance, [
+    'When delegating, use a matching role from the `use_agent` roster with a self-contained prompt. Use `subagent_fork` only when inheriting the current conversation is necessary.',
+    'Start independent calls together; use `background=true` for custom agents and continue useful work. Wait in the foreground only when your next step depends on the result.',
+    'Use `ask_agent` to follow up with a background custom agent and wait for its reply.',
+  ].join('\n\n'))
+  assert.doesNotMatch(guidance, /`subagent`/)
   assert.doesNotMatch(textOfAssembly(guided), /Handle simple tasks directly when delegation would add no value/)
-  assert.match(textOfAssembly(guided), /inherit the current conversation, use `subagent_fork`/)
-  assert.equal((textOfAssembly(guided).match(/Start independent delegations/g) ?? []).length, 1)
+  assert.equal((textOfAssembly(guided).match(/Start independent calls/g) ?? []).length, 1)
   assert.deepEqual(guided.tools.filter(tool => !['use_agent', 'ask_agent'].includes(tool.name)), baseline.tools)
   assert.deepEqual(guided.contexts, baseline.contexts)
   assert.deepEqual(guided.variables, baseline.variables)
@@ -105,10 +110,10 @@ try {
   const restorePtc = parent.ctx.tools.presentAs('ptc')
   const ptc = await assemble()
   assert.deepEqual(ptc.tools.map(tool => tool.name), ['run_code'])
-  assert.match(textOfAssembly(ptc), /prefer `use_agent`/)
+  assert.match(textOfAssembly(ptc), /from the `use_agent`/)
   assert.match(textOfAssembly(ptc), /Use `ask_agent`/)
   const restorePtcRestriction = parent.ctx.tools.restrict({ deny: ['use_agent'] })
-  assert.doesNotMatch(textOfAssembly(await assemble()), /prefer `use_agent`/)
+  assert.doesNotMatch(textOfAssembly(await assemble()), /from the `use_agent`/)
   await restorePtcRestriction()
   await restorePtc()
   const restoreRestriction = parent.ctx.tools.restrict({ deny: ['use_agent'] })
@@ -117,6 +122,10 @@ try {
   const restoreAsk = parent.ctx.tools.restrict({ deny: ['ask_agent'] })
   assert.doesNotMatch(textOfAssembly(await assemble()), /Use `ask_agent`/)
   await restoreAsk()
+  const restoreFork = parent.ctx.tools.restrict({ deny: ['subagent_fork'] })
+  assert.match(textOfAssembly(await assemble()), /from the `use_agent`/)
+  assert.doesNotMatch(textOfAssembly(await assemble()), /Use `subagent_fork` only/)
+  await restoreFork()
   const signal = new AbortController().signal
   const activationHost = typeof ctx.subagents.startActivation === 'function'
   if (process.env.DSH_TEST_HOST_VERSION) assert.equal(activationHost, process.env.DSH_TEST_HOST_VERSION === '0.2.1-alpha.2')
@@ -184,13 +193,13 @@ try {
   assert.deepEqual(await assemble(), baseline, 'unmount restores the entire native assembly')
   const renamed = await ctx.plugin(Registry, { agentsDir, provider: 'spawn', toolName: 'delegate_custom', askToolName: 'follow_custom' })
   const renamedText = textOfAssembly(await assemble())
-  assert.match(renamedText, /prefer `delegate_custom`/)
+  assert.match(renamedText, /from the `delegate_custom`/)
   assert.match(renamedText, /Use `follow_custom`/)
   assert.doesNotMatch(renamedText, /`use_agent`|`ask_agent`/)
   await renamed.dispose()
   assert.deepEqual(await assemble(), baseline)
   const scoped = await parent.ctx.plugin(Registry, { agentsDir, provider: 'spawn', toolName: 'scoped_custom', askToolName: 'scoped_ask' })
-  assert.match(textOfAssembly(await assemble()), /prefer `scoped_custom`/)
+  assert.match(textOfAssembly(await assemble()), /from the `scoped_custom`/)
   assert.doesNotMatch(textOfAssembly(await ctx.systemPrompt.assemble()), /scoped_custom/)
   adapter.script.push({ text: 'SCOPED_FG_OK' })
   const scopedResult = await ctx.tools.get('scoped_custom', scope).execute({ agent: 'worker', prompt: 'scoped leaf task', fresh: true }, { agent: parent, signal })
