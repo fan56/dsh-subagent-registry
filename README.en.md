@@ -15,6 +15,7 @@ partial work. No host patching, no code — a markdown file per agent.
 - **Resumes interrupted runs** — after an error, cancellation, token limit or
   crash, the next call for the same agent continues from the saved partial
   work instead of starting over.
+- **Role-aware delegation guidance** — English guidance prefers a matching custom role, runs independent tasks in the background, and keeps native `subagent_fork` for inherited conversation context. It applies only where this plugin's dispatch tool is visible; unloading restores the host guidance.
 - **Background dispatch + two-way follow-ups** — `background: true` runs the
   agent as a durable background conversation while the parent keeps working;
   `ask_agent` sends a follow-up and waits for the reply.

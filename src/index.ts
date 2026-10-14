@@ -36,6 +36,7 @@ import { agentsDir, expandHome } from './agents-dir.ts'
 import { seedBundledAgents } from './seed-defaults.ts'
 import { runAgentTool, type RunAgentConfig } from './tool-run-agent.ts'
 import { askAgentTool } from './interactive.ts'
+import { registerDelegationGuidance } from './delegation-guidance.ts'
 
 // Profile-aware runtime synthesis (the read side of the model-profile
 // feature): dsh-tui-pi imports these from this package.
@@ -123,7 +124,7 @@ export function stripFrontmatter(raw: string): string {
  * dsh-tool-subagent plus the resume dependency — plus the skill registry that
  * serves the bundled usage/config guide.
  */
-export const inject = ['tools', 'subagents', 'agents', 'skills']
+export const inject = ['tools', 'subagents', 'agents', 'skills', 'systemPrompt']
 
 /**
  * Plugin config. `agentsDir` defaults to the dsh-home agents dir
@@ -180,7 +181,8 @@ export function apply(ctx: Context, config: RunAgentConfig): void {
   // call time through ctx.subagents.startActivation, so no further check is needed.
   const registerTool = (): void => {
     ctx.effect(() => {
-      const dispatch = ctx.tools.register(runAgentTool(ctx, runConfig))
+      const definition = runAgentTool(ctx, runConfig)
+      const dispatch = ctx.tools.register(definition)
       const followUp = ctx.tools.register(
         askAgentTool(ctx, {
           agentsDir: dir,
@@ -188,7 +190,7 @@ export function apply(ctx: Context, config: RunAgentConfig): void {
           dispatchToolName: config.toolName,
         }),
       )
-      return [dispatch, followUp]
+      return [dispatch, followUp, registerDelegationGuidance(ctx, definition, config.askToolName ?? 'ask_agent')]
     }, `dsh-subagent-registry:${config.toolName}`)
   }
   // TODO(upstream): upstream added a read-only `list_subagent_models`
