@@ -1,4 +1,4 @@
-// Real 0.2.1-alpha.2 services, persistence, manager and spawn; only the model is scripted.
+// Real published SDK services, persistence, manager and spawn; only the model is scripted.
 import assert from 'node:assert/strict'
 import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -13,7 +13,6 @@ import SessionQueryEngine from '@deepseek-ai/dsh-session-query'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import FsLocal from '@deepseek-ai/dsh-fs-local'
-import WorkingDirectory from '@deepseek-ai/dsh-working-directory'
 import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import SubagentRuntime from '@deepseek-ai/dsh-subagent'
 import * as Spawn from '@deepseek-ai/dsh-subagent-spawn-in-process'
@@ -22,13 +21,23 @@ import * as Delegate from '@deepseek-ai/dsh-tool-subagent'
 import SkillRegistry from '@deepseek-ai/dsh-skill'
 import { scopeOf } from '@deepseek-ai/dsh-scope'
 import * as Registry from '../lib/index.js'
+import { createLegacyDescendantJoin } from '../lib/host-compat.js'
 
 class ScriptedAdapter extends LlmAdapter {
   script = []
   active
+  async resolveModel(provider, id) {
+    return { provider, id, name: id, reasoning: { efforts: [{ id: 'high', name: 'High' }] } }
+  }
   async *stream(options) {
     const entry = options.model === 'parent' ? { text: 'settlement received' } : this.script.shift()
     assert(entry, 'unexpected child model call')
+    if (options.model !== 'parent') {
+      assert.equal(options.model, 'child', 'fresh and resumed children use the configured model')
+      assert.equal(options.reasoningEffort, 'high', 'frontmatter thinking survives resume')
+      assert.match(JSON.stringify(options.messages.filter(message => message.role === 'system')), /Follow the task\./)
+      assert.deepEqual((options.tools ?? []).filter(tool => ['subagent', 'subagent_fork', 'use_agent', 'scoped_custom'].includes(tool.name)).map(tool => tool.name), [], 'leaf tools stay restricted')
+    }
     this.active?.()
     if (entry.error) throw new Error(entry.error)
     if (entry.hang) {
@@ -50,17 +59,18 @@ class ScriptedAdapter extends LlmAdapter {
 const root = await mkdtemp(join(tmpdir(), 'dsh-registry-host-'))
 const ctx = new Context()
 const adapter = new ScriptedAdapter()
+let parentJoin
 try {
   const agentsDir = join(root, 'agents')
   await mkdir(agentsDir)
-  await writeFile(join(agentsDir, 'worker.md'), '---\nname: worker\nmodel: smoke/child\ndeep: 0\n---\nFollow the task.\n')
+  await writeFile(join(agentsDir, 'worker.md'), '---\nname: worker\nmodel: smoke/child\nthinking: high\ndeep: 0\n---\nFollow the task.\n')
   await ctx.plugin(LlmRuntime)
   await ctx.plugin(SessionStore)
   await ctx.plugin(SessionProjectionRegistry)
   await ctx.plugin(SessionQueryEngine)
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(FsLocal)
-  await ctx.plugin(WorkingDirectory)
+  if (process.env.DSH_TEST_HOST_VERSION !== '0.2.0-rc.2') await ctx.plugin((await import('@deepseek-ai/dsh-working-directory')).default)
   await ctx.plugin(ToolRuntime)
   await ctx.plugin(AgentRegistry)
   await ctx.plugin(JsonlSessionPersistence, { root: join(root, 'sessions') })
@@ -69,8 +79,8 @@ try {
   await ctx.plugin(Spawn, { providerName: 'spawn' })
   ctx.llm.registerAdapter(['smoke'], adapter)
   await ctx.plugin(Fork, { providerName: 'fork' })
-  await ctx.plugin(Delegate, { provider: 'spawn', toolName: 'subagent', maxDepth: 1 })
-  await ctx.plugin(Delegate, { provider: 'fork', toolName: 'subagent_fork', maxDepth: 1 })
+  await ctx.plugin(Delegate, { provider: 'spawn', toolName: 'subagent', backgroundMode: 'continuable', maxDepth: 1 })
+  await ctx.plugin(Delegate, { provider: 'fork', toolName: 'subagent_fork', backgroundMode: 'continuable', maxDepth: 1 })
   await ctx.plugin(SkillRegistry)
   const parent = await ctx.agentLoop.create(SessionId('registry-smoke-parent'), { provider: 'smoke', model: 'parent' })
   const scope = scopeOf(parent.ctx)
@@ -108,6 +118,10 @@ try {
   assert.doesNotMatch(textOfAssembly(await assemble()), /Use `ask_agent`/)
   await restoreAsk()
   const signal = new AbortController().signal
+  const activationHost = typeof ctx.subagents.startActivation === 'function'
+  if (process.env.DSH_TEST_HOST_VERSION) assert.equal(activationHost, process.env.DSH_TEST_HOST_VERSION === '0.2.1-alpha.2')
+  if (!activationHost) parentJoin = createLegacyDescendantJoin(ctx, signal)
+  const waitForChildren = () => activationHost ? ctx.subagents.waitForChildren(parent) : parentJoin.wait(parent)
   const tool = ctx.tools.get('use_agent', scope)
   const ask = ctx.tools.get('ask_agent', scope)
   const shadow = parent.ctx.tools.register({ ...tool, description: 'Another scoped tool with the same name.' })
@@ -119,8 +133,8 @@ try {
   adapter.script.push({ text: 'FG_OK' })
   assert.equal(textOf(await call({ fresh: true })), 'FG_OK')
   let rows = await ctx.subagents.listChildren(parent.id)
-  assert.equal(rows.at(-1).mode, 'continuable')
-  assert.equal(rows.at(-1).label, '[use_agent foreground] worker')
+  assert.equal(rows.at(-1).mode, activationHost ? 'continuable' : 'one-shot')
+  assert.equal(rows.at(-1).label, activationHost ? '[use_agent foreground] worker' : 'worker')
   const count = rows.length
 
   adapter.script.push({ text: 'PARTIAL', limit: true })
@@ -135,15 +149,22 @@ try {
   adapter.script.push({ text: 'BG_OK' })
   const background = await call({ background: true })
   assert.equal(background.kind, 'agent-start')
-  await ctx.subagents.waitForChildren(parent)
+  await waitForChildren()
   await parent.whenIdle()
   adapter.script.push({ text: 'FOLLOWUP_OK' })
   const reply = await ask.execute({ agent_id: background.subagentId, message: 'follow-up task', timeout: 3 }, { agent: parent, signal })
   assert.equal(textOf(reply), 'FOLLOWUP_OK')
-  await ctx.subagents.waitForChildren(parent)
+  await waitForChildren()
   await parent.whenIdle()
   const bg = (await ctx.subagents.listChildren(parent.id)).find(row => String(row.id) === background.subagentId)
   assert.equal(bg.label, 'worker')
+  adapter.script.push({ text: 'NEWER_FOREGROUND_OK' })
+  assert.equal(textOf(await call({ fresh: true })), 'NEWER_FOREGROUND_OK')
+  adapter.script.push({ text: 'BY_NAME_OK' })
+  const byName = await ask.execute({ agent: 'worker', message: 'name follow-up', timeout: 3 }, { agent: parent, signal })
+  assert.equal(textOf(byName), 'BY_NAME_OK', 'a newer foreground child cannot shadow the background target')
+  await waitForChildren()
+  await parent.whenIdle()
 
   const cancellation = new AbortController()
   let started
@@ -171,10 +192,14 @@ try {
   const scoped = await parent.ctx.plugin(Registry, { agentsDir, provider: 'spawn', toolName: 'scoped_custom', askToolName: 'scoped_ask' })
   assert.match(textOfAssembly(await assemble()), /prefer `scoped_custom`/)
   assert.doesNotMatch(textOfAssembly(await ctx.systemPrompt.assemble()), /scoped_custom/)
+  adapter.script.push({ text: 'SCOPED_FG_OK' })
+  const scopedResult = await ctx.tools.get('scoped_custom', scope).execute({ agent: 'worker', prompt: 'scoped leaf task', fresh: true }, { agent: parent, signal })
+  assert.equal(textOf(scopedResult), 'SCOPED_FG_OK', 'scoped leaf dispatch must also filter its own tool')
   await scoped.dispose()
   assert.deepEqual(await assemble(), baseline)
   console.log('host-activation: PASS — plugin mount, English guidance, native schemas, visibility, renamed tools, unmount, foreground/background, cold resume, ask, cancellation, persisted errors')
 } finally {
+  parentJoin?.dispose()
   await ctx.fiber.dispose()
   assert.equal(resolve(root), root)
   assert(root.startsWith(join(tmpdir(), 'dsh-registry-host-')))

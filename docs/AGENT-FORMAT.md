@@ -5,6 +5,12 @@ parser recognizes, the exact validation and failure modes, the `deep` /
 `thinking` semantics, resume mechanics, background dispatch and the
 configuration surface. For a quick start, see the [README](../README.md).
 
+## Supported hosts
+
+The same package is tested on published DSH `0.2.0-rc.2` and `0.2.1-alpha.2` SDK closures. It selects public APIs before dispatch: `start` / `startContinuable` on the old host, `startActivation` with `caller` / `parent` delivery on the new host. A failed accepted call never falls back to another dispatch API.
+
+Both hosts support foreground resume and background follow-ups within their own persisted session format; cross-version session migration is not provided. Older resume waits use scoped public lifecycle events and descendant queries, including live grandchildren and parked continuables. Cancellation drains the owning forest using the host's available drain API. Session persistence and the host's `sessionQuery` service are required for catalog lookup and follow-ups.
+
 ## Agent definition format
 
 An agent is `<agents-dir>/<name>.md` — a loose `key: value` frontmatter block
@@ -111,7 +117,7 @@ parent id before publication. It applies current persona/model/tool options,
 observes caller and parent-scope cancellation, waits for descendants, and
 releases both descendants and the handle even when cleanup fails.
 
-**Host limitation (0.2.1-alpha.2):** the public API cannot cold-resume with
+**Host limitation (both supported versions):** the public API cannot cold-resume with
 caller-only delivery and composition overrides under the manager. This
 foreground compatibility path therefore does not occupy manager capacity,
 cannot be stopped by `interrupt_agent`, and cannot send a stock
@@ -177,14 +183,14 @@ tool.
 Notes:
 
 - Background dispatch and follow-ups need the deployment's session
-  persistence (every standard dsh profile mounts it); `startActivation`
-  fails loudly without it.
+  persistence and `sessionQuery`; missing required services fail loudly.
 - `send_message` / `interrupt_agent` / `list_agents` (registered by dsh-base)
   stay visible to `deep: 0` leaf children: a leaf can proactively
   `send_message` its parent mid-task, and the reply arrives in the parent's
   conversation as an agent message.
-- Background children use `display_name ?? agent name`; new foreground
-  children prefix it with `[use_agent foreground] `. `use_agent` resume
+- Background children use `display_name ?? agent name`; foreground children
+  on the activation host prefix it with `[use_agent foreground] `, while the
+  old host uses plain one-shot labels. `use_agent` resume
   accepts that namespace or a legacy one-shot label;
   `ask_agent` (when addressing by `agent`) tries the two candidates
   `[display_name ?? name, name]` and picks the newest match.

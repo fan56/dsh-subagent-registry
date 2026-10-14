@@ -22,6 +22,7 @@
  */
 import type { Context } from '@deepseek-ai/cordis';
 import { type SubagentStartRequest } from '@deepseek-ai/dsh-subagent';
+import { type ScopeKey } from '@deepseek-ai/dsh-scope';
 import { type AgentFile, type ThinkingLevel } from './agents-dir.ts';
 import { type ResumeMode } from './resume.ts';
 /** The writable knob surface for this plugin (a subset of the Config schema). */
@@ -83,7 +84,7 @@ export declare function leafDenyList(toolName: string, leafDenyTools?: readonly 
  * must degrade to "pass the default list verbatim" (the pre-0.1.7 behavior),
  * never to "deny nothing".
  */
-export declare function resolveHostToolNames(ctx: Context): ReadonlySet<string> | undefined;
+export declare function resolveHostToolNames(ctx: Context, scope?: ScopeKey): ReadonlySet<string> | undefined;
 /** Join text blocks from a canonical block array without trusting values. */
 export declare function textOf(output: readonly unknown[]): string;
 /**

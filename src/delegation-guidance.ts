@@ -3,7 +3,13 @@ import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 
 // Match only the host's generated delegation section, not arbitrary persona text.
-const HOST_GUIDANCE = /^Start independent delegations with (`[^`\r\n]+`(?: or `[^`\r\n]+`)*) together in one assistant message and continue useful work while they run\.$/
+const HOST_GUIDANCE = /^Start independent (?:delegations with (`[^`\r\n]+`(?: or `[^`\r\n]+`)*)|([^`\s]+) delegations) together in one assistant message and continue useful work while they run\.$/
+
+function hostDelegationNames(text: string): string[] {
+  const match = HOST_GUIDANCE.exec(text)
+  if (match === null) return []
+  return match[2] === undefined ? [...match[1].matchAll(/`([^`]+)`/g)].map(item => item[1]) : [match[2]]
+}
 
 /** Keep native delegation available while preferring the visible custom-agent roster. */
 export function registerDelegationGuidance(ctx: Context, dispatch: ToolDefinition, askToolName: string): () => void {
@@ -14,13 +20,11 @@ export function registerDelegationGuidance(ctx: Context, dispatch: ToolDefinitio
     const visible = new Set(schemas.map(tool => tool.name))
     if (!visible.has(dispatch.name) || ctx.tools.get(dispatch.name, context.scope) !== dispatch) return assembly
 
-    const originals = assembly.sections.filter(section => {
-      const match = HOST_GUIDANCE.exec(section.text)
-      return match !== null && section.name.startsWith('tool:')
-        && [...match[1].matchAll(/`([^`]+)`/g)].some(item => section.name === `tool:${item[1]}`)
-    })
+    const originals = assembly.sections.filter(section =>
+      hostDelegationNames(section.text).some(name => section.name === `tool:${name}`),
+    )
     const nativeNames = [...new Set(originals.flatMap(section =>
-      [...section.text.matchAll(/`([^`]+)`/g)].map(match => match[1]).filter(name => visible.has(name)),
+      hostDelegationNames(section.text).filter(name => visible.has(name)),
     ))]
     const text = [
       `When delegating a self-contained task, prefer \`${dispatch.name}\` if a custom agent in its roster matches the task; choose by the listed role and include the context it needs.`,

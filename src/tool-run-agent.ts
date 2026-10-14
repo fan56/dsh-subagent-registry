@@ -29,7 +29,10 @@ import type { Context } from '@deepseek-ai/cordis'
 // dsh-util-values — the same module dsh-tools itself sources it from.
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import type { ContentBlock, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
-import { resolveChildDepth, type SubagentActivation, type SubagentStartRequest } from '@deepseek-ai/dsh-subagent'
+import { resolveChildDepth, finalAssistantOutput, type SubagentResult, type SubagentStartRequest } from '@deepseek-ai/dsh-subagent'
+import type { SessionId } from '@deepseek-ai/dsh-session'
+import { scopeOf, type ScopeKey } from '@deepseek-ai/dsh-scope'
+import { createLegacyDescendantJoin, drainRunDescendants, legacySubagents } from './host-compat.ts'
 import { expandHome, listAgentFiles, parseAgentMarkdown, type AgentFile, type ThinkingLevel } from './agents-dir.ts'
 import { composeAgentRuntime } from './profile-resolution.ts'
 import { decideBackgroundMode } from './interactive.ts'
@@ -41,6 +44,7 @@ import {
   foregroundLabel,
   accountingTurnEnd,
   readStoredEvents,
+  toStopReason,
   type ResumeMode,
 } from './resume.ts'
 
@@ -122,13 +126,13 @@ export function leafDenyList(
  * must degrade to "pass the default list verbatim" (the pre-0.1.7 behavior),
  * never to "deny nothing".
  */
-export function resolveHostToolNames(ctx: Context): ReadonlySet<string> | undefined {
+export function resolveHostToolNames(ctx: Context, scope?: ScopeKey): ReadonlySet<string> | undefined {
   try {
     // `view` is private in the host's ToolRuntime typing but callable at
     // runtime; the double cast keeps this compilation-independent of it.
     const names = (ctx as unknown as {
-      tools?: { view?: () => { restrictableNames?: unknown } }
-    }).tools?.view?.()?.restrictableNames
+      tools?: { view?: (scope?: ScopeKey) => { restrictableNames?: unknown } }
+    }).tools?.view?.(scope)?.restrictableNames
     return names instanceof Set ? names : undefined
   } catch {
     return undefined
@@ -298,11 +302,21 @@ export function buildStartRequest(input: BuildStartRequestInput): Omit<SubagentS
   return request
 }
 
+interface ForegroundRun {
+  readonly childId: SessionId
+  readonly result: Promise<SubagentResult>
+  cancel?(): void
+  dispose(): Promise<void>
+}
+
 /** Caller cancellation owns accepted foreground work until teardown finishes. */
-async function settleForegroundRun(ctx: Context, run: SubagentActivation, agentName: string, signal: AbortSignal): Promise<readonly ContentBlock[]> {
+async function settleForegroundRun(ctx: Context, run: ForegroundRun, agentName: string, signal: AbortSignal): Promise<readonly ContentBlock[]> {
   let disposal: Promise<void> | undefined
   const dispose = () => disposal ??= Promise.resolve().then(() => run.dispose())
-  const onAbort = () => { void dispose().catch(() => {}) }
+  const onAbort = () => {
+    if (run.cancel) run.cancel()
+    else void dispose().catch(() => {})
+  }
   signal.addEventListener('abort', onAbort, { once: true })
   if (signal.aborted) onAbort()
   const [execution] = await Promise.allSettled([
@@ -340,6 +354,59 @@ async function settleForegroundRun(ctx: Context, run: SubagentActivation, agentN
   return execution.value
 }
 
+/** rc.2's one-shot result precedes descendant settlement; read the live final suffix before release. */
+async function startLegacyForeground(
+  ctx: Context,
+  provider: string,
+  request: SubagentStartRequest,
+): Promise<ForegroundRun> {
+  const join = createLegacyDescendantJoin(ctx, request.signal)
+  try {
+    const run = await legacySubagents(ctx).start(provider, request)
+    const child = run.localAgent
+    if (!child) {
+      join.dispose()
+      return { childId: run.id, result: run.result, dispose: () => run.dispose() }
+    }
+    let drain: Promise<void> | undefined
+    const drainDescendants = () => drain ??= Promise.resolve().then(() => drainRunDescendants(ctx, child))
+    const cancel = () => {
+      child.cancel({ kind: 'parent' })
+      void drainDescendants().catch(() => {})
+    }
+    // Keep diagnostics live: cancellation stops/drains now, but disposal waits for the result read.
+    const result = run.result.then(async (early) => {
+      try { await join.wait(child) } catch (error) {
+        if (!request.signal.aborted) throw error
+        await child.whenIdle()
+      }
+      const own = child.session.snapshotEvents(child.session.inheritedEventCount)
+      const end = accountingTurnEnd(own)
+      const reason = (end?.data as { reason?: { kind?: string; error?: { message?: string } } } | undefined)?.reason
+      return {
+        ...early,
+        output: finalAssistantOutput(own) ?? [],
+        stopReason: request.signal.aborted ? 'aborted' : toStopReason(reason?.kind),
+        ...(reason?.error?.message ? { diagnostic: reason.error.message } : {}),
+      }
+    }).finally(() => join.dispose())
+    return {
+      childId: run.id,
+      result,
+      cancel,
+      async dispose() {
+        const [descendants] = await Promise.allSettled([drainDescendants()])
+        const [released] = await Promise.allSettled([Promise.resolve().then(() => run.dispose())])
+        const errors = [descendants, released].flatMap(r => r.status === 'rejected' ? [r.reason] : [])
+        if (errors.length > 0) throw new AggregateError(errors, 'subagent cleanup failed: ' + errors.map(String).join('; '))
+      },
+    }
+  } catch (error) {
+    join.dispose()
+    throw error
+  }
+}
+
 /** Map a non-`completed` stop reason to a human headline for the parent model. */
 export function stopReasonError(reason: string): string {
   switch (reason) {
@@ -373,13 +440,6 @@ export function loadAgent(dir: string, name: string, available: string[]): Agent
 export function runAgentTool(ctx: Context, cfg: RunAgentConfig) {
   const dir = expandHome(cfg.agentsDir)
   const { rosterText, nameList } = buildRoster(dir)
-  // Read once at registration: the globally-registered tool set is stable by
-  // the time a provider-backed tool can be registered, and every leaf deny
-  // list this tool builds intersects the default against it (see
-  // `leafDenyList` — a stale static name aborts the whole spawn on a host
-  // whose `tools.restrict()` is fail-fast).
-  const hostKnownTools = resolveHostToolNames(ctx)
-
   const description =
     `Call one of the locally-defined custom agents by name. These are your own ` +
     `custom sub-agents (defined in ${dir}/<name>.md); each runs as its own ` +
@@ -448,6 +508,8 @@ export function runAgentTool(ctx: Context, cfg: RunAgentConfig) {
       if (parent === undefined) {
         throw new Error(`${cfg.toolName} requires a calling agent (exec.agent was undefined)`)
       }
+      // Read after registration, in the caller's scope, including this dispatch tool.
+      const hostKnownTools = resolveHostToolNames(ctx, scopeOf(parent.ctx ?? ctx))
       if (args.resume === true && args.fresh === true) {
         throw new Error(`${cfg.toolName}: "resume" and "fresh" are mutually exclusive — pass at most one`)
       }
@@ -492,13 +554,20 @@ export function runAgentTool(ctx: Context, cfg: RunAgentConfig) {
           displayName: agent.meta.displayName,
           thinking: runtime.thinking as ThinkingLevel | undefined,
         })
-        const { childId } = await ctx.subagents.startActivation({
-          provider: cfg.provider,
-          label,
-          delivery: 'parent',
-          request,
-          signal: exec.signal,
-        })
+        const { childId } = typeof ctx.subagents.startActivation === 'function'
+          ? await ctx.subagents.startActivation({
+              provider: cfg.provider,
+              label,
+              delivery: 'parent',
+              request,
+              signal: exec.signal,
+            })
+          : await legacySubagents(ctx).startContinuable({
+              provider: cfg.provider,
+              label,
+              request,
+              signal: exec.signal,
+            })
         const followUpTool = cfg.askToolName ?? 'ask_agent'
         return {
           kind: 'agent-start' as const,
@@ -601,13 +670,15 @@ export function runAgentTool(ctx: Context, cfg: RunAgentConfig) {
       })
       const signal = exec.signal
 
-      const run = await ctx.subagents.startActivation({
-        provider: cfg.provider,
-        label: foregroundLabel(label),
-        request,
-        signal,
-        delivery: 'caller',
-      })
+      const run = typeof ctx.subagents.startActivation === 'function'
+        ? await ctx.subagents.startActivation({
+            provider: cfg.provider,
+            label: foregroundLabel(label),
+            request,
+            signal,
+            delivery: 'caller',
+          })
+        : await startLegacyForeground(ctx, cfg.provider, { ...request, label, signal })
       return {
         kind: 'agent-result' as const,
         // settleForegroundRun always disposes the run, even when result

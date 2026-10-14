@@ -7,6 +7,7 @@ import { foldConsumedWork } from '@deepseek-ai/dsh-agent'
 import type { Agent, AgentOptions } from '@deepseek-ai/dsh-agent'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import type { ToolRestriction } from '@deepseek-ai/dsh-tools'
+import { createLegacyDescendantJoin, drainRunDescendants } from './host-compat.ts'
 import {
   applyChildComposition,
   finalAssistantOutput,
@@ -398,8 +399,9 @@ async function driveLegacyResume(input: ResumeDriveInput): Promise<ResumedRunRes
     },
   })
   const child = handle.agent
+  let join: ReturnType<typeof createLegacyDescendantJoin> | undefined
   let drain: Promise<void> | undefined
-  const drainDescendants = () => drain ??= ctx.subagents.drainDescendants([child])
+  const drainDescendants = () => drain ??= Promise.resolve().then(() => drainRunDescendants(ctx, child))
   const dispose = async () => {
     const [descendants] = await Promise.allSettled([drainDescendants()])
     const [handleDisposed] = await Promise.allSettled([handle.dispose()])
@@ -425,6 +427,7 @@ async function driveLegacyResume(input: ResumeDriveInput): Promise<ResumedRunRes
     // the live child before disposal and fail identically in bare contexts
     // without persistence.
     const boundary = child.session.seq
+    if (typeof ctx.subagents.waitForChildren !== 'function') join = createLegacyDescendantJoin(ctx, signal)
     if (!flags.cancelled) {
       child.followup(createUserMessage({
         content: [{ type: 'text', text: input.continuationPrompt }],
@@ -436,11 +439,18 @@ async function driveLegacyResume(input: ResumeDriveInput): Promise<ResumedRunRes
       }))
       // Inbox listeners may cancel synchronously before followup wakes its driver.
       if (signal.aborted) onAbort()
-      while (true) {
-        await child.whenIdle()
-        const seq = child.session.seq
-        await ctx.subagents.waitForChildren(child)
-        if (child.status === 'idle' && child.session.seq === seq) break
+      if (join) {
+        try { await join.wait(child) } catch (error) {
+          if (!signal.aborted) throw error
+          await child.whenIdle()
+        }
+      } else {
+        while (true) {
+          await child.whenIdle()
+          const seq = child.session.seq
+          await ctx.subagents.waitForChildren(child)
+          if (child.status === 'idle' && child.session.seq === seq) break
+        }
       }
     }
     const own = child.session.snapshotEvents(boundary)
@@ -454,6 +464,7 @@ async function driveLegacyResume(input: ResumeDriveInput): Promise<ResumedRunRes
     // A failed drive still disposes; a disposal failure never masks it.
     const [disposal] = await Promise.allSettled([dispose()])
     signal.removeEventListener('abort', onAbort)
+    join?.dispose()
     if (disposal.status === 'rejected') {
       throw new AggregateError(
         [error, disposal.reason],
@@ -463,6 +474,7 @@ async function driveLegacyResume(input: ResumeDriveInput): Promise<ResumedRunRes
     throw error
   }
   signal.removeEventListener('abort', onAbort)
+  join?.dispose()
   await dispose()
   return outcome
 }

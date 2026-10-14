@@ -10,6 +10,10 @@ description: "dsh 子代理注册表插件（@aiwayds/dsh-subagent-registry）�
 > 都是真正的 dsh 会话（完整会话、持久化、可继续），跑在 dsh 自带的 `spawn` provider
 > 上，插件不改 dsh 本体。
 
+## 双宿主支持
+
+同一插件包已在 DSH `0.2.0-rc.2` 与 `0.2.1-alpha.2` 的实际发布 SDK 上验证。按公开 API 自动选择：旧版前台 `start`、后台 `startContinuable`；新版 `startActivation`，前台 caller、后台 parent 投递。接口调用失败直接报错，不能换接口重复派发。续跑与追问分别读取各自宿主的会话格式，不提供跨版本迁移。宿主须挂载会话持久化及 `sessionQuery`；英文角色委派指导在两线保持相同文案。
+
 ## agent 定义格式（`<agentsDir>/<name>.md`）
 
 一个 markdown 文件就是一个 agent：`---` frontmatter 写元数据，正文**原样**作为该子代理
@@ -112,9 +116,9 @@ frontmatter 键，官方没有轮数预算能力，继续由宿主 TUI 硬停梯
   `completed`（error / aborted / max-tokens / 崩溃无记录）即为中断可续。续跑沿用同一
   persona/model/工具组合，只推进一个 continuation turn，失败可反复续，进度一直累积。
   续跑依赖会话持久化；已选中旧 run 后读取、占用或恢复失败会报错，不自动创建第二个任务，显式 `fresh: true` 才重新派发。
-  新前台 run 使用 `[use_agent foreground] <display_name ?? name>` 标签，后台保持普通标签；旧 one-shot 前台仍可续跑。
+  新版 activation 前台 run 使用 `[use_agent foreground] <display_name ?? name>` 标签；旧版前台仍为普通标签的 one-shot。后台保持普通标签，两种前台均可续跑。
   后续取消的 pending input 或未闭合新 turn 也算可续，不能只看较早的 completed。
-  DSH 0.2.1-alpha.2 的公开 API 尚不支持带当前 composition、caller-only 投递的 managed cold resume；前台续跑由 `agents.resume` 驱动，调用取消可停止，但不受 manager 并发槽和 `interrupt_agent` 管理，也不能用 stock `send_message` 联系父级。新派发与后台追问由 manager 管理。
+  两个支持版本的公开 API 尚不支持带当前 composition、caller-only 投递的 managed cold resume；前台续跑由 `agents.resume` 驱动，调用取消可停止，但不受 manager 并发槽和 `interrupt_agent` 管理，也不能用 stock `send_message` 联系父级。新派发与后台追问由 manager 管理。
 - **`ask_agent` 面向 background run**：对最近的后台 run 追问并**等回复**（按
   `agent` 名或派发时返回的 `agent_id`，二者传且仅传一个；可选 `timeout` 秒数上限，
   `≤0` 视为未传）。前台一次性 run 不能追问——它的续跑走 `use_agent` 的 resume 机制。
