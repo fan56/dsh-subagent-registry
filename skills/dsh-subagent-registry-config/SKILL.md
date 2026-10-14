@@ -1,6 +1,6 @@
 ---
 name: dsh-subagent-registry-config
-description: "dsh 子代理注册表插件（@aiwayds/dsh-subagent-registry）使用与配置指南。凡涉及自定义子代理、use_agent/ask_agent、agents 目录、agent .md 编写、子代理续跑，或要调整本插件配置时先读本指南：~/.dsh/agents/*.md frontmatter 全键（name/deep/display_name/description/model/thinking/background/maxRounds）、entry config 六键（agentsDir/provider/toolName/askToolName/leafDenyTools/resume）、ask_user_question 代写 agent 文件向导、中断 run 续跑语义。触发词：子代理、agent、use_agent、ask_agent、agents 目录、续跑、resume。"
+description: "dsh 子代理注册表插件（@aiwayds/dsh-subagent-registry）使用与配置指南。凡涉及自定义子代理、use_agent/ask_agent、agents 目录、agent .md 编写、子代理续跑，或要调整本插件配置时先读本指南：~/.dsh/agents/*.md frontmatter 全键（name/deep/display_name/description/model/thinking/background/maxRounds）、entry config 六键（agentsDir/provider/toolName/askToolName/leafDenyTools/resume）、ask_user_question 代写 agent 文件向导、中断 run 续跑语义、接入与使用体检（插件装没装/挂没挂、模型用没用过）。触发词：子代理、agent、use_agent、ask_agent、agents 目录、续跑、resume、体检、调试、没调用。"
 ---
 
 # dsh-subagent-registry 使用指南（自定义子代理 / use_agent）
@@ -83,7 +83,7 @@ cordis.patch.yml `insert` 项的 `config:` 段，即 entry config）：
         provider: spawn            # 子代理跑过哪个 subagent provider（复用 dsh-base 的 spawn）
         toolName: use_agent        # 派发工具名
         askToolName: ask_agent     # 追问工具名
-        # leafDenyTools: []        # deep:0 叶子子的禁用工具表；空 = 计算默认（dsh 自带派发工具 + toolName），非空则整体替换
+        # leafDenyTools: []        # deep:0 叶子子的禁用工具表；空 = 静态默认（dsh 自带派发工具 + toolName）再与宿主已注册工具取交集；非空原样透传（不交集）
         resume: auto               # auto | opt-in | off
 ```
 
@@ -93,7 +93,7 @@ cordis.patch.yml `insert` 项的 `config:` 段，即 entry config）：
 | `provider`      | `spawn`        | 子代理 provider。                                                                                 |
 | `toolName`      | `use_agent`    | 派发工具名；自定义后叶子 deny 列表会自动跟随。                                                     |
 | `askToolName`   | `ask_agent`    | 追问工具名。                                                                                      |
-| `leafDenyTools` | `[]`           | 空 = 计算默认（`subagent`/`subagent_fork`/`workflow`/`ralph` + `toolName`）；非空整体替换默认。     |
+| `leafDenyTools` | `[]`           | 空 = 静态默认（`subagent`/`subagent_fork`/`workflow`/`ralph` + `toolName`）∩ 宿主当前注册的工具（防陈旧名触发宿主 fail-fast）；非空**原样透传**、不交集，陈旧条目由宿主校验拒绝。 |
 | `resume`        | `auto`         | 续跑档位，见下节。                                                                                |
 
 ### 并发与深度上限（dsh 0.1.7 起，官方托管）
@@ -122,6 +122,58 @@ frontmatter 键，官方没有轮数预算能力，继续由宿主 TUI 硬停梯
 - **`ask_agent` 面向 background run**：对最近的后台 run 追问并**等回复**（按
   `agent` 名或派发时返回的 `agent_id`，二者传且仅传一个；可选 `timeout` 秒数上限，
   `≤0` 视为未传）。前台一次性 run 不能追问——它的续跑走 `use_agent` 的 resume 机制。
+
+## 接入与使用体检（debug）
+
+按三步定位"装没装 → 挂没挂 → 通没通"，再查使用痕迹。`<profile>` 换成实际 profile 名
+（`tui` / `web` / `desktop` / `headless`…），每个 profile 的插件与挂载互相独立。
+
+### 第 1 步：装了吗（包在不在 profile 里）
+
+```sh
+dsh plugin --profile <profile> list    # 实为把参数原样转发给 profile 目录里的 pnpm；应看到 @aiwayds/dsh-subagent-registry
+ls ~/.dsh/profiles/<profile>/node_modules/@aiwayds/   # 等价查法
+```
+
+### 第 2 步：挂了吗（insert 块进了组合层没）
+
+```sh
+dsh dump-config --profile <profile>    # 应看到 id: dsh-subagent-registry 的 insert 项及其 config
+grep dsh-subagent-registry ~/.dsh/profiles/<profile>/cordis.patch.yml
+```
+
+注意 dump-config 显示的是 patch 层的**组合结果**，不含 schema 物化后的运行时值。
+
+### 第 3 步：通了吗（目录扫描 + 工具注册 + 模型可见）
+
+- `ls ~/.dsh/agents/`：首次启动（目录原本为空）会植入 workhorse / oldfox / rubber-duck
+  三个预置 agent——它们在，说明 agentsDir 扫描通了。
+- 会话里直接问模型："列出你当前可用的工具"——应见 `use_agent` / `ask_agent`，且
+  `use_agent` 的描述里带 agent 名册。
+- 顺手验证 skill 路由：跟模型聊"帮我配个子代理"，应能调出 `dsh-subagent-registry-config` 技能。
+
+### 用没用过（使用痕迹）
+
+- **看卡片/回看器**：tui-pi 的 `/history` 回看会话，或 web/飞书回合卡的活动段——
+  `🔧 use_agent · ✔` 一行就是一次派发。
+- **落盘直查（任何 profile 通用）**：每个会话是
+  `~/.dsh/sessions/<工作区目录>/<会话id>/session.v3.jsonl.zstd`，直接数调用：
+
+  ```sh
+  zstdcat ~/.dsh/sessions/<工作区目录>/<会话id>/session.v3.jsonl.zstd | grep -c use_agent
+  ```
+
+  大于 0 即该会话调用过；子代理本身也是独立 dsh 会话，落在同一个 sessions 根目录。
+
+### 症状 → 断点
+
+| 症状 | 断在哪 | 去哪修 |
+| --- | --- | --- |
+| `dsh plugin … list` 里没有本插件 | 安装 | `dsh plugin --profile <profile> add @aiwayds/dsh-subagent-registry`，重启 dsh |
+| dump-config 里没有 insert 块 | 挂载 | 检查 profile 的 cordis.patch.yml，重新挂载后重启 |
+| 工具在、名册空 | agentsDir / 文件位置 / frontmatter | 见下方"排障" 1、2 |
+| 工具、名册都在，模型就是不调 | 模型选择 | 把 agent 的 `description` 写清"何时该派我"；TUI 面还可配合 tui-pi 的 registeredOnly |
+| 一调用就报 `ctx.subagents.start is not a function` | 加载了旧插件或宿主不在已验证范围 | 本地兼容版已验证 DSH `0.2.0-rc.2` 与 `0.2.1-alpha.2`；确认实际插件版本，更新后重启；不推断其他宿主版本兼容 |
 
 ## 排障
 

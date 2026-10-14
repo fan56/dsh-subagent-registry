@@ -4,16 +4,42 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.13.2-local.1] - 2026-10-14
+
+### Fixed
+- Allow both verified host Schemastery lines (`~3.18.4 || ~3.18.5-alpha.1`) as an optional peer. The stable-only range caused plain npm installs to fail with `ERESOLVE` against the alpha host's peer graph.
+- Make npm invocation and regression-test line parsing work on Windows; check installation in a path containing spaces without disabling lifecycle scripts.
+
+### Changed
+- Merge upstream 0.13.2 packaging fixes, install checks and troubleshooting guidance while retaining the local dual-host support for DSH 0.2.0-rc.2 and 0.2.1-alpha.2, optional host SDK peers, and concise custom-role delegation guidance. The upstream alpha-support statement below describes the official release, not this local compatibility build.
+
+## [0.13.2] - 2026-10-14
+
+### Added
+- **Podman install-integration e2e suite** (`e2e/podman-install/`, plus the weekly `e2e-install.yml` cron) — inside a container (Ubuntu 24.04 + Node 22 + a real dsh CLI), installs the **published** tarballs of this plugin, dsh-dcp, dsh-cron, dsh-llm-proxy, and dsh-profile-switch through a real npm client with dependency lifecycle scripts on — the exact intersection that let the packaged-`postinstall` breakage (#2) ship unnoticed — then asserts the closure linker stands down in the consumer tree, the real host composes and boots each profile, and dcp's schema-default + explicit-empty semantics survive the real config layer. Versions resolve from the official registry at run time (never hardcoded), with prerelease-aware host-version comparison. Test infrastructure only; no product changes.
+
+### Docs
+- **SKILL gains an integration & usage debug section** — a three-step health check grounded in real seams: installed (`dsh plugin --profile <name> list`, the CLI forwards verbatim to pnpm in the profile directory), mounted (`dsh dump-config --profile <name>` or grepping the profile's `cordis.patch.yml` for the insert block), wired (preset agents seeded into `~/.dsh/agents/`, `use_agent`/`ask_agent` in the model's tool list with the roster, the bundled skill routable), plus usage evidence (`/history` round cards, or counting `use_agent` in a session's `session.v3.jsonl.zstd` via `zstdcat`) and a symptom→breakpoint table that includes the alpha-line `ctx.subagents.start is not a function` failure (host floor stays RC/stable ≥0.2.0-rc.2; alpha unsupported). The `leafDenyTools` rows now describe the shipped semantics — the empty default is the static enumeration intersected with the host's registered tools, an explicit list passes through verbatim (the wording had lagged 534e74e). Routing description extended with the debug triggers; the SKILL.md frontmatter and the hardcoded `SKILL_DESCRIPTION` moved byte-identically, still within the 500-char budget.
+
+## [0.13.1] - 2026-10-12
+
+### Fixed
+- **The published tarball is npm-installable again** — `postinstall` runs `node scripts/link-dsh-closure.mjs`, but the `files` allow-list never shipped `scripts/`, so every non-link install of 0.12.0+ (plugin manager, plain `npm install`) died in the lifecycle step with `MODULE_NOT_FOUND` (fan56/dsh-subagent-registry#2). `scripts/` now ships. The linker's stand-down guard was also swapped from "no `src/`" — a marker the tarball actually *does* ship, so the old check would have let the linker run in a consumer tree — to two markers the `files` list never carries (`tsconfig.json`, `.git`). New `test/packaged-install.test.mjs` runs the reported failing step end-to-end: pack, inspect the tarball, `npm install` the tarball with lifecycle scripts on, and assert the linker stood down in the consumer tree. The boot smoke's scratch-profile install also moved from pnpm to npm — pnpm ≥10's default dependency-lifecycle block is exactly how this breakage stayed invisible to the previous gate, so the real-host gate now exercises the same consumer path (with a new assertion that the linker stood down there too).
 
 ### Docs
 - **The `@deepseek-ai/*` optional-peer contract is now written down** — the `link-dsh-closure.mjs` header said the closure packages "must stay *undeclared*", which contradicts the optional peerDependencies actually present in `package.json` and confused a consumer (fan56/dsh-subagent-registry#1). Replaced with the actual two-layer contract: optional peers = release semantics for consumers (never auto-installed, so they cannot shadow the host's bundled closure — the hard-dependency hard-pin is the failure mode that does); the closure symlink = dev typecheck (one `@deepseek-ai/cordis` in the type graph, keeping the cordis `declare module` augmentation intact). Also fixed a `dsh-tui-pi` copy-over in the same header and a stale "not resolvable from npm" claim. README/README.en gained a dev-section note with the maintenance rule: keep the entries optional peers, never move them to dependencies/devDependencies, never drop `optional: true` (a non-optional peer auto-installs under pnpm's `auto-install-peers` and the second-copy breakage returns).
+
+## [0.13.0] - 2026-09-29
 
 ### Fixed
 - **Leaf deny list is now intersected with the host's registered global tools** — the stock default names are a static enumeration over a distribution that moves: dsh 0.1.7-rc.1 stopped registering `dsh-tool-ralph` while `tools.restrict()` became fail-fast on unknown names, so every leaf (`deep: 0`) dispatch aborted before the child even started (`Error: tools.restrict() names unknown global tool "ralph"`). The default list is now filtered through `ctx.tools.view().restrictableNames` at tool-registration time (read defensively; an unavailable view degrades to the pre-0.1.7 verbatim pass). An explicit `leafDenyTools` override is NOT intersected — the caller owns that list and the host's strict validation is the right feedback. Surfaced by the dsh-tui-pi podman e2e hard-stop ladder (zero `hs-loop` mock phases).
 
 ### Changed
 - **raise dsh host floor to 0.2.0-rc.2** — dev pins exact `0.2.0-rc.2`, peer floors `>=0.2.0-rc.2` (READMEs follow). No code changes: the `dsh-subagent` type surface is unchanged in 0.2.0 (test chain 11/11 files green — 113 assertion PASS + 4 node:test, fail 0; `tsc --noEmit` and a fresh `tsc -p` build show zero drift against the 0.2.0-rc.2 closure).
+
+## [0.12.0] - 2026-09-24
+
+### Changed
 - **dsh support floor raised to 0.1.7-rc.1** (peer floors `>=0.1.7-rc.1`, dev pins exact `0.1.7-rc.1`; `@deepseek-ai/cordis` → `~4.0.4`, `@deepseek-ai/schemastery` → `~3.18.4`; READMEs updated). The closure rides the 0.1.7 shapes.
 - **Child discovery follows the 0.1.7 durable catalog** — `ctx.subagents.listChildren()` now returns `SubagentCatalogEntry[]` (`{ id, createdAt, mode, label? }`): the old `SubagentListEntry` fields are gone (every row is a child — no `kind` discriminator; `mode` gains `'unknown'`; liveness is no longer carried). The one-shot resume picker's `activity: 'inactive'` prefilter is replaced by a live agent registry check (`ctx.agents.get`) inside `findResumableRun`; the continuable picker is unchanged in behavior (resident and cold continuable children both stay addressable; `unknown`-mode rows qualify as neither).
 - **The continuation notice declares its own message-source kind** — 0.1.7 removed the shared catch-all `plugin` source kind; the resume follow-up now carries `kind: 'dsh-subagent-registry'` (with the official `form: 'notice'` context shape) declared through the merge-extensible `MessageSourceMap` (`declare module '@deepseek-ai/dsh-llm'`), the same move the official `agent-message`/`subagent-settled` sources make.

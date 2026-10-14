@@ -1,0 +1,66 @@
+# Weekly install-integration e2e: the assertions in
+# e2e/podman-install/entry.sh run BARE on the runner (no podman needed on
+# Linux — the Containerfile is only the purification chamber for local mac
+# runs). This is the rolling gate for the #2 packaging class: a published
+# tarball whose postinstall target goes missing, a closure linker that starts
+# running in consumer trees, or a host that stops composing/booting the
+# released plugins all turn this red without anyone re-running anything.
+#
+# Versions resolve LIVE from the official registry at run time (with
+# fix-version floors), so the suite always tests what users install today.
+name: e2e install
+
+on:
+  schedule:
+    # Weekly Monday 05:23 UTC — off-peak, catches drift without hand-running.
+    - cron: '23 5 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: e2e-install-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  install-integration:
+    name: Published-tarball install integration
+    # Pinned ubuntu-24.04 (not ubuntu-latest) to dodge podman/runner-image
+    # breakage history; this job doesn't even use podman, but the pin also
+    # keeps node/timeout semantics stable.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install the dsh CLI (rolling next-or-latest, prerelease-aware)
+        run: |
+          S="$(npm view @deepseek-ai/dsh@latest version --registry=https://registry.npmjs.org)"
+          R="$(npm view @deepseek-ai/dsh@next version --registry=https://registry.npmjs.org 2>/dev/null || true)"
+          V="$(STABLE="$S" RC="$R" node -e '
+            const cmp = (x, y) => {
+              const parse = (v) => { const [core, pre] = v.split("-"); const c = core.split(".").map(Number); while (c.length < 3) c.push(0); return { c, pre } }
+              const A = parse(x), B = parse(y)
+              for (let i = 0; i < 3; i++) if (A.c[i] !== B.c[i]) return A.c[i] - B.c[i]
+              if ((A.pre === undefined) !== (B.pre === undefined)) return A.pre === undefined ? 1 : -1
+              return String(A.pre ?? "").localeCompare(String(B.pre ?? ""))
+            }
+            const s = process.env.STABLE || "", r = process.env.RC || ""
+            if (!s && !r) { console.error("cannot resolve @deepseek-ai/dsh"); process.exit(1) }
+            console.log(!s ? r : !r ? s : (cmp(s, r) >= 0 ? s : r))
+          ')"
+          echo "host dsh: $V (latest=$S, next=$R)"
+          npm install -g --no-fund --no-audit "@deepseek-ai/dsh@$V"
+          dsh --version
+
+      - name: Run the install-integration suite
+        env:
+          DSH_HOME: ${{ runner.temp }}/dsh-home
+        run: |
+          mkdir -p "$DSH_HOME/profiles"
+          bash e2e/podman-install/entry.sh

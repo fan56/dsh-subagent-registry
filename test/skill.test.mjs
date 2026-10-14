@@ -55,7 +55,7 @@ const AGENTS_DIR = mkdtempSync(join(tmpdir(), 'registry-skill-'))
 
 /** Extract one scalar value from the SKILL.md YAML frontmatter. */
 function frontmatterValue(markdown, key) {
-  const match = markdown.match(/^---\n([\s\S]*?)\n---\n/)
+  const match = markdown.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n/)
   assert.ok(match, 'SKILL.md must open with a YAML frontmatter block')
   const line = match[1]
     .split('\n')

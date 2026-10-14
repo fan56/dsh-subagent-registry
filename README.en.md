@@ -137,7 +137,7 @@ lose custom-agent dispatch).
 ```sh
 npm run check    # tsc --noEmit
 npm run build    # tsc -> lib/
-npm test         # all unit tests (no LLM, no network)
+npm test         # unit regressions and real npm install in a temporary directory (no LLM)
 npm run test:host # current SDK's real services/persistence/manager/spawn; scripted model, no network
 npm run test:hosts # same compiled plugin, two published SDK closures with version checks
 ```
@@ -174,6 +174,13 @@ Maintenance rule: keep consumer entries as optional peers — never add hard
 dependencies, and never drop `optional: true` (a
 non-optional peer is auto-installed under pnpm's `auto-install-peers` and the
 second-copy breakage returns).
+
+## Integration tests
+
+`e2e/podman-install/` installs the **published** tarballs of this plugin, dsh-dcp, dsh-cron, dsh-llm-proxy, and dsh-profile-switch inside a container with a real dsh CLI, using a real npm client with dependency lifecycle scripts on — the exact intersection that let the packaged-`postinstall` breakage (#2) ship unnoticed. It asserts the install exits clean, the closure linker stands down in the consumer tree, the real host composes and boots each profile, and dcp's schema default + explicit-empty semantics survive the real config layer.
+
+- Local (macOS, podman machine up): `e2e/podman-install/run.sh`
+- The same assertions run bare on Linux (no podman needed) via the weekly scheduled `e2e install` workflow; `bash e2e/podman-install/entry.sh` works on any node 22+ machine with the global dsh CLI.
 
 ## License
 

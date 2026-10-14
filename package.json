@@ -1,6 +1,6 @@
 {
   "name": "@aiwayds/dsh-subagent-registry",
-  "version": "0.13.1-local.6",
+  "version": "0.13.2-local.1",
   "description": "dsh plugin: register locally-defined custom agents (~/.dsh/agents/*.md) as callable subagents via the use_agent tool, with continuable background dispatch and ask_agent follow-ups",
   "type": "module",
   "main": "lib/index.js",
@@ -31,6 +31,7 @@
     "lib",
     "cordis.patch.yml",
     "src",
+    "scripts",
     "skills",
     "templates",
     "docs",
@@ -44,13 +45,13 @@
     "smoke": "node scripts/smoke-boot.mjs",
     "test:host": "node test/host-activation.test.mjs",
     "test:hosts": "node test/host-matrix.test.mjs",
-    "test": "node test/deep-semantics.test.mjs && node test/display-name.test.mjs && node test/resume.test.mjs && node test/thinking-level.test.mjs && node test/agent-options.test.mjs && node test/interactive.test.mjs && node test/apply-smoke.test.mjs && node test/skill.test.mjs && node test/seed-defaults.test.mjs && node test/profile-resolution.test.mjs && node test/agent-caps.test.mjs && node test/host-compat.test.mjs",
+    "test": "node test/deep-semantics.test.mjs && node test/display-name.test.mjs && node test/resume.test.mjs && node test/thinking-level.test.mjs && node test/agent-options.test.mjs && node test/interactive.test.mjs && node test/apply-smoke.test.mjs && node test/skill.test.mjs && node test/seed-defaults.test.mjs && node test/profile-resolution.test.mjs && node test/agent-caps.test.mjs && node test/host-compat.test.mjs && node test/packaged-install.test.mjs",
     "postinstall": "node scripts/link-dsh-closure.mjs"
   },
   "peerDependencies": {
     "@deepseek-ai/dsh-tools": ">=0.2.0-rc.2 || >=0.2.1-alpha.2",
     "@deepseek-ai/dsh-subagent": ">=0.2.0-rc.2 || >=0.2.1-alpha.2",
-    "@deepseek-ai/schemastery": "~3.18.4",
+    "@deepseek-ai/schemastery": "~3.18.4 || ~3.18.5-alpha.1",
     "@deepseek-ai/dsh-llm": ">=0.2.0-rc.2 || >=0.2.1-alpha.2",
     "@deepseek-ai/dsh-agent": ">=0.2.0-rc.2 || >=0.2.1-alpha.2",
     "@deepseek-ai/dsh-skill": ">=0.2.0-rc.2 || >=0.2.1-alpha.2",

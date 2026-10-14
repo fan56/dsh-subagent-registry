@@ -1,0 +1,6 @@
+# Explicit-empty protection: the reporter's own bypass shape (id-targeted
+# config override). dsh-dcp#1's semantics guard — this must survive as []
+# and never resurrect the default tools.
+- id: dsh-dcp
+  config:
+    protectedTools: []

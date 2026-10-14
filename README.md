@@ -118,7 +118,7 @@ dsh plugin --profile <name> remove @aiwayds/dsh-subagent-registry
 ```sh
 npm run check    # tsc --noEmit
 npm run build    # tsc -> lib/
-npm test         # 全部单元测试（无 LLM、无网络）
+npm test         # 单元回归及临时目录中的真实 npm 安装检查（无 LLM）
 npm run test:host # 当前 SDK 的真实服务/持久化/manager/spawn；脚本化模型，无网络
 npm run test:hosts # 同一编译插件分别加载两套实际发布 SDK，并核实版本
 ```
@@ -150,6 +150,13 @@ npm install --prefix ../../.tmp/dsh-type-closure --ignore-scripts @deepseek-ai/d
 
 维护守则：消费者依赖始终保持 optional peer 形态——不要增加硬 dependencies，也不要去掉 `optional: true`（非 optional peer 在
 `auto-install-peers` 开启的 pnpm 下会被自动安装，第二副本问题即复发）。
+
+## Integration tests
+
+`e2e/podman-install/` installs the **published** tarballs of this plugin, dsh-dcp, dsh-cron, dsh-llm-proxy, and dsh-profile-switch inside a container with a real dsh CLI, using a real npm client with dependency lifecycle scripts on — the exact intersection that let the packaged-`postinstall` breakage (#2) ship unnoticed. It asserts the install exits clean, the closure linker stands down in the consumer tree, the real host composes and boots each profile, and dcp's schema default + explicit-empty semantics survive the real config layer.
+
+- Local (macOS, podman machine up): `e2e/podman-install/run.sh`
+- The same assertions run bare on Linux (no podman needed) via the weekly scheduled `e2e install` workflow; `bash e2e/podman-install/entry.sh` works on any node 22+ machine with the global dsh CLI.
 
 ## License
 
