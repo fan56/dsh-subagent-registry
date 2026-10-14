@@ -111,7 +111,10 @@ frontmatter 键，官方没有轮数预算能力，继续由宿主 TUI 硬停梯
 - **中断判定**：按子代理持久化事件日志**最后一条 accounting `turn/end`**——不是
   `completed`（error / aborted / max-tokens / 崩溃无记录）即为中断可续。续跑沿用同一
   persona/model/工具组合，只推进一个 continuation turn，失败可反复续，进度一直累积。
-  续跑依赖部署的会话持久化；没有持久化时静默改走全新派发。
+  续跑依赖会话持久化；已选中旧 run 后读取、占用或恢复失败会报错，不自动创建第二个任务，显式 `fresh: true` 才重新派发。
+  新前台 run 使用 `[use_agent foreground] <display_name ?? name>` 标签，后台保持普通标签；旧 one-shot 前台仍可续跑。
+  后续取消的 pending input 或未闭合新 turn 也算可续，不能只看较早的 completed。
+  DSH 0.2.1-alpha.2 的公开 API 尚不支持带当前 composition、caller-only 投递的 managed cold resume；前台续跑由 `agents.resume` 驱动，调用取消可停止，但不受 manager 并发槽和 `interrupt_agent` 管理，也不能用 stock `send_message` 联系父级。新派发与后台追问由 manager 管理。
 - **`ask_agent` 面向 background run**：对最近的后台 run 追问并**等回复**（按
   `agent` 名或派发时返回的 `agent_id`，二者传且仅传一个；可选 `timeout` 秒数上限，
   `≤0` 视为未传）。前台一次性 run 不能追问——它的续跑走 `use_agent` 的 resume 机制。

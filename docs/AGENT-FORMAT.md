@@ -74,13 +74,15 @@ child as a full session under the deployment's session store
 recall layer, which this plugin now provides on top of the stock mechanisms:
 
 1. On each `use_agent` call, the plugin enumerates the calling conversation's
-   prior one-shot children (`ctx.subagents.listChildren`, which merges the
-   live store with session persistence) and picks the newest inactive child
-   whose creation label matches the requested agent.
+   prior foreground children (`ctx.subagents.listChildren`) and picks the
+   newest matching child. Legacy one-shot labels remain supported; new
+   foreground labels are `[use_agent foreground] <display_name ?? name>`.
+   Background children keep the plain label and cannot be selected for resume.
 2. The child's persisted event log is classified by its **last accounting
    `turn/end`**: anything other than `completed` (error, aborted, max-tokens,
    crash with no recorded turn result) marks the run as interrupted and
-   resumable.
+   resumable. Cancelled pending input or a later unclosed turn also count,
+   even when an earlier accounting turn completed.
 3. The child session is resumed (`ctx.agents.resume`) with the same
    composition a fresh dispatch applies — the current agent-file body as the
    persona, the frontmatter `model` route, and the leaf tool scoping for
@@ -100,27 +102,25 @@ Tool-call parameters:
 | `fresh: true`  | Force a clean start, ignoring any interrupted prior run.                 |
 | `resume: true` | Require resuming; the call fails loudly if no interrupted run exists.    |
 
-Lookups fail open silently: with no session persistence mounted, an unreadable
-log, any enumeration error, or any other infrastructure snag in the lookup
-chain, the resume candidate comes back as "none" and the tool starts fresh
-— resume is an optimization, never a blocker. A resume that *starts* but
-fails is different: when the host cannot actually resume the picked session
-(e.g. a concurrent duplicate resume raced to the same id), the call falls
-back to a fresh dispatch and the result's first line announces it
-(`Resume of the interrupted prior run failed (…); started a fresh run
-instead.`) — partial work from the continuation turn is preserved, never
-silently thrown away. Note that only runs dispatched with a `label` are
-discoverable; this plugin has always stamped `display_name ?? agent name` as
-the label, so pre-existing failed runs are resumable too.
+A failed lookup, unreadable selected log, busy session, failed setup, or failed
+cleanup is reported without starting another child. Explicit `fresh: true`
+skips lookup and starts a new conversation.
 
-**Cross-host-version boundary**: dsh versions its subagent continuation
-descriptors — the gate is the descriptor format version in
-`@deepseek-ai/dsh-subagent` (`SUBAGENT_DESCRIPTOR_VERSION`; currently v3, see
-that package for the authoritative value). A run produced under a different
-descriptor version is not resumable: the host's parser returns `undefined`
-and the candidate folds into the fail-open path above (fresh dispatch), with
-an explicit `resume: true` reporting it honestly. Same descriptor version
-→ resumable across host versions.
+Foreground resume binds the exact live parent and validates the persisted
+parent id before publication. It applies current persona/model/tool options,
+observes caller and parent-scope cancellation, waits for descendants, and
+releases both descendants and the handle even when cleanup fails.
+
+**Host limitation (0.2.1-alpha.2):** the public API cannot cold-resume with
+caller-only delivery and composition overrides under the manager. This
+foreground compatibility path therefore does not occupy manager capacity,
+cannot be stopped by `interrupt_agent`, and cannot send a stock
+`send_message` to the parent. Cancel the owning foreground call to stop it.
+New dispatch and background follow-ups use managed activations.
+
+The host descriptor parser decides cross-version continuation compatibility.
+Unknown/external catalog entries are not selected. Explicit `resume: true`
+reports no compatible candidate; use `fresh: true` to restart deliberately.
 
 ## Interactive subagents (background + follow-ups)
 
@@ -151,7 +151,7 @@ notice when the run ends. `deep` semantics (leaf tool scoping / relative
 `maxDepth`), `model`, and `thinking` apply to continuable children exactly as
 they do to foreground ones. Background dispatch always opens the agent's
 **new** conversation — it is mutually exclusive with `resume: true` and
-ignores `fresh` (foreground calls keep resuming interrupted one-shot runs).
+ignores `fresh` (foreground calls continue interrupted foreground runs).
 
 **Follow up** — the new `ask_agent` tool closes the loop:
 
@@ -169,20 +169,23 @@ reply text, with a status line when the turn ended abnormally
 (`max-tokens`, error, …) and the partial output preserved. Optional
 `timeout` (seconds) bounds the wait; passing `0` or a negative number is
 treated as omitting it (the call waits until the conversation moves on).
+The wait reconstructs the persisted inbox and matches the accepted message id
+to its consuming turn, including messages delivered during a running step.
 For fire-and-forget steering without a reply, use dsh's base `send_message`
 tool.
 
 Notes:
 
 - Background dispatch and follow-ups need the deployment's session
-  persistence (every standard dsh profile mounts it); `startContinuable`
+  persistence (every standard dsh profile mounts it); `startActivation`
   fails loudly without it.
 - `send_message` / `interrupt_agent` / `list_agents` (registered by dsh-base)
   stay visible to `deep: 0` leaf children: a leaf can proactively
   `send_message` its parent mid-task, and the reply arrives in the parent's
   conversation as an agent message.
-- This plugin labels every child with `display_name ?? agent name`.
-  `use_agent` resume looks for an exact match against that single label;
+- Background children use `display_name ?? agent name`; new foreground
+  children prefix it with `[use_agent foreground] `. `use_agent` resume
+  accepts that namespace or a legacy one-shot label;
   `ask_agent` (when addressing by `agent`) tries the two candidates
   `[display_name ?? name, name]` and picks the newest match.
 

@@ -26,8 +26,10 @@ partial work. No host patching, no code — a markdown file per agent.
   in the official subagent stack (bidirectional messaging, say) are inherited
   automatically; the native `subagent` tool keeps working alongside — the two
   coexist without interference.
-- **Pure plugin** — only relies on dsh ≥ 0.2.0-rc.2's public subagent
+- **Pure plugin** — only relies on dsh ≥ 0.2.1-alpha.2's public subagent
   machinery; uninstalls cleanly at any time.
+
+Fresh foreground/background dispatch uses `startActivation` with `caller` / `parent` delivery. Foreground resume uses public `agents.resume` with current composition and caller cancellation, but is outside manager capacity and `interrupt_agent` control; resumed children cannot use stock `send_message` to contact the parent. Background follow-ups remain managed. Failure to inspect or resume a selected session is an error; use explicit `fresh: true` to restart.
 
 ## The three shipped agents
 
@@ -105,8 +107,7 @@ README. The skill is versioned and published with the package
 
 ## Installation
 
-**Requires dsh >= 0.2.0-rc.2** (the RC/stable line; the alpha line is not
-supported).
+**Requires dsh >= 0.2.1-alpha.2** (validated against this client release).
 
 Option A — mount a checkout into a dsh profile:
 
@@ -137,16 +138,17 @@ lose custom-agent dispatch).
 npm run check    # tsc --noEmit
 npm run build    # tsc -> lib/
 npm test         # all unit tests (no LLM, no network)
+npm run test:host # real host services/persistence/manager/spawn; scripted model, no network
 ```
 
 ### The `@deepseek-ai/*` dependency contract (why optional peers)
 
 This repo declares the `@deepseek-ai/*` packages (`cordis`, `dsh-subagent`,
 `dsh-llm`, `schemastery`, …) as **optional peerDependencies** only
-(`>=0.2.0-rc.2`). That is a deliberate two-layer split:
+(`>=0.2.1-alpha.2`). That is a deliberate two-layer split:
 
 - **Release semantics (for consumers)**: the declaration says "use the host's
-  own copies, floor `>=0.2.0-rc.2`". Optional peers are never auto-installed
+  own copies, floor `>=0.2.1-alpha.2`". Optional peers are never auto-installed
   by pnpm or npm, so they cannot materialize a second copy in the profile's
   `node_modules` that shadows the host's bundled closure. What does break
   hosts is a hard dependency pinned to an old rc — that can render a 0.2.x

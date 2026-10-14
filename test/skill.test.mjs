@@ -97,7 +97,7 @@ test('apply registers the bundled skill provider on ctx.skills', async () => {
   // (fileURLToPath keeps the trailing slash of the URL path).
   assert.equal(candidate.resourceBase.kind, 'directory')
   assert.ok(
-    candidate.resourceBase.path.replace(/\/$/, '').endsWith('skills/dsh-subagent-registry-config'),
+    candidate.resourceBase.path.replaceAll('\\', '/').replace(/\/$/, '').endsWith('skills/dsh-subagent-registry-config'),
     `unexpected resourceBase path: ${candidate.resourceBase.path}`,
   )
 })

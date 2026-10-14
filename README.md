@@ -21,7 +21,9 @@
   官方的 `spawn` provider 启动，子代理就是货真价实的 dsh subagent（完整会话、
   持久化、continuable）。官方 subagent 栈的新能力（如双向通信）本插件自动
   继承；官方原生 `subagent` 工具继续可用，两者并存、互不干扰。
-- **纯插件** — 只依赖 dsh ≥ 0.2.0-rc.2 的公开 subagent 机制，可随时干净卸载。
+- **纯插件** — 只依赖 dsh ≥ 0.2.1-alpha.2 的公开 subagent 机制，可随时干净卸载。
+
+前台/后台新派发使用 `startActivation`，分别以 `caller` / `parent` 投递结果。前台续跑使用公开 `agents.resume`，支持当前 persona/model/工具配置及调用取消，但不占用 manager 并发槽，也不能由 `interrupt_agent` 打断；续跑子代理不能使用 stock `send_message` 联系父级。后台追问继续由 manager 管理。已选中的旧会话若读取或恢复失败，会报错；显式 `fresh: true` 才重新派发。
 
 ## 三个预置 agent
 
@@ -87,7 +89,7 @@ Frontmatter 字段：`name`（必填）、`description`、`display_name`、`mode
 
 ## 安装
 
-**要求 dsh >= 0.2.0-rc.2**（RC/稳定线；alpha 线不再支持）。
+**要求 dsh >= 0.2.1-alpha.2**（已针对此客户端验证）。
 
 方式 A — 把本地 checkout 挂进 dsh profile：
 
@@ -116,15 +118,16 @@ dsh plugin --profile <name> remove @aiwayds/dsh-subagent-registry
 npm run check    # tsc --noEmit
 npm run build    # tsc -> lib/
 npm test         # 全部单元测试（无 LLM、无网络）
+npm run test:host # 真实宿主服务/持久化/manager/spawn；脚本化模型，无网络
 ```
 
 ### `@deepseek-ai/*` 依赖契约（为什么是 optional peer）
 
 本仓对 `@deepseek-ai/*`（`cordis`、`dsh-subagent`、`dsh-llm`、`schemastery` 等）
-只声明 **optional peerDependencies**（`>=0.2.0-rc.2`）。这是有意的两层分工：
+只声明 **optional peerDependencies**（`>=0.2.1-alpha.2`）。这是有意的两层分工：
 
 - **发布语义（给消费者）**：声明表达「使用宿主自带的同名包、版本下限
-  `>=0.2.0-rc.2`」。optional peer 不会被 pnpm / npm 自动安装，因此不会在
+  `>=0.2.1-alpha.2`」。optional peer 不会被 pnpm / npm 自动安装，因此不会在
   profile 的 `node_modules` 里生成第二份拷贝去遮蔽（shadow）宿主 bundled 的
   闭包。会出事的是硬 dependency 精确钉旧 rc 版——那会把宿主 0.2.x 弄到无法
   boot（已知社区事故模式）。

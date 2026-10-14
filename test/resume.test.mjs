@@ -14,6 +14,7 @@ import {
   describeTurnEnd,
   driveResumedRun,
   findResumableRun,
+  foregroundLabel,
   lastTurnEnd,
   pickLatestLabeledChild,
   toStopReason,
@@ -62,6 +63,11 @@ const NOOP_TRAILING_LOG = [
     ['crash-interrupted run (no turn/end)', CRASH_LOG, 'resumable'],
     ['failed then completed (whole run finished)', RECOVERED_LOG, 'completed'],
     ['error followed by trailing no-op turn', NOOP_TRAILING_LOG, 'resumable'],
+    ['completed then inbox work cancelled unrun', [...COMPLETED_LOG, ev('agent/inbox/spliced', { target: 'next-turn', start: 0, removedCount: 1, inserted: [], outcome: 'canceled' })], 'resumable'],
+    ['completed then next turn crashed before step', [...COMPLETED_LOG, ev('turn/start', { turn: 2 })], 'resumable'],
+    ['completed then next turn crashed after step', [...COMPLETED_LOG, ...turn(2, undefined)], 'resumable'],
+    ['drop absorbed by later completed turn', [...COMPLETED_LOG, ev('agent/inbox/spliced', { target: 'next-turn', start: 0, removedCount: 1, inserted: [], outcome: 'canceled' }), ...turn(2, 'completed')], 'completed'],
+    ['completed then balanced no-op turn', [...COMPLETED_LOG, ev('turn/start', { turn: 2 }), ev('turn/end', { turn: 2, reason: { kind: 'completed' } })], 'completed'],
   ]
   for (const [label, log, expected] of cases) {
     const c = classifyPriorRun(log)
@@ -109,8 +115,14 @@ const NOOP_TRAILING_LOG = [
     child({ id: 'continuable', mode: 'continuable', label: 'workhorse' }),
     child({ id: 'unknown-mode', mode: 'unknown' }),
     child({ id: 'newest-failed' }),
+    child({ id: 'managed-foreground', mode: 'continuable', label: foregroundLabel('workhorse') }),
+    child({ id: 'newest-background', mode: 'continuable', label: 'workhorse' }),
   ]
-  assert.equal(pickLatestLabeledChild(entries, 'workhorse')?.id, 'newest-failed', 'newest matching one-shot wins')
+  assert.equal(foregroundLabel('workhorse'), '[use_agent foreground] workhorse')
+  assert.equal(foregroundLabel('牛马狗'), '[use_agent foreground] 牛马狗')
+  assert.equal(pickLatestLabeledChild(entries, 'workhorse')?.id, 'managed-foreground', 'managed foreground continuable wins over legacy one-shot')
+  assert.equal(pickLatestLabeledChild(entries.slice(0, 5), 'workhorse')?.id, 'newest-failed', 'legacy one-shot remains selectable')
+  assert.equal(pickLatestLabeledChild([child({ mode: 'one-shot', label: foregroundLabel('workhorse') })], 'workhorse'), undefined, 'marked label only belongs to continuable foreground')
   assert.equal(pickLatestLabeledChild(entries, 'other-agent')?.id, 'old-ok', 'label match filters')
   assert.equal(pickLatestLabeledChild(entries, 'missing'), undefined, 'no match -> undefined')
   assert.equal(pickLatestLabeledChild([], 'workhorse'), undefined, 'empty list -> undefined')
@@ -190,7 +202,7 @@ const NOOP_TRAILING_LOG = [
 }
 
 // ---------------------------------------------------------------------------
-// findResumableRun — fake ctx doubles (fail-open paths included)
+// findResumableRun — fake ctx doubles (lookup failures propagate)
 // ---------------------------------------------------------------------------
 
 /** Minimal fake satisfying what findResumableRun reads from ctx. */
@@ -235,6 +247,7 @@ const PARENT = { id: 'session-parent' }
     'oldfox',
   )
   assert.equal(run?.childId, 'child-failed', 'failed run found by label')
+  assert.equal(run?.mode, 'one-shot', 'candidate preserves legacy mode')
   assert.equal(run?.classification.status, 'resumable', 'failed run classified resumable')
 
   const done = await findResumableRun(
@@ -244,39 +257,38 @@ const PARENT = { id: 'session-parent' }
   )
   assert.equal(done, undefined, 'completed latest run is not a candidate')
 
-  assert.equal(await findResumableRun(fakeCtx({ children: entries }), PARENT, 'oldfox'), undefined, 'no persistence -> no candidate')
-  assert.equal(await findResumableRun(fakeCtx({ throwOnList: true }), PARENT, 'oldfox'), undefined, 'listChildren failure -> no candidate')
-  assert.equal(
-    await findResumableRun(
-      fakeCtx({ children: entries, stored: () => Promise.reject(new Error("unreadable")) }),
-      PARENT,
-      'oldfox',
-    ),
-    undefined,
-    'open/read failure -> no candidate',
-  )
-  console.log('PASS findResumableRun (happy path + fail-open paths)')
+  assert.equal(await findResumableRun(fakeCtx(), PARENT, 'oldfox'), undefined, 'no candidate needs no persistence')
+  await assert.rejects(findResumableRun(fakeCtx({ children: entries }), PARENT, 'oldfox'), /cannot inspect.*fresh=true/, 'existing prior run requires inspection')
+  await assert.rejects(findResumableRun(fakeCtx({ throwOnList: true }), PARENT, 'oldfox'), /projection registry not mounted/, 'list failure must not silently start fresh')
+  await assert.rejects(findResumableRun(fakeCtx({ children: entries, stored: () => Promise.reject(new Error('unreadable')) }), PARENT, 'oldfox'), /unreadable/, 'read failure propagates')
+  for (const operation of ['open', 'close']) {
+    const ctx = fakeCtx({ children: entries, stored: () => ERROR_LOG })
+    const get = ctx.get.bind(ctx)
+    ctx.get = (name) => name === 'sessionPersistence' ? { open: async () => {
+      if (operation === 'open') throw new Error('open failed')
+      return { read: async () => ({ events: ERROR_LOG }), close: async () => { throw new Error('close failed') } }
+    } } : get(name)
+    await assert.rejects(findResumableRun(ctx, PARENT, 'oldfox'), new RegExp(`${operation} failed`))
+  }
+  const aborted = new AbortController()
+  aborted.abort(new Error('lookup cancelled'))
+  await assert.rejects(findResumableRun(fakeCtx({ children: entries, stored: () => ERROR_LOG }), PARENT, 'oldfox', aborted.signal), /lookup cancelled/)
+  console.log('PASS findResumableRun strict lookup failures')
 
-  // Liveness filter: 0.1.7's catalog dropped the `activity` flag, so a picked
-  // child still resident in the live agent registry is skipped — the exact
-  // pre-0.1.7 `activity: 'inactive'` semantics, resolved against ctx.agents.
+  // A catalog candidate still resident in the live registry is busy.
   {
-    const liveRun = await findResumableRun(
+    await assert.rejects(findResumableRun(
       fakeCtx({ children: entries, stored: (id) => events[id] ?? [], live: new Set(['child-failed']) }),
-      PARENT,
-      'oldfox',
-    )
-    assert.equal(liveRun, undefined, 'live one-shot child is not a candidate')
-    const olderWins = await findResumableRun(
-      fakeCtx({
-        children: [...entries, { id: 'child-old', createdAt: 0, mode: 'one-shot', label: 'oldfox' }],
-        stored: (id) => (id === 'child-old' ? ERROR_LOG : events[id] ?? []),
-        live: new Set(['child-failed']),
-      }),
-      PARENT,
-      'oldfox',
-    )
-    assert.equal(olderWins?.childId, 'child-old', 'falls back to the older inactive child')
+      PARENT, 'oldfox',
+    ), /already in progress|busy/, 'a resident foreground child is busy, not a fresh-task opportunity')
+    const managedEntries = [
+      ...entries,
+      { id: 'managed-failed', createdAt: 3, mode: 'continuable', label: foregroundLabel('oldfox') },
+      { id: 'background-failed', createdAt: 4, mode: 'continuable', label: 'oldfox' },
+    ]
+    const managed = await findResumableRun(fakeCtx({ children: managedEntries, stored: () => ERROR_LOG }), PARENT, 'oldfox')
+    assert.equal(managed?.childId, 'managed-failed', 'newer ordinary background child is excluded')
+    assert.equal(managed?.mode, 'continuable', 'managed candidate preserves its catalog mode')
   }
   console.log('PASS findResumableRun liveness filter (replaces the dropped activity flag)')
 }
@@ -307,12 +319,13 @@ function fakeChildScope() {
  * A fake resumed child: replayed `prior` events plus a scripted continuation
  * turn. `followup` records the message and runs the fake loop turn.
  */
-function fakeResumeBackend(prior, scriptTurn, { whenIdle = async () => {} } = {}) {
+function fakeResumeBackend(prior, scriptTurn, { whenIdle = async () => {}, parent = DRIVE_PARENT } = {}) {
   const scope = fakeChildScope()
-  const captured = { resumeOptions: undefined, followup: undefined, disposed: false, scope: scope.applied }
+  const captured = { resumeOptions: undefined, followup: undefined, disposed: false, scope: scope.applied, drained: 0 }
   const childLog = [...prior]
   const child = {
-    session: { events: childLog, get seq() { return childLog.length }, snapshotEvents: () => childLog },
+    status: 'idle',
+    session: { header: { parentSession: parent.id }, events: childLog, get seq() { return childLog.length }, snapshotEvents: (from = 0) => childLog.slice(from) },
     followup(message) {
       captured.followup = message
       scriptTurn?.(child.session.events)
@@ -321,15 +334,21 @@ function fakeResumeBackend(prior, scriptTurn, { whenIdle = async () => {} } = {}
     cancel() {},
   }
   const ctx = {
+    subagents: {
+      async waitForChildren() {},
+      async drainDescendants() { captured.drained += 1 },
+    },
     agents: {
+      get: (id) => id === parent.id ? parent : undefined,
       async resume(options) {
         captured.resumeOptions = options
-        options.setup?.(scope)
+        const transaction = options.setup?.(scope, child)
+        transaction?.commit?.()
         return { agent: child, async dispose() { captured.disposed = true } }
       },
     },
   }
-  return { ctx, captured }
+  return { ctx, captured, child }
 }
 
 const DRIVE_PARENT = {
@@ -362,6 +381,8 @@ const signal = new AbortController().signal
   assert.equal(result.stopReason, 'completed', 'resumed run completes')
   assert.deepEqual(result.output, [{ type: 'text', text: 'all done now' }], 'output is the continuation turn answer')
   assert.equal(captured.disposed, true, 'handle disposed after the drive')
+  assert.equal(captured.drained, 1, 'descendants drained before handle disposal')
+  assert.equal(captured.resumeOptions.parentAgent, DRIVE_PARENT, 'resume carries the exact delegating parent')
   assert.ok(String(captured.resumeOptions.resumeSessionId) === 'child-failed', 'resumes the persisted child id')
   assert.equal(captured.resumeOptions.agentOptions.provider, 'parent-prov', 'parent provider inherited')
   assert.equal(captured.resumeOptions.agentOptions.subagentDepth, 1, 'child depth = parent depth + 1')
@@ -402,24 +423,19 @@ const signal = new AbortController().signal
 }
 
 {
-  // Cancelled before the drive: no followup is submitted, stopReason aborted.
+  // Cancellation before acquisition starts neither resume nor fresh work.
   const { ctx, captured } = fakeResumeBackend([...ERROR_LOG], () => {
     throw new Error('script must not run when cancelled')
   })
   const aborted = new AbortController()
   aborted.abort()
-  const result = await driveResumedRun({
-    ctx,
-    parent: DRIVE_PARENT,
-    childId: 'child-failed',
-    persona: 'p',
-    continuationPrompt: 'continue',
-    noticeSummary: 's',
-    signal: aborted.signal,
-  })
-  assert.equal(result.stopReason, 'aborted', 'pre-aborted signal yields aborted')
+  await assert.rejects(driveResumedRun({
+    ctx, parent: DRIVE_PARENT, childId: 'child-failed', persona: 'p',
+    continuationPrompt: 'continue', noticeSummary: 's', signal: aborted.signal,
+  }), (error) => error.name === 'AbortError', 'pre-aborted signal rejects before acquisition')
   assert.equal(captured.followup, undefined, 'no followup submitted when cancelled')
-  assert.equal(captured.disposed, true, 'cancelled drive still disposes')
+  assert.equal(captured.resumeOptions, undefined, 'cancelled drive never acquires the child')
+  assert.equal(captured.disposed, false, 'no handle exists to dispose')
   console.log('PASS driveResumedRun cancel branch')
 }
 
@@ -461,6 +477,88 @@ const signal = new AbortController().signal
   console.log('PASS driveResumedRun resume boundary')
 }
 
+// A synchronous abort inside followup must also cancel its subsequent wake.
+{
+  const controller = new AbortController()
+  const cancelledWhileActive = []
+  let active = false
+  const backend = fakeResumeBackend(ERROR_LOG, (events) => {
+    controller.abort()
+    // followup can wake its driver after synchronous listeners have returned.
+    active = true
+    backend.child.status = 'running'
+    events.push(...turn(2, 'completed'))
+  }, { whenIdle: async () => {
+    assert.equal(active, false, 'post-followup cancellation covers the reactivated driver')
+  } })
+  backend.child.cancel = () => {
+    cancelledWhileActive.push(active)
+    active = false
+    backend.child.status = 'idle'
+  }
+  const result = await driveResumedRun({
+    ctx: backend.ctx, parent: DRIVE_PARENT, childId: 'synchronous-abort-wake', persona: 'p',
+    continuationPrompt: 'continue', noticeSummary: 's', signal: controller.signal,
+  })
+  assert.deepEqual(cancelledWhileActive, [false, true], 'abort listener and post-followup check cancel before and after driver wake')
+  assert.equal(result.stopReason, 'aborted', 'caller abort wins over the scripted completed turn')
+  assert.equal(backend.captured.drained, 1, 'reentrant cancellation shares descendant drain')
+  assert.equal(backend.captured.disposed, true)
+  console.log('PASS resume synchronous followup abort cancels its reactivated driver')
+}
+
+// A parent scope effect that throws during setup must release the child lock.
+{
+  const childId = 'effect-setup-failure'
+  const effectError = new Error('INACTIVE_EFFECT')
+  const backend = fakeResumeBackend(ERROR_LOG, (events) => {
+    events.push(...turn(2, 'completed'))
+  })
+  const input = {
+    ctx: backend.ctx, parent: DRIVE_PARENT, childId, persona: 'p',
+    continuationPrompt: 'continue', noticeSummary: 's', signal,
+  }
+  await assert.rejects(driveResumedRun({
+    ...input,
+    parent: { ...DRIVE_PARENT, ctx: { effect() { throw effectError } } },
+  }), (error) => error === effectError, 'effect setup failure propagates unchanged')
+  assert.equal(backend.captured.resumeOptions, undefined, 'failed parent effect never acquires a child')
+  const result = await driveResumedRun(input)
+  assert.equal(result.stopReason, 'completed', 'same child can resume after effect setup failure')
+  assert.equal(backend.captured.disposed, true)
+  console.log('PASS throwing parent effect releases resume lock')
+}
+
+// Resume validates both the stored parent and the exact live parent identity.
+{
+  for (const foreign of ['header', 'live-parent']) {
+    const backend = fakeResumeBackend(ERROR_LOG, () => { throw new Error('foreign child must not run') })
+    if (foreign === 'header') backend.child.session.header.parentSession = 'different-parent'
+    else backend.ctx.agents.get = () => ({ ...DRIVE_PARENT })
+    await assert.rejects(driveResumedRun({
+      ctx: backend.ctx, parent: DRIVE_PARENT, childId: `foreign-${foreign}`, persona: 'p',
+      continuationPrompt: 'continue', noticeSummary: 's', signal,
+    }), foreign === 'header' ? /another parent/ : /exact live parent/)
+    assert.equal(backend.captured.followup, undefined)
+  }
+  console.log('PASS resume rejects foreign stored or live parent')
+}
+
+// Cleanup still releases the acquired handle if draining descendants fails.
+{
+  const backend = fakeResumeBackend(ERROR_LOG, (events) => {
+    events.push(...turn(2, 'completed'))
+  })
+  const drainError = new Error('descendant drain failed')
+  backend.ctx.subagents.drainDescendants = async () => { throw drainError }
+  await assert.rejects(driveResumedRun({
+    ctx: backend.ctx, parent: DRIVE_PARENT, childId: 'drain-failure', persona: 'p',
+    continuationPrompt: 'continue', noticeSummary: 's', signal,
+  }), (error) => error instanceof AggregateError && error.errors.includes(drainError))
+  assert.equal(backend.captured.disposed, true, 'drain failure cannot prevent handle disposal')
+  console.log('PASS resume descendant drain failure still disposes handle')
+}
+
 // ---------------------------------------------------------------------------
 // The `use_agent` tool execute() glue — real tool, fake ctx doubles
 // ---------------------------------------------------------------------------
@@ -487,11 +585,12 @@ function toolCtx({ children = [], events = {}, resume } = {}) {
     started,
     subagents: {
       async listChildren() { return children },
-      async start(provider, request) {
-        started.push({ provider, request })
+      async waitForChildren() {},
+      async drainDescendants() {},
+      async startActivation(spec) {
+        started.push(spec)
         return {
-          id: 'fresh-child',
-          localAgent: undefined,
+          childId: 'fresh-child', messageId: 'fresh-message',
           result: Promise.resolve({ stopReason: 'completed', output: [{ type: 'text', text: 'fresh done' }] }),
           async dispose() {},
         }
@@ -501,7 +600,7 @@ function toolCtx({ children = [], events = {}, resume } = {}) {
       if (name !== 'sessionPersistence') return undefined
       return { open: async (id) => ({ read: async () => ({ events: events[id] ?? [] }), close: async () => {} }) }
     },
-    agents: resume === undefined ? undefined : { resume },
+    agents: resume === undefined ? undefined : { resume, get: (id) => id === DRIVE_PARENT.id ? DRIVE_PARENT : undefined },
   }
 }
 
@@ -576,18 +675,15 @@ try {
     console.log('PASS tool glue: failed continuation keeps partial work, no fresh fallback')
   }
 
-  // Drive failure falls back to a fresh dispatch (auto mode, no explicit resume).
+  // Automatic resume propagates drive failure without starting fresh work.
   {
     const children = [{ id: 'child-1', createdAt: 1, mode: 'one-shot', label: 'workhorse' }]
     const ctx = toolCtx({ children, events: { 'child-1': ERROR_LOG } })
     ctx.agents = { resume: async () => { throw new Error('session id already registered') } }
     const tool = runAgentTool(ctx, { agentsDir: AGENTS_DIR, provider: 'spawn', toolName: 'use_agent' })
-    const result = await tool.execute({ agent: 'workhorse', prompt: 'redo it' }, EXEC)
-    const text = result.output.map((b) => b.text ?? '').join('')
-    assert.ok(text.includes('started a fresh run instead'), 'fallback note present')
-    assert.ok(text.includes('fresh done'), 'fresh dispatch result returned')
-    assert.equal(ctx.started.length, 1, 'exactly one fresh dispatch')
-    console.log('PASS tool glue: drive failure falls back to fresh dispatch')
+    await assert.rejects(tool.execute({ agent: 'workhorse', prompt: 'redo it' }, EXEC), /session id already registered/)
+    assert.equal(ctx.started.length, 0, 'automatic resume failure never starts a fresh task')
+    console.log('PASS tool glue: automatic resume propagates drive failure')
   }
 
   // Explicit resume does NOT swallow a drive failure.
@@ -602,6 +698,35 @@ try {
       'explicit resume propagates drive errors',
     )
     console.log('PASS tool glue: explicit resume propagates drive failure')
+  }
+
+  // The same child cannot be resumed concurrently, even by separate tool instances.
+  {
+    const childId = 'concurrent-child'
+    const children = [{ id: childId, createdAt: 1, mode: 'continuable', label: foregroundLabel('workhorse') }]
+    let entered
+    const ready = new Promise((resolve) => { entered = resolve })
+    let release
+    const idle = new Promise((resolve) => { release = resolve })
+    const backend = fakeResumeBackend(ERROR_LOG, (events) => {
+      events.push(...turn(2, 'completed'))
+    }, { whenIdle: () => { entered(); return idle } })
+    const ctx = toolCtx({ children, events: { [childId]: ERROR_LOG }, resume: backend.ctx.agents.resume })
+    const cfg = { agentsDir: AGENTS_DIR, provider: 'spawn', toolName: 'use_agent' }
+    const pending = runAgentTool(ctx, cfg).execute({ agent: 'workhorse', prompt: 'continue' }, EXEC)
+    try {
+      await ready
+      await assert.rejects(runAgentTool(ctx, cfg).execute({ agent: 'workhorse', prompt: 'continue' }, EXEC), /already in progress|busy/)
+      assert.equal(ctx.started.length, 0, 'busy resume never dispatches fresh work')
+    } finally {
+      release()
+      await pending
+    }
+    assert.equal(backend.captured.disposed, true, 'first resume disposes after completion')
+    // Completion releases the lock so a later call can acquire the same id.
+    await runAgentTool(ctx, cfg).execute({ agent: 'workhorse', prompt: 'continue again' }, EXEC)
+    assert.equal(ctx.started.length, 0)
+    console.log('PASS tool glue: same child concurrent resume is busy without fresh fallback')
   }
 
   // fresh=true skips the lookup entirely (no children enumerable needed).

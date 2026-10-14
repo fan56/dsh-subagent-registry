@@ -29,7 +29,7 @@ import type { Context } from '@deepseek-ai/cordis'
 // dsh-util-values — the same module dsh-tools itself sources it from.
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import type { ContentBlock, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
-import { resolveChildDepth, type SubagentRun, type SubagentStartRequest } from '@deepseek-ai/dsh-subagent'
+import { resolveChildDepth, type SubagentActivation, type SubagentStartRequest } from '@deepseek-ai/dsh-subagent'
 import { expandHome, listAgentFiles, parseAgentMarkdown, type AgentFile, type ThinkingLevel } from './agents-dir.ts'
 import { composeAgentRuntime } from './profile-resolution.ts'
 import { decideBackgroundMode } from './interactive.ts'
@@ -38,6 +38,9 @@ import {
   decideResume,
   driveResumedRun,
   findResumableRun,
+  foregroundLabel,
+  accountingTurnEnd,
+  readStoredEvents,
   type ResumeMode,
 } from './resume.ts'
 
@@ -295,78 +298,46 @@ export function buildStartRequest(input: BuildStartRequestInput): Omit<SubagentS
   return request
 }
 
-/**
- * Collect and release one foreground subagent run without letting disposal
- * replace an independent result failure (mirrors the dsh-tool-subagent
- * `settleForegroundRun` pattern, adapted to this tool's error wording).
- *
- * The run's `result` is awaited through its own `.then()` and `dispose()` is
- * settled separately via `Promise.allSettled`, so a rejecting `result` still
- * guarantees `dispose()` runs, and a rejecting `dispose()` never masks a more
- * meaningful `result` failure. When both fail, both errors are surfaced as an
- * AggregateError.
- */
-async function settleForegroundRun(run: SubagentRun, agentName: string): Promise<readonly ContentBlock[]> {
+/** Caller cancellation owns accepted foreground work until teardown finishes. */
+async function settleForegroundRun(ctx: Context, run: SubagentActivation, agentName: string, signal: AbortSignal): Promise<readonly ContentBlock[]> {
+  let disposal: Promise<void> | undefined
+  const dispose = () => disposal ??= Promise.resolve().then(() => run.dispose())
+  const onAbort = () => { void dispose().catch(() => {}) }
+  signal.addEventListener('abort', onAbort, { once: true })
+  if (signal.aborted) onAbort()
   const [execution] = await Promise.allSettled([
-    run.result.then((result) => {
+    run.result.then(async (result) => {
       if (result.stopReason !== 'completed') {
         const text = textOf(result.output)
         const headline = `${stopReasonError(String(result.stopReason))} (agent "${agentName}")`
         const parts = [text.length === 0 ? headline : `${headline}\nPartial output before the run ended:\n${text}`]
-        // The seam carries no failure detail on a plain `error`; the local
-        // child's terminal turn/end reason is the only place the real cause
-        // survives, so surface it when it exists.
-        if (result.stopReason === 'error') {
-          const underlying = childTurnError(run)
-          if (underlying !== undefined) parts.push(`Child's turn/end error: ${underlying}`)
+        let diagnostic = result.diagnostic
+        if (!diagnostic && result.stopReason === 'error') {
+          try {
+            const events = await readStoredEvents(ctx, run.childId, { signal })
+            const end = events && accountingTurnEnd(events)
+            diagnostic = (end?.data as { reason?: { error?: { message?: string } } } | undefined)?.reason?.error?.message
+          } catch {
+            // Best-effort detail must not replace the original run failure.
+          }
         }
+        if (diagnostic) parts.push(`Child diagnostic: ${diagnostic}`)
         throw new Error(parts.join('\n'))
       }
       return result.output
     }),
   ])
-  const [disposal] = await Promise.allSettled([Promise.resolve().then(() => run.dispose())])
+  signal.removeEventListener('abort', onAbort)
+  const [released] = await Promise.allSettled([dispose()])
   if (execution.status === 'rejected') {
-    if (disposal.status === 'rejected') {
-      throw new AggregateError(
-        [execution.reason, disposal.reason],
-        `subagent run failed: ${String(execution.reason)}; dispose failed: ${String(disposal.reason)}`,
-      )
-    }
+    if (released.status === 'rejected') throw new AggregateError(
+      [execution.reason, released.reason],
+      `subagent run failed: ${String(execution.reason)}; dispose failed: ${String(released.reason)}`,
+    )
     throw execution.reason
   }
-  if (disposal.status === 'rejected') throw disposal.reason
+  if (released.status === 'rejected') throw released.reason
   return execution.value
-}
-
-/**
- * Pull the child's own terminal failure out of its session log. The subagent
- * seam only reports `stopReason: 'error'` with no failure detail, but a local
- * in-process child records the structured `turn/end` reason verbatim; a remote
- * child exposes nothing and yields `undefined`.
- *
- * `snapshotEvents` is @deprecated on the 0.1.7 Session (soft deprecation,
- * still functional); kept here because this is a sync, diagnostics-only read
- * of an already-settled in-process child — the persistence-handle replacement
- * would add async failure modes to an error path for no behavioral gain.
- */
-function childTurnError(run: SubagentRun): string | undefined {
-  const agent = run.localAgent
-  if (agent === undefined) return undefined
-  try {
-    const events = agent.session.snapshotEvents()
-    for (let i = events.length - 1; i >= 0; i--) {
-      const event = events[i]
-      if (event.type !== 'turn/end') continue
-      const reason = event.data.reason
-      if (reason.kind !== 'error') continue
-      const message = reason.error.message
-      if (message.trim().length > 0) return message
-    }
-  } catch {
-    // The session may already be detached; the headline still carries the failure.
-  }
-  return undefined
 }
 
 /** Map a non-`completed` stop reason to a human headline for the parent model. */
@@ -521,9 +492,10 @@ export function runAgentTool(ctx: Context, cfg: RunAgentConfig) {
           displayName: agent.meta.displayName,
           thinking: runtime.thinking as ThinkingLevel | undefined,
         })
-        const { childId } = await ctx.subagents.startContinuable({
+        const { childId } = await ctx.subagents.startActivation({
           provider: cfg.provider,
           label,
+          delivery: 'parent',
           request,
           signal: exec.signal,
         })
@@ -578,9 +550,7 @@ export function runAgentTool(ctx: Context, cfg: RunAgentConfig) {
             ? { reasoningEffort: runtime.thinking as ReasoningEffortId }
             : {}),
         }
-        let resumed: Awaited<ReturnType<typeof driveResumedRun>>
-        try {
-          resumed = await driveResumedRun({
+        const resumed = await driveResumedRun({
             ctx,
             parent,
             childId: candidate.childId,
@@ -593,39 +563,7 @@ export function runAgentTool(ctx: Context, cfg: RunAgentConfig) {
             continuationPrompt: buildContinuationPrompt(candidate.classification.endedAs, args.prompt),
             noticeSummary: `resume interrupted "${args.agent}" subagent run`,
             signal: exec.signal,
-          })
-        } catch (error) {
-          // Fail-open for the drive too, not just the lookup: a resume that
-          // cannot even start (concurrent duplicate resume raced us to the
-          // session id, persistence load failed after inspection, setup rolled
-          // back) degrades to a fresh dispatch — unless resume was explicitly
-          // requested, or the caller is gone, in which case the original
-          // error is the honest answer. A turn that RAN and ended badly is
-          // not an infrastructure failure: it is settled below, preserving
-          // the partial work, and never silently restarted.
-          if (args.resume === true || exec.signal.aborted) throw error
-          const freshRequest = buildStartRequest({
-            agentName: args.agent,
-            prompt: args.prompt,
-            parent,
-            persona: agent.body,
-            deep: agent.meta.deep,
-            toolName: cfg.toolName,
-            leafDenyTools: cfg.leafDenyTools,
-            hostKnownTools,
-            model: runtime.model,
-            displayName: agent.meta.displayName,
-            thinking: runtime.thinking as ThinkingLevel | undefined,
-          })
-          const run = await ctx.subagents.start(cfg.provider, { ...freshRequest, signal: exec.signal })
-          return {
-            kind: 'agent-result' as const,
-            output: [
-              { type: 'text', text: `Resume of the interrupted prior run failed (${String(error)}); started a fresh run instead.` },
-              ...await settleForegroundRun(run, args.agent),
-            ] as unknown as JsonValue[],
-          }
-        }
+        })
         if (resumed.stopReason !== 'completed') {
           const text = textOf(resumed.output as unknown as readonly unknown[])
           const headline =
@@ -648,7 +586,7 @@ export function runAgentTool(ctx: Context, cfg: RunAgentConfig) {
       // routing, and the frontmatter `thinking` effort (native
       // agentOptions.reasoningEffort) are applied by the pure builder (see
       // buildStartRequest).
-      const request = buildStartRequest({
+      const { label: _requestLabel, ...request } = buildStartRequest({
         agentName: args.agent,
         prompt: args.prompt,
         parent,
@@ -663,13 +601,19 @@ export function runAgentTool(ctx: Context, cfg: RunAgentConfig) {
       })
       const signal = exec.signal
 
-      const run = await ctx.subagents.start(cfg.provider, { ...request, signal })
+      const run = await ctx.subagents.startActivation({
+        provider: cfg.provider,
+        label: foregroundLabel(label),
+        request,
+        signal,
+        delivery: 'caller',
+      })
       return {
         kind: 'agent-result' as const,
         // settleForegroundRun always disposes the run, even when result
         // rejects; a non-`completed` stop reason is surfaced as the error.
         // ContentBlock[] → the tool contract's JsonValue[] (structural cast).
-        output: (await settleForegroundRun(run, args.agent)) as unknown as JsonValue[],
+        output: (await settleForegroundRun(ctx, run, args.agent, signal)) as unknown as JsonValue[],
       }
     },
   })

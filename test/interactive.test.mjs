@@ -22,8 +22,9 @@ import { runAgentTool } from '../lib/tool-run-agent.js'
 const ev = (type, data = {}) => ({ type, data })
 
 /** One accounted turn appended to a log array (mirrors the real loop's events). */
-function appendTurn(events, n, endKind, text) {
+function appendTurn(events, n, endKind, text, messageId) {
   events.push(ev('turn/start', { turn: n }), ev('step/start', { turn: n, step: 0 }))
+  if (messageId !== undefined) events.push(ev('user/message', { id: messageId, role: 'user', content: [{ type: 'text', text: 'follow-up' }] }))
   if (text !== undefined) {
     events.push({ type: 'assistant/message', data: { message: { role: 'assistant', content: [{ type: 'text', text }] }, stream: [] } })
   }
@@ -204,6 +205,137 @@ function fakeSessions(map) {
   console.log('PASS waitForChildReply cancellation')
 }
 
+// A running turn may start before delivery; its reply requires this receipt.
+{
+  const log = []
+  appendTurn(log, 1, 'completed', 'old answer', 'old-message')
+  log.push(ev('turn/start', { turn: 2 }), ev('step/start', { turn: 2, step: 0 }))
+  const boundary = log.length
+  log.push(ev('user/message', { id: 'steer-message', role: 'user', content: [{ type: 'text', text: 'steer' }] }))
+  log.push({ type: 'assistant/message', data: { message: { role: 'assistant', content: [{ type: 'text', text: 'steered answer' }] }, stream: [] } })
+  log.push(ev('turn/end', { turn: 2, reason: { kind: 'completed' } }))
+  // A later unrelated turn must not replace the receipt's own answer.
+  appendTurn(log, 3, 'completed', 'unrelated later answer', 'other-message')
+  const live = { get seq() { return log.length }, snapshotEvents: (from = 0) => log.slice(from) }
+  const ctx = fakeSessions(new Map([['c', live]]))
+  const reply = await waitForChildReply({ ctx, childId: 'c', boundary, messageId: 'steer-message', signal: new AbortController().signal, timeoutMs: 50, pollMs: 1 })
+  assert.ok(reply, 'consumed receipt closes the turn already running before the boundary')
+  assert.equal(reply.stopReason, 'completed')
+  assert.deepEqual(reply.output, [{ type: 'text', text: 'steered answer' }], 'receipt returns its turn, not old or later output')
+
+  const missing = await waitForChildReply({ ctx, childId: 'c', boundary, messageId: 'unconsumed-message', signal: new AbortController().signal, timeoutMs: 20, pollMs: 1 })
+  assert.equal(missing, undefined, 'unrelated completed turns cannot acknowledge an unconsumed receipt')
+  console.log('PASS running turn before boundary correlates consumption and ignores unrelated turns')
+}
+
+// Correlation reads the complete log even when consumption precedes boundary.
+{
+  const log = []
+  appendTurn(log, 1, 'completed', 'receipt answer', 'already-consumed')
+  const boundary = log.length - 1 // only turn/end lies after the observation boundary
+  const ctx = fakeSessions(new Map([['c', { get seq() { return log.length }, snapshotEvents: (from = 0) => log.slice(from) }]]))
+  const reply = await waitForChildReply({ ctx, childId: 'c', boundary, messageId: 'already-consumed', signal: new AbortController().signal, timeoutMs: 50, pollMs: 1 })
+  assert.deepEqual(reply?.output, [{ type: 'text', text: 'receipt answer' }], 'consumption before boundary still correlates to its later turn/end')
+  console.log('PASS receipt correlation searches consumption before boundary')
+}
+
+// Delivery into the inbox alone is not consumption by the current turn.
+{
+  const log = [ev('turn/start', { turn: 1 }), ev('step/start', { turn: 1, step: 0 })]
+  const boundary = log.length
+  log.push(ev('agent/inbox/spliced', { target: 'next-turn', start: 0, inserted: [{ id: 'queued-message', role: 'user', content: [{ type: 'text', text: 'queued' }] }] }))
+  log.push(ev('turn/end', { turn: 1, reason: { kind: 'completed' } }))
+  const live = { get seq() { return log.length }, snapshotEvents: (from = 0) => log.slice(from) }
+  const ctx = fakeSessions(new Map([['c', live]]))
+  const missing = await waitForChildReply({ ctx, childId: 'c', boundary, messageId: 'queued-message', signal: new AbortController().signal, timeoutMs: 20, pollMs: 1 })
+  assert.equal(missing, undefined, 'inbox acceptance cannot be mistaken for consumed user input')
+  appendTurn(log, 2, 'completed', 'now consumed', 'queued-message')
+  const reply = await waitForChildReply({ ctx, childId: 'c', boundary, messageId: 'queued-message', signal: new AbortController().signal, timeoutMs: 50, pollMs: 1 })
+  assert.deepEqual(reply?.output, [{ type: 'text', text: 'now consumed' }])
+  console.log('PASS receipt waits for consumption rather than inbox delivery')
+}
+
+// Inbox claims reconstruct which turn consumed a queued delivery.
+{
+  for (const target of ['next-turn', 'next-step']) {
+    const message = { id: `inbox-${target}`, role: 'user', content: [{ type: 'text', text: 'queued' }] }
+    const log = [ev('agent/inbox/spliced', { target, start: 0, inserted: [message] }), ev('turn/start', { turn: 1 }), ev('step/start', { turn: 1, step: 0 })]
+    const boundary = log.length
+    log.push(ev('agent/inbox/spliced', { target, start: 0, removedCount: 1, inserted: [] }))
+    log.push({ type: 'assistant/message', data: { message: { role: 'assistant', content: [{ type: 'text', text: `claimed ${target}` }] }, stream: [] } })
+    log.push(ev('turn/end', { turn: 1, reason: { kind: 'completed' } }))
+    const ctx = fakeSessions(new Map([['c', { get seq() { return log.length }, snapshotEvents: (from = 0) => log.slice(from) }]]))
+    const reply = await waitForChildReply({ ctx, childId: 'c', boundary, messageId: message.id, signal: new AbortController().signal, timeoutMs: 50, pollMs: 1 })
+    assert.deepEqual(reply?.output, [{ type: 'text', text: `claimed ${target}` }])
+  }
+  console.log('PASS inbox receipt correlation across next-turn and next-step claims')
+}
+
+// An inbox replacement preserves the pending receipt under its new identity.
+{
+  const original = { id: 'original-receipt', role: 'user', content: [{ type: 'text', text: 'original' }] }
+  const successor = { id: 'replacement-receipt', role: 'user', content: [{ type: 'text', text: 'rewritten' }] }
+  const log = [ev('agent/inbox/spliced', { target: 'next-turn', start: 0, inserted: [original] })]
+  const boundary = log.length
+  log.push(ev('agent/inbox/spliced', { target: 'next-turn', start: 0, removedCount: 1, inserted: [successor], outcome: 'canceled' }))
+  log.push(ev('turn/start', { turn: 1 }), ev('step/start', { turn: 1, step: 0 }))
+  log.push(ev('agent/inbox/spliced', { target: 'next-turn', start: 0, removedCount: 1, inserted: [] }))
+  log.push({ type: 'assistant/message', data: { message: { role: 'assistant', content: [{ type: 'text', text: 'replacement answer' }] }, stream: [] } })
+  log.push(ev('turn/end', { turn: 1, reason: { kind: 'completed' } }))
+  const ctx = fakeSessions(new Map([['c', { get seq() { return log.length }, snapshotEvents: (from = 0) => log.slice(from) }]]))
+  for (const messageId of [original.id, successor.id]) {
+    const reply = await waitForChildReply({ ctx, childId: 'c', boundary, messageId, signal: new AbortController().signal, timeoutMs: 50, pollMs: 1 })
+    assert.equal(reply?.stopReason, 'completed', 'canceled splice with a successor is replacement, not abort')
+    assert.deepEqual(reply?.output, [{ type: 'text', text: 'replacement answer' }])
+  }
+  console.log('PASS replacement receipt follows its successor to the actual reply')
+}
+
+// GUI steer removes a receipt then reinserts the same id before consumption.
+{
+  const message = { id: 'gui-steer', role: 'user', content: [{ type: 'text', text: 'steer' }] }
+  const log = [ev('agent/inbox/spliced', { target: 'next-turn', start: 0, inserted: [message] })]
+  const boundary = log.length
+  log.push(ev('agent/inbox/spliced', { target: 'next-turn', start: 0, removedCount: 1, inserted: [], outcome: 'canceled' }))
+  log.push(ev('agent/inbox/spliced', { target: 'next-step', start: 0, inserted: [message] }))
+  log.push(ev('turn/start', { turn: 1 }), ev('step/start', { turn: 1, step: 0 }))
+  log.push(ev('agent/inbox/spliced', { target: 'next-step', start: 0, removedCount: 1, inserted: [] }))
+  log.push({ type: 'assistant/message', data: { message: { role: 'assistant', content: [{ type: 'text', text: 'GUI steer answer' }] }, stream: [] } })
+  log.push(ev('turn/end', { turn: 1, reason: { kind: 'completed' } }))
+  const ctx = fakeSessions(new Map([['c', { get seq() { return log.length }, snapshotEvents: (from = 0) => log.slice(from) }]]))
+  const reply = await waitForChildReply({ ctx, childId: 'c', boundary, messageId: message.id, signal: new AbortController().signal, timeoutMs: 50, pollMs: 1 })
+  assert.equal(reply?.stopReason, 'completed', 'later same-id reinsertion clears earlier cancellation')
+  assert.deepEqual(reply?.output, [{ type: 'text', text: 'GUI steer answer' }])
+  console.log('PASS GUI steer same-id reinsertion returns its consumed reply')
+}
+
+// An unrun receipt cancelled out of the inbox settles as aborted.
+{
+  const log = [ev('agent/inbox/spliced', { target: 'next-turn', start: 0, inserted: [{ id: 'cancelled-inbox', role: 'user', content: [] }] })]
+  const boundary = log.length
+  log.push(ev('agent/inbox/spliced', { target: 'next-turn', start: 0, removedCount: 1, inserted: [], outcome: 'canceled' }))
+  const ctx = fakeSessions(new Map([['c', { get seq() { return log.length }, snapshotEvents: (from = 0) => log.slice(from) }]]))
+  const reply = await waitForChildReply({ ctx, childId: 'c', boundary, messageId: 'cancelled-inbox', signal: new AbortController().signal, timeoutMs: 50, pollMs: 1 })
+  assert.equal(reply?.stopReason, 'aborted')
+  assert.deepEqual(reply?.output, [])
+  console.log('PASS cancelled unrun receipt settles as aborted')
+}
+
+// The same receipt correlation works after a settled child leaves residency.
+{
+  const log = []
+  appendTurn(log, 1, 'completed', 'cold receipt answer', 'cold-message')
+  appendTurn(log, 2, 'completed', 'later cold answer', 'other-cold-message')
+  const ctx = { get(name) {
+    return name === 'sessionPersistence'
+      ? { open: async () => ({ read: async (from = 0) => ({ events: log.slice(from) }), close: async () => {} }) }
+      : undefined
+  } }
+  const reply = await waitForChildReply({ ctx, childId: 'c', boundary: 0, messageId: 'cold-message', signal: new AbortController().signal, timeoutMs: 50, pollMs: 1 })
+  assert.deepEqual(reply?.output, [{ type: 'text', text: 'cold receipt answer' }])
+  console.log('PASS persisted receipt returns its own turn')
+}
+
 // ---------------------------------------------------------------------------
 // `ask_agent` tool execute() — real tool, fake ctx doubles
 // ---------------------------------------------------------------------------
@@ -256,7 +388,7 @@ try {
         },
         async sendMessage(sender, targetId, content) {
           ctx.sent.push({ sender: sender.id, targetId: String(targetId), text: content[0]?.text })
-          appendTurn(log, 2, 'completed', 'the follow-up reply')
+          appendTurn(log, 2, 'completed', 'the follow-up reply', 'msg-9')
           live.seq = log.length
           return 'msg-9'
         },
@@ -334,6 +466,28 @@ try {
     console.log('PASS ask_agent timeout delivery note')
   }
 
+  // The tool forwards the delivery receipt; unrelated turn/end is not its reply.
+  {
+    const log = []
+    const live = { get seq() { return log.length }, snapshotEvents: (from = 0) => log.slice(from) }
+    const ctx = {
+      subagents: {
+        async sendMessage() {
+          appendTurn(log, 1, 'completed', 'unrelated answer', 'different-message')
+          return 'not-consumed'
+        },
+      },
+      get(name) { return name === 'sessions' ? { get: () => live } : undefined },
+    }
+    const tool = askAgentTool(ctx, { agentsDir: AGENTS_DIR, toolName: 'ask_agent', pollMs: 1 })
+    const result = await tool.execute({ agent_id: 'c', message: 'x', timeout: 0.02 }, EXEC)
+    const text = result.output.map((b) => b.text ?? '').join('')
+    assert.match(text, /no reply turn completed/)
+    assert.match(text, /not-consumed/)
+    assert.equal(text.includes('unrelated answer'), false, 'sendMessage receipt reaches reply observation')
+    console.log('PASS ask_agent does not return an unrelated completed turn')
+  }
+
   // Cold child: boundary comes from persistence; the reply lands post-cold-resume.
   {
     const prior = [
@@ -350,7 +504,7 @@ try {
         async listChildren() { return [WORKHORSE_CHILD('cold')] },
         async sendMessage(sender, targetId) {
           ctx.sent.push({ targetId: String(targetId) })
-          appendTurn(log, 2, 'completed', 'resumed and answered')
+          appendTurn(log, 2, 'completed', 'resumed and answered', 'msg-2')
           live.seq = log.length
           return 'msg-2'
         },
@@ -377,7 +531,7 @@ try {
       subagents: {
         async listChildren() { return [WORKHORSE_CHILD('c')] },
         async sendMessage() {
-          appendTurn(log, 3, 'error', 'half a sentence')
+          appendTurn(log, 3, 'error', 'half a sentence', 'msg-3')
           live.seq = log.length
           return 'msg-3'
         },
@@ -418,10 +572,14 @@ function bgCtx({ started = [] } = {}) {
     started,
     subagents: {
       async listChildren() { return [] },
-      async start() { throw new Error('one-shot start must not run on the background path') },
-      async startContinuable(spec) {
+      async startActivation(spec) {
         started.push(spec)
-        return { childId: 'durable-child-1', messageId: 'm-1' }
+        return {
+          childId: 'durable-child-1', messageId: 'm-1',
+          // Background dispatch returns on receipt; it never waits for result.
+          result: new Promise(() => {}),
+          async dispose() { throw new Error('background activation belongs to its parent delivery') },
+        }
       },
     },
     get() { return undefined },
@@ -440,6 +598,9 @@ try {
     assert.equal(ctx.started.length, 1, 'exactly one continuable start')
     const spec = ctx.started[0]
     assert.equal(spec.provider, 'spawn', 'provider passed through')
+    assert.equal(spec.delivery, 'parent', 'background settlement belongs to the parent')
+    assert.equal(spec.signal, EXEC.signal, 'caller signal passed to activation')
+    assert.equal('signal' in spec.request, false, 'signal belongs to activation, not request')
     assert.equal(spec.label, 'worker', 'durable label = display_name ?? name')
     assert.equal(spec.request.persona, 'You are the worker body.', 'file body applied as persona')
     assert.deepEqual(spec.request.toolFilter, { deny: ['subagent', 'subagent_fork', 'workflow', 'ralph', 'use_agent'] }, 'leaf toolFilter carried onto the continuable child')
@@ -454,19 +615,24 @@ try {
   // Per-call override: explicit false on a background agent -> foreground.
   {
     const ctx = bgCtx()
-    ctx.subagents.start = async (provider, request) => {
-      ctx.started.push({ oneShot: true, provider, request })
+    let disposed = 0
+    ctx.subagents.startActivation = async (spec) => {
+      ctx.started.push(spec)
       return {
-        id: 'oneshot',
-        localAgent: undefined,
+        childId: 'foreground-child', messageId: 'fg-message',
         result: Promise.resolve({ stopReason: 'completed', output: [{ type: 'text', text: 'done' }] }),
-        async dispose() {},
+        async dispose() { disposed += 1 },
       }
     }
     const tool = runAgentTool(ctx, { agentsDir: BG_AGENTS_DIR, provider: 'spawn', toolName: 'use_agent' })
     const result = await tool.execute({ agent: 'worker', prompt: 'x', background: false }, EXEC)
-    assert.equal(result.kind, 'agent-result', 'explicit background:false -> foreground one-shot')
-    assert.equal(ctx.started[0]?.oneShot, true, 'one-shot start used')
+    assert.equal(result.kind, 'agent-result', 'explicit background:false -> foreground activation')
+    assert.equal(ctx.started[0]?.delivery, 'caller', 'foreground activation delivers to caller')
+    assert.equal(ctx.started[0]?.label, '[use_agent foreground] worker', 'foreground label marks the managed child')
+    assert.equal(ctx.started[0]?.signal, EXEC.signal)
+    assert.equal('label' in ctx.started[0].request, false)
+    assert.equal('signal' in ctx.started[0].request, false)
+    assert.equal(disposed, 1, 'foreground activation disposed after its result')
     console.log('PASS use_agent per-call background:false overrides frontmatter')
   }
 
@@ -476,6 +642,8 @@ try {
     const tool = runAgentTool(ctx, { agentsDir: BG_AGENTS_DIR, provider: 'spawn', toolName: 'use_agent' })
     const result = await tool.execute({ agent: 'fg', prompt: 'x', background: true }, EXEC)
     assert.equal(result.kind, 'agent-start', 'explicit background:true -> continuable')
+    assert.equal(ctx.started[0].delivery, 'parent', 'background override uses parent delivery')
+    assert.equal(ctx.started[0].label, 'fg', 'background override uses the ordinary label')
     assert.equal(ctx.started[0].request.persona, 'You are the foreground body.', 'persona from the right file')
     assert.equal(ctx.started[0].request.toolFilter, undefined, 'non-leaf continuable child has no toolFilter')
     assert.equal(typeof ctx.started[0].request.maxDepth, 'number', 'relative maxDepth carried')

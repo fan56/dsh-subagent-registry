@@ -14,7 +14,7 @@
  *
  * Relationship to package.json: the `@deepseek-ai/*` entries there are
  * OPTIONAL peerDependencies — release semantics for consumers ("expect the
- * host's copies, floor >=0.2.0-rc.2"), not install specs. Optional peers are
+ * host's copies, floor >=0.2.1-alpha.2"), not install specs. Optional peers are
  * never auto-installed (pnpm's auto-install-peers and npm's peer auto-install
  * both skip them), so they cannot materialize a second local copy in `.pnpm`.
  * That second copy is exactly what a hard dependency used to create, breaking
