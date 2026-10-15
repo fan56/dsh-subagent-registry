@@ -54,6 +54,16 @@ Under the hood that is `use_agent(agent: "workhorse", prompt: "…")`. For
 background runs, follow up with `ask_agent(agent: "worker", message: "…")` —
 it waits for the reply.
 
+## Subagent preset manager
+
+Select **子智能体** in the left sidebar navigation to open a full workspace page. It reads the configured `agentsDir` and supports creating, copying, editing, repairing complete source, and deleting presets. Broken files keep their diagnostics; reading or refreshing an empty directory does not seed files. Existing internal names are fixed. Display-name changes require confirmation because older runs may no longer be found by name.
+
+Opening, refreshing, saving, or deleting refreshes the roster for subsequent model requests without stopping running calls or changing their personas. After manual file edits, reopen or refresh the page. CLI/TUI dispatch still reads each role at invocation; without the Web manager its static roster updates on remount.
+
+Updates preserve unknown fields, comments and untouched body text, reject external revisions, and use full source editing when local changes cannot be preserved safely. Failed saves and cancelled discard confirmations retain the draft. Switching host pages retains the current client's draft; restarting or unloading the plugin does not. Deletion confirms the impact on profiles sharing the directory.
+
+Build and install the client artifact; an existing process may need a restart to load this new plugin entry. Once loaded, preset CRUD needs no restart.
+
 ## Define your own
 
 Drop a file into `~/.dsh/agents/`:

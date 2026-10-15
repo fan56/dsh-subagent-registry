@@ -4,14 +4,12 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.13.2-local.1] - 2026-10-14
+## [0.14.0] - 2026-10-15
 
-### Fixed
-- Allow both verified host Schemastery lines (`~3.18.4 || ~3.18.5-alpha.1`) as an optional peer. The stable-only range caused plain npm installs to fail with `ERESOLVE` against the alpha host's peer graph.
-- Make npm invocation and regression-test line parsing work on Windows; check installation in a path containing spaces without disabling lifecycle scripts.
-
-### Changed
-- Merge upstream 0.13.2 packaging fixes, install checks and troubleshooting guidance while retaining the local dual-host support for DSH 0.2.0-rc.2 and 0.2.1-alpha.2, optional host SDK peers, and concise custom-role delegation guidance. The upstream alpha-support statement below describes the official release, not this local compatibility build.
+### Added
+- **Subagent preset manager in sidebar** — adds a full management page in the left sidebar under `sidebar.panellist` ("子智能体") with full CRUD for `~/.dsh/agents/*.md` presets, atomic saves, draft retention, and live tool roster updates.
+- **Dynamic model and reasoning effort selection** — model selection reads host `modelCatalog` grouped by provider; reasoning effort dynamically links to model capabilities (including `xhigh`), automatically disabling with clear guidance when not supported.
+- **Card-based preset list redesign** — cards styled with DSH design tokens (`--dsw-alias-*`), showing agent avatar initials, monospace file pills, status indicators, and metadata chips for model, thinking level, and runtime limits.
 
 ## [0.13.2] - 2026-10-14
 
