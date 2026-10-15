@@ -51,6 +51,8 @@ try {
   })
   const installed = join(consumer, 'node_modules', '@aiwayds', 'dsh-subagent-registry')
   assert.ok(existsSync(join(installed, 'scripts', 'link-dsh-closure.mjs')), 'installed package carries the hook target')
+  assert.ok(existsSync(join(installed, 'lib', 'client.js')), 'installed package carries the client factory')
+  assert.ok(existsSync(join(installed, 'lib', 'types', 'client', 'index.d.ts')), 'installed package carries the client declaration')
 
   // 4. Consumer safety: the linker must have stood down — no @deepseek-ai
   //    scope dir materialized inside the consumer's package tree.

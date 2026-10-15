@@ -37,6 +37,7 @@ import { seedBundledAgents } from './seed-defaults.ts'
 import { runAgentTool, type RunAgentConfig } from './tool-run-agent.ts'
 import { askAgentTool } from './interactive.ts'
 import { registerDelegationGuidance } from './delegation-guidance.ts'
+import { registerPresetsRpc } from './presets-rpc.ts'
 
 // Profile-aware runtime synthesis (the read side of the model-profile
 // feature): dsh-tui-pi imports these from this package.
@@ -179,10 +180,38 @@ export function apply(ctx: Context, config: RunAgentConfig): void {
   // `subagent/provider-added` event (emitted by ctx.subagents.registerProvider)
   // before registering. The tool's execute always re-resolves the provider at
   // call time through ctx.subagents.startActivation, so no further check is needed.
+  let refreshRoster = async (): Promise<void> => {}
+  // Web is optional: CLI/TUI mounts must keep their dispatch tools without Connection.
+  ctx.inject(['connection', 'webServer'], web => registerPresetsRpc(web, dir, () => refreshRoster()))
   const registerTool = (): void => {
     ctx.effect(() => {
-      const definition = runAgentTool(ctx, runConfig)
-      const dispatch = ctx.tools.register(definition)
+      let definition = runAgentTool(ctx, runConfig)
+      let dispatch = ctx.tools.register(definition)
+      let guidance = registerDelegationGuidance(ctx, definition, config.askToolName ?? 'ask_agent')
+      let active = true
+      let pending = Promise.resolve()
+      const replace = async (): Promise<void> => {
+        const next = runAgentTool(ctx, runConfig)
+        if (!active || next.description === definition.description) return
+        const previous = definition
+        guidance()
+        await dispatch()
+        if (!active) return
+        try {
+          dispatch = ctx.tools.register(next)
+          definition = next
+        } catch (error) {
+          dispatch = ctx.tools.register(previous)
+          guidance = registerDelegationGuidance(ctx, previous, config.askToolName ?? 'ask_agent')
+          throw error
+        }
+        guidance = registerDelegationGuidance(ctx, definition, config.askToolName ?? 'ask_agent')
+      }
+      refreshRoster = () => {
+        const operation = pending.then(replace)
+        pending = operation.catch(() => {})
+        return operation
+      }
       const followUp = ctx.tools.register(
         askAgentTool(ctx, {
           agentsDir: dir,
@@ -190,7 +219,14 @@ export function apply(ctx: Context, config: RunAgentConfig): void {
           dispatchToolName: config.toolName,
         }),
       )
-      return [dispatch, followUp, registerDelegationGuidance(ctx, definition, config.askToolName ?? 'ask_agent')]
+      return async () => {
+        active = false
+        refreshRoster = async () => {}
+        await pending
+        guidance()
+        await dispatch()
+        await followUp()
+      }
     }, `dsh-subagent-registry:${config.toolName}`)
   }
   // TODO(upstream): upstream added a read-only `list_subagent_models`

@@ -64,9 +64,7 @@ You are my-agent. 这段 markdown 正文会原样作为 system prompt。
 收集完生成 `<agentsDir>/<名字>.md` 写入 agents 目录（正文按用户描述写成人设
 system prompt，**逐字使用**，不要二次改写），并告知生效时机：
 
-- **新文件立即可按名调用**——`use_agent` 执行时会从磁盘重读文件；但工具描述里的
-  **名册是插件装载时静态构建的，新 agent 要重启 dsh 后才会出现在名册里**，在那之前
-  直接点名调用即可。
+- **新文件立即可按名调用**——`use_agent` 执行时会从磁盘重读文件。在 Web 设置打开“Subagent 预设”或手动刷新，工具名册在后续模型请求中同步更新，无需重启；页面保存/删除也自动刷新。纯 CLI/TUI 没有 Web 管理页时，名册在插件下次挂载时更新。
 - **已有文件的修改**（正文、frontmatter）下次 `use_agent` 调用即生效，无需重启。
 
 ## 插件自身配置（entry config 六键）
@@ -181,7 +179,7 @@ grep dsh-subagent-registry ~/.dsh/profiles/<profile>/cordis.patch.yml
    负数、`thinking`/`background` 非法值，都会**整文件丢弃**（不是降级修复）。
 2. **agent 没出现在 `use_agent` 工具里** → 依次查：agentsDir 配得对不对（默认
    `$DSH_HOME/agents`）；文件是不是 `<名字>.md` 直接放在目录顶层（不递归子目录）；
-   frontmatter 是否合法（见上一条）。新写的文件要重启 dsh 才进名册，但可立即按名调用。
+   frontmatter 是否合法且 name 与文件名一致（见上一条）。Web 管理页打开或刷新会同步名册；纯 CLI/TUI 下次挂载更新名册，新文件均可立即按名调用。
 3. **预置 agent 丢了/被改** → 首次启动只在目录为空时植入 workhorse / oldfox /
    rubber-duck 三个预置 agent；已有文件永远不会被覆盖，删掉就是删掉。卸载插件也
    不会动 `~/.dsh/agents/` 里的文件。

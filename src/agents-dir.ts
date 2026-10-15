@@ -40,7 +40,7 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 
 /** Valid frontmatter `thinking` values, in canonical order. */
-export const THINKING_LEVELS = ['off', 'low', 'medium', 'high', 'max'] as const
+export const THINKING_LEVELS = ['off', 'low', 'medium', 'high', 'xhigh', 'max'] as const
 
 /** A reasoning effort id accepted in the `thinking` frontmatter key. */
 export type ThinkingLevel = (typeof THINKING_LEVELS)[number]
@@ -108,7 +108,7 @@ export function agentsDir(): string {
 
 const FRONTMATTER_FENCE = '---'
 /** Frontmatter key pattern (same loose shape dsh-tui-pi / fun-agent accept). */
-const KEY_LINE = /^([A-Za-z_][A-Za-z0-9_]*)\s*:\s*(.*)$/
+export const KEY_LINE = /^([A-Za-z_][A-Za-z0-9_]*)\s*:\s*(.*)$/
 
 /** Strip one pair of matching surrounding quotes, if present. */
 function stripQuotes(value: string): string {
@@ -126,7 +126,7 @@ function isThinkingLevel(value: string): value is ThinkingLevel {
 }
 
 /** Find the closing fence line index of a frontmatter starting at line 0. */
-function frontmatterBounds(lines: string[]): { close: number } | undefined {
+export function frontmatterBounds(lines: string[]): { close: number } | undefined {
   if (lines[0]?.trim() !== FRONTMATTER_FENCE) return undefined
   for (let i = 1; i < lines.length; i++) {
     if (lines[i].trim() === FRONTMATTER_FENCE) return { close: i }
@@ -135,7 +135,7 @@ function frontmatterBounds(lines: string[]): { close: number } | undefined {
 }
 
 /** Parse a loose `key: value` frontmatter block (lines 1..close-1). */
-function parseFrontmatterValues(lines: string[], close: number): Record<string, string> {
+export function parseFrontmatterValues(lines: string[], close: number): Record<string, string> {
   const values: Record<string, string> = {}
   for (let i = 1; i < close; i++) {
     const match = KEY_LINE.exec(lines[i])
@@ -219,7 +219,9 @@ export function listAgentFiles(dir: string): { agents: AgentFile[]; broken: Arra
     if (!entry.isFile() || !entry.name.endsWith('.md')) continue
     const path = join(dir, entry.name)
     const result = parseAgentMarkdown(readFileSync(path, 'utf8'), path)
-    if (result.ok) agents.push(result.agent)
+    if (result.ok && result.agent.meta.name !== entry.name.slice(0, -3)) {
+      broken.push({ path, error: 'frontmatter name must match the file identity' })
+    } else if (result.ok) agents.push(result.agent)
     else broken.push({ path, error: result.error })
   }
   agents.sort((a, b) => a.meta.name.localeCompare(b.meta.name))

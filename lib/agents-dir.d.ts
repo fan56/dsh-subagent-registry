@@ -35,7 +35,7 @@
  * dependency on that package.
  */
 /** Valid frontmatter `thinking` values, in canonical order. */
-export declare const THINKING_LEVELS: readonly ["off", "low", "medium", "high", "max"];
+export declare const THINKING_LEVELS: readonly ["off", "low", "medium", "high", "xhigh", "max"];
 /** A reasoning effort id accepted in the `thinking` frontmatter key. */
 export type ThinkingLevel = (typeof THINKING_LEVELS)[number];
 /** One agent's frontmatter-derived metadata (the editable surface). */
@@ -89,6 +89,14 @@ export declare function expandHome(dir: string): string;
 export declare function dshHome(): string;
 /** The dsh agents directory default (`$DSH_HOME/agents`, i.e. `~/.dsh/agents`). */
 export declare function agentsDir(): string;
+/** Frontmatter key pattern (same loose shape dsh-tui-pi / fun-agent accept). */
+export declare const KEY_LINE: RegExp;
+/** Find the closing fence line index of a frontmatter starting at line 0. */
+export declare function frontmatterBounds(lines: string[]): {
+    close: number;
+} | undefined;
+/** Parse a loose `key: value` frontmatter block (lines 1..close-1). */
+export declare function parseFrontmatterValues(lines: string[], close: number): Record<string, string>;
 /**
  * Parse one agent markdown file. Tolerates CRLF, quotes, and non-key lines
  * inside the frontmatter; `name` is required, `deep` must be a non-negative

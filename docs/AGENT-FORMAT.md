@@ -11,6 +11,14 @@ The same package is tested on published DSH `0.2.0-rc.2` and `0.2.1-alpha.2` SDK
 
 Both hosts support foreground resume and background follow-ups within their own persisted session format; cross-version session migration is not provided. Older resume waits use scoped public lifecycle events and descendant queries, including live grandchildren and parked continuables. Cancellation drains the owning forest using the host's available drain API. Session persistence and the host's `sessionQuery` service are required for catalog lookup and follow-ups.
 
+## Web preset management
+
+The **Subagent 预设** settings entry opens a full workspace page with separate create, copy, edit and complete-source repair forms. It uses the configured directory, including shared profile directories. Existing names remain fixed; display-name changes require confirmation because historical runs retain their old labels. File identity must match the frontmatter name. Invalid files remain visible with diagnostics.
+
+Structured saves patch only edited fields and body text, preserving comments and unknown keys; opaque frontmatter uses source editing. Hash revisions reject stale saves and deletes. Publication uses a synced temporary file, exclusive creation and replacement rather than truncation. Operations are serialized within this store; an external process can still race the final revision check and rename/unlink. New names use 1–64 ASCII letters, digits, underscores or hyphens. Existing safe Unicode basenames remain manageable. Links and path fragments are refused. Text submissions are capped at 8 MiB; reading existing larger files is supported.
+
+Opening, refreshing and successful CRUD update real scoped tool registrations for subsequent model requests. Running calls, descendants and their captured personas continue unchanged. The optional authenticated Connection/WebServer integration does not disable CLI/TUI dispatch when Web services are absent. Page-local discard actions ask for confirmation; switching host pages retains a client-lifetime draft, without a global navigation interception or persistence across restart/unload.
+
 ## Agent definition format
 
 An agent is `<agents-dir>/<name>.md` — a loose `key: value` frontmatter block

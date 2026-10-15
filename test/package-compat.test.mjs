@@ -21,9 +21,16 @@ try {
     assert.equal(source.peerDependenciesMeta[name]?.optional, true, `${name} must use the host SDK`)
     assert.equal(source.dependencies?.[name], undefined, `${name} must not install a consumer-side copy`)
   }
-  for (const name of readdirSync(join(cwd, 'lib'))) {
-    assert.deepEqual(readFileSync(join(packedRoot, 'lib', name)), readFileSync(join(cwd, 'lib', name)), `${name} archive differs from the checked build`)
+  function compareCompiled(relative) {
+    for (const entry of readdirSync(join(cwd, relative), { withFileTypes: true })) {
+      const path = join(relative, entry.name)
+      if (entry.isDirectory()) compareCompiled(path)
+      else assert.deepEqual(readFileSync(join(packedRoot, path)), readFileSync(join(cwd, path)), `${path} archive differs from the checked build`)
+    }
   }
+  compareCompiled('lib')
+  assert(source.exports['./client'], 'the package exposes the client factory and declarations')
+  assert(source.dsh.client.inject.includes('@deepseek-ai/dsh-client-connection'))
   console.log(`package-compat: PASS — ${source.version}, both optional peer lines, exact compiled archive contents`)
 } finally {
   assert(directory.startsWith(join(tmpdir(), 'registry-package-')))

@@ -21,8 +21,8 @@
  * @module dsh-subagent-registry/tool-run-agent
  */
 
-import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { lstatSync, readFileSync } from 'node:fs'
+import { basename, join } from 'node:path'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { Context } from '@deepseek-ai/cordis'
 // Type-only (erased at emit): alpha.3 moved JsonValue out of dsh-session to
@@ -421,9 +421,11 @@ export function stopReasonError(reason: string): string {
 
 /** Read + parse one agent file, throwing a friendly, roster-aware error. */
 export function loadAgent(dir: string, name: string, available: string[]): AgentFile {
+  if (name !== basename(name) || /[\\/]/.test(name) || name === '.' || name === '..') throw new Error('invalid agent file identity')
   const target = join(dir, `${name}.md`)
   let text: string
   try {
+    if (!lstatSync(target).isFile()) throw new Error('agent must be a regular file')
     text = readFileSync(target, 'utf8')
   } catch {
     const hint = available.length > 0 ? `available agents: ${available.join(', ')}` : 'no agents defined in this directory'
@@ -433,6 +435,7 @@ export function loadAgent(dir: string, name: string, available: string[]): Agent
   if (!parsed.ok) {
     throw new Error(`agent "${name}": ${parsed.error}`)
   }
+  if (parsed.agent.meta.name !== name) throw new Error(`agent "${name}": frontmatter name must match the file identity`)
   return parsed.agent
 }
 

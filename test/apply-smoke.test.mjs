@@ -27,6 +27,7 @@ function mockCtx({ providerNames = [] } = {}) {
   const providers = new Set(providerNames)
   return {
     listeners,
+    inject() {}, // Optional Web capability is absent in this CLI registration check.
     registeredTools,
     registeredSkillProviders,
     effects,
