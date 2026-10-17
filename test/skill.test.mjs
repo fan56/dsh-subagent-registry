@@ -55,7 +55,7 @@ const AGENTS_DIR = mkdtempSync(join(tmpdir(), 'registry-skill-'))
 
 /** Extract one scalar value from the SKILL.md YAML frontmatter. */
 function frontmatterValue(markdown, key) {
-  const match = markdown.match(/^---\n([\s\S]*?)\n---\n/)
+  const match = markdown.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n/)
   assert.ok(match, 'SKILL.md must open with a YAML frontmatter block')
   const line = match[1]
     .split('\n')
@@ -97,7 +97,7 @@ test('apply registers the bundled skill provider on ctx.skills', async () => {
   // (fileURLToPath keeps the trailing slash of the URL path).
   assert.equal(candidate.resourceBase.kind, 'directory')
   assert.ok(
-    candidate.resourceBase.path.replace(/\/$/, '').endsWith('skills/dsh-subagent-registry-config'),
+    candidate.resourceBase.path.replaceAll('\\', '/').replace(/\/$/, '').endsWith('skills/dsh-subagent-registry-config'),
     `unexpected resourceBase path: ${candidate.resourceBase.path}`,
   )
 })

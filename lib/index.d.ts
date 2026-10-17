@@ -3,7 +3,7 @@
  *
  * At session startup this plugin registers two tools (both names
  * configurable): `use_agent` calls any agent defined in
- * `~/.dsh/agents/<name>.md` by name — foreground one-shot with interrupted-run
+ * `~/.dsh/agents/<name>.md` by name — foreground activation with interrupted-run
  * resume, or (since dsh v0.1.2-alpha.4) a durable `background` conversation
  * that returns the child's id immediately; and `ask_agent` sends a follow-up
  * to a background run and waits for its reply, closing the parent↔child

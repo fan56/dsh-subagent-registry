@@ -84,8 +84,8 @@ writeFileSync(
   assert.equal(ctx.registeredSkillProviders.length, 1, 'one bundled-skill provider registered')
   assert.equal(ctx.registeredSkillProviders[0].name, 'dsh-subagent-registry-config')
 
-  // No stray listeners: apply() must not wire anything onto the event bus.
-  assert.equal(ctx.listeners.length, 0, 'no event-bus listeners on the synchronous path')
+  // The only added listener integrates visible custom agents into delegation guidance.
+  assert.deepEqual(ctx.listeners.map(listener => listener.name), ['system-prompt/assemble'])
   console.log('PASS apply(): tools registered synchronously when the provider exists')
 }
 

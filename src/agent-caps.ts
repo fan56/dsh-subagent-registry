@@ -33,7 +33,7 @@ import { listAgentFiles } from './agents-dir.ts'
  * crossing — file IO here is irrelevant.
  */
 export function readAgentMaxRounds(label: string, dir: string): number | undefined {
-  const name = label.trim()
+  const name = label.trim().replace(/^\[use_agent foreground\] /, '')
   if (name === '') return undefined
   const { agents } = listAgentFiles(dir)
   const byName = agents.find((agent) => agent.meta.name === name)

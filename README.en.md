@@ -15,6 +15,7 @@ partial work. No host patching, no code — a markdown file per agent.
 - **Resumes interrupted runs** — after an error, cancellation, token limit or
   crash, the next call for the same agent continues from the saved partial
   work instead of starting over.
+- **Role-aware delegation guidance** — Concise English guidance directs delegation to a matching custom role with a self-contained prompt, runs independent tasks in the background, and uses `subagent_fork` only when conversation inheritance is necessary. It applies only where this plugin's dispatch tool is visible; unloading restores the host guidance.
 - **Background dispatch + two-way follow-ups** — `background: true` runs the
   agent as a durable background conversation while the parent keeps working;
   `ask_agent` sends a follow-up and waits for the reply.
@@ -26,8 +27,9 @@ partial work. No host patching, no code — a markdown file per agent.
   in the official subagent stack (bidirectional messaging, say) are inherited
   automatically; the native `subagent` tool keeps working alongside — the two
   coexist without interference.
-- **Pure plugin** — only relies on dsh ≥ 0.2.0-rc.2's public subagent
-  machinery; uninstalls cleanly at any time.
+- **Pure plugin** — the same package supports the public subagent machinery in DSH `0.2.0-rc.2` and `0.2.1-alpha.2`; uninstalls cleanly at any time.
+
+Dispatch is selected by public API availability: `0.2.1-alpha.2` uses `startActivation` with `caller` / `parent` delivery for foreground/background work; `0.2.0-rc.2` uses `start` / `startContinuable`. A selected call's failure is propagated without retrying through another dispatch API. Foreground resume uses public `agents.resume` with current composition and caller cancellation, but is outside manager capacity and `interrupt_agent` control; resumed children cannot use stock `send_message` to contact the parent. Background follow-ups remain managed. Failure to inspect or resume a selected session is an error; use explicit `fresh: true` to restart.
 
 ## The three shipped agents
 
@@ -51,6 +53,16 @@ the agent by name:
 Under the hood that is `use_agent(agent: "workhorse", prompt: "…")`. For
 background runs, follow up with `ask_agent(agent: "worker", message: "…")` —
 it waits for the reply.
+
+## Subagent preset manager
+
+Select **子智能体** in the left sidebar navigation to open a full workspace page. It reads the configured `agentsDir` and supports creating, copying, editing, repairing complete source, and deleting presets. Broken files keep their diagnostics; reading or refreshing an empty directory does not seed files. Existing internal names are fixed. Display-name changes require confirmation because older runs may no longer be found by name.
+
+Opening, refreshing, saving, or deleting refreshes the roster for subsequent model requests without stopping running calls or changing their personas. After manual file edits, reopen or refresh the page. CLI/TUI dispatch still reads each role at invocation; without the Web manager its static roster updates on remount.
+
+Updates preserve unknown fields, comments and untouched body text, reject external revisions, and use full source editing when local changes cannot be preserved safely. Failed saves and cancelled discard confirmations retain the draft. Switching host pages retains the current client's draft; restarting or unloading the plugin does not. Deletion confirms the impact on profiles sharing the directory.
+
+Build and install the client artifact; an existing process may need a restart to load this new plugin entry. Once loaded, preset CRUD needs no restart.
 
 ## Define your own
 
@@ -105,8 +117,7 @@ README. The skill is versioned and published with the package
 
 ## Installation
 
-**Requires dsh >= 0.2.0-rc.2** (the RC/stable line; the alpha line is not
-supported).
+**Validated on DSH `0.2.0-rc.2` and `0.2.1-alpha.2`**. The host must mount session persistence and `sessionQuery`. Resume and follow-ups use each host's own session format; cross-version migration is not provided.
 
 Option A — mount a checkout into a dsh profile:
 
@@ -136,30 +147,41 @@ lose custom-agent dispatch).
 ```sh
 npm run check    # tsc --noEmit
 npm run build    # tsc -> lib/
-npm test         # all unit tests (no LLM, no network)
+npm test         # unit regressions and real npm install in a temporary directory (no LLM)
+npm run test:host # current SDK's real services/persistence/manager/spawn; scripted model, no network
+npm run test:hosts # same compiled plugin, two published SDK closures with version checks
 ```
+
+Prepare isolated SDKs from the plugin directory (reuse existing closures when available):
+
+```sh
+npm install --prefix ../../.tmp/dsh-type-closure-rc2 --ignore-scripts @deepseek-ai/dsh@0.2.0-rc.2 @deepseek-ai/dsh-session-query@0.2.0-rc.2
+npm install --prefix ../../.tmp/dsh-type-closure --ignore-scripts @deepseek-ai/dsh@0.2.1-alpha.2 @deepseek-ai/dsh-session-query@0.2.1-alpha.2 @deepseek-ai/dsh-working-directory@0.2.1-alpha.2
+```
+
+Override `DSH_TEST_RC2_CLOSURE_DIR` / `DSH_TEST_ALPHA2_CLOSURE_DIR` with other isolated `node_modules` directories. Only model responses are scripted; host services and persistence use their actual published implementations.
 
 ### The `@deepseek-ai/*` dependency contract (why optional peers)
 
 This repo declares the `@deepseek-ai/*` packages (`cordis`, `dsh-subagent`,
-`dsh-llm`, `schemastery`, …) as **optional peerDependencies** only
-(`>=0.2.0-rc.2`). That is a deliberate two-layer split:
+`dsh-llm`, `schemastery`, …) as **optional peerDependencies** in releases
+(`>=0.2.0-rc.2 || >=0.2.1-alpha.2`). That is a deliberate two-layer split:
 
 - **Release semantics (for consumers)**: the declaration says "use the host's
-  own copies, floor `>=0.2.0-rc.2`". Optional peers are never auto-installed
+  own copies, range `>=0.2.0-rc.2 || >=0.2.1-alpha.2`". Optional peers are never auto-installed
   by pnpm or npm, so they cannot materialize a second copy in the profile's
   `node_modules` that shadows the host's bundled closure. What does break
   hosts is a hard dependency pinned to an old rc — that can render a 0.2.x
   host unbootable (a known community failure mode).
-- **Dev typecheck (for this repo)**: since peers are not installed,
+- **Dev typecheck (for this repo)**: devDependencies pin the newer SDK;
   `scripts/link-dsh-closure.mjs` (postinstall) symlinks
-  `node_modules/@deepseek-ai/*` to the global dsh install's closure, keeping
+  `node_modules/@deepseek-ai/*` to `DSH_CLOSURE_DIR` or the global dsh install's closure, keeping
   exactly one `@deepseek-ai/cordis` in the type graph — a second copy breaks
   the cordis `declare module` augmentation (`Property 'settings' does not
   exist on type 'Context'`).
 
-Maintenance rule: keep these entries as optional peers — never move them back
-to dependencies/devDependencies, and never drop `optional: true` (a
+Maintenance rule: keep consumer entries as optional peers — never add hard
+dependencies, and never drop `optional: true` (a
 non-optional peer is auto-installed under pnpm's `auto-install-peers` and the
 second-copy breakage returns).
 

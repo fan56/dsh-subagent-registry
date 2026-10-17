@@ -13,6 +13,7 @@
   system prompt，改完即生效。
 - **断点续跑** — 长任务中断（报错/取消/限额/崩溃）后再次调用，自动从已保存的
   中间进度继续，不从头重来。
+- **按角色优先委派** — 使用精简英文委派指导，要求选择名册中匹配的自定义角色并提供完整任务上下文；独立任务后台并行，仅在必须继承当前对话时使用 `subagent_fork`。指导只在当前作用域可见本插件工具时生效，卸载后恢复官方指导。
 - **后台派发 + 双向追问** — `background: true` 把代理放到后台跑，主对话继续干活；
   `ask_agent` 发追问并等它的回复。
 - **开箱即用三个人物** — 装好即自动植入 `workhorse` / `oldfox` / `rubber-duck`
@@ -21,7 +22,9 @@
   官方的 `spawn` provider 启动，子代理就是货真价实的 dsh subagent（完整会话、
   持久化、continuable）。官方 subagent 栈的新能力（如双向通信）本插件自动
   继承；官方原生 `subagent` 工具继续可用，两者并存、互不干扰。
-- **纯插件** — 只依赖 dsh ≥ 0.2.0-rc.2 的公开 subagent 机制，可随时干净卸载。
+- **纯插件** — 同一包支持 DSH `0.2.0-rc.2` 与 `0.2.1-alpha.2` 的公开 subagent 机制，可随时干净卸载。
+
+按宿主公开 API 自动选择派发方式：`0.2.1-alpha.2` 使用 `startActivation`，前台/后台分别以 `caller` / `parent` 投递；`0.2.0-rc.2` 使用 `start` / `startContinuable`。已选择的接口失败后直接报错，不尝试另一接口重复派发。前台续跑使用公开 `agents.resume`，支持当前 persona/model/工具配置及调用取消，但不占用 manager 并发槽，也不能由 `interrupt_agent` 打断；续跑子代理不能使用 stock `send_message` 联系父级。后台追问继续由 manager 管理。已选中的旧会话若读取或恢复失败，会报错；显式 `fresh: true` 才重新派发。
 
 ## 三个预置 agent
 
@@ -42,6 +45,16 @@
 
 底层就是 `use_agent(agent: "workhorse", prompt: "…")`。后台代理用
 `ask_agent(agent: "worker", message: "…")` 追问，会等它的回复。
+
+## 子智能体预设管理
+
+在 Web 左侧主导航栏选择 **子智能体**，进入主工作区的完整管理页。页面自动读取实际 `agentsDir`，支持新增、复制、编辑、原文修复和删除；错误文件保留诊断，不会因刷新空目录而补文件。内部名称创建后固定；显示名变更前确认历史按名续跑或追问的影响。
+
+管理页成功保存、删除、打开或刷新后，后续模型请求的工具名册即时更新，正在运行的调用保持原有 persona。手工改文件后打开管理页或刷新即可同步名册；纯 CLI/TUI 仍按次读取角色，静态名册在下次挂载时更新。
+
+保存检测外部修改并保留未知字段、注释及未编辑正文；不能安全局部更新的文件转原文编辑。取消自身放弃/刷新确认或保存失败时保留草稿。切到宿主其他页再回来仍可继续本客户端草稿，重启或卸载不保证恢复。目录可能被多个 profile 共享，删除需确认此影响。
+
+本次客户端包需要重新构建和安装；已有进程若未重载插件需重启以加载新的客户端入口。加载入口后，预设 CRUD 本身不需要重启。
 
 ## 定义自己的 agent
 
@@ -87,7 +100,7 @@ Frontmatter 字段：`name`（必填）、`description`、`display_name`、`mode
 
 ## 安装
 
-**要求 dsh >= 0.2.0-rc.2**（RC/稳定线；alpha 线不再支持）。
+**已验证 DSH `0.2.0-rc.2` 与 `0.2.1-alpha.2`**。宿主须挂载会话持久化及 `sessionQuery` 服务；续跑与追问使用各版本自身的会话格式，不提供跨版本迁移。
 
 方式 A — 把本地 checkout 挂进 dsh profile：
 
@@ -115,27 +128,37 @@ dsh plugin --profile <name> remove @aiwayds/dsh-subagent-registry
 ```sh
 npm run check    # tsc --noEmit
 npm run build    # tsc -> lib/
-npm test         # 全部单元测试（无 LLM、无网络）
+npm test         # 单元回归及临时目录中的真实 npm 安装检查（无 LLM）
+npm run test:host # 当前 SDK 的真实服务/持久化/manager/spawn；脚本化模型，无网络
+npm run test:hosts # 同一编译插件分别加载两套实际发布 SDK，并核实版本
 ```
+
+从插件目录初始化隔离 SDK（已有环境无需重复安装）：
+
+```sh
+npm install --prefix ../../.tmp/dsh-type-closure-rc2 --ignore-scripts @deepseek-ai/dsh@0.2.0-rc.2 @deepseek-ai/dsh-session-query@0.2.0-rc.2
+npm install --prefix ../../.tmp/dsh-type-closure --ignore-scripts @deepseek-ai/dsh@0.2.1-alpha.2 @deepseek-ai/dsh-session-query@0.2.1-alpha.2 @deepseek-ai/dsh-working-directory@0.2.1-alpha.2
+```
+
+可用 `DSH_TEST_RC2_CLOSURE_DIR` / `DSH_TEST_ALPHA2_CLOSURE_DIR` 指向其他隔离环境的 `node_modules`；测试只将模型脚本化，服务与持久化使用对应版本的真实实现。
 
 ### `@deepseek-ai/*` 依赖契约（为什么是 optional peer）
 
 本仓对 `@deepseek-ai/*`（`cordis`、`dsh-subagent`、`dsh-llm`、`schemastery` 等）
-只声明 **optional peerDependencies**（`>=0.2.0-rc.2`）。这是有意的两层分工：
+在发布包中声明 **optional peerDependencies**（`>=0.2.0-rc.2 || >=0.2.1-alpha.2`）。这是有意的两层分工：
 
 - **发布语义（给消费者）**：声明表达「使用宿主自带的同名包、版本下限
-  `>=0.2.0-rc.2`」。optional peer 不会被 pnpm / npm 自动安装，因此不会在
+  `>=0.2.0-rc.2 || >=0.2.1-alpha.2`」。optional peer 不会被 pnpm / npm 自动安装，因此不会在
   profile 的 `node_modules` 里生成第二份拷贝去遮蔽（shadow）宿主 bundled 的
   闭包。会出事的是硬 dependency 精确钉旧 rc 版——那会把宿主 0.2.x 弄到无法
   boot（已知社区事故模式）。
-- **开发 typecheck（给本仓）**：peer 不被安装，`scripts/link-dsh-closure.mjs`
-  （postinstall）把 `node_modules/@deepseek-ai/*` 软链到全局 dsh 安装的闭包，
+- **开发 typecheck（给本仓）**：devDependencies 钉住新版 SDK，`scripts/link-dsh-closure.mjs`
+  （postinstall）把 `node_modules/@deepseek-ai/*` 软链到 `DSH_CLOSURE_DIR` 指定或全局 dsh 安装的闭包，
   保证类型图里只有一份 `@deepseek-ai/cordis`——出现第二份会打断 cordis 的
   `declare module` 类型增强（`Property 'settings' does not exist on type
   'Context'`）。
 
-维护守则：这些包永远保持 optional peer 形态——不要移回 dependencies /
-devDependencies，也不要去掉 `optional: true`（非 optional peer 在
+维护守则：消费者依赖始终保持 optional peer 形态——不要增加硬 dependencies，也不要去掉 `optional: true`（非 optional peer 在
 `auto-install-peers` 开启的 pnpm 下会被自动安装，第二副本问题即复发）。
 
 ## Integration tests

@@ -1,23 +1,4 @@
-/**
- * Resume support for the `use_agent` tool: recall the parent session's latest
- * failed one-shot run of the same agent and continue it from its persisted
- * partial log instead of restarting the task from scratch.
- *
- * dsh already persists every in-process subagent child as a full session
- * (failed and crash-interrupted runs included), and
- * `ctx.subagents.listChildren()` enumerates those durable children with their
- * creation label. What the stock runtime deliberately does not offer is
- * continuing a settled one-shot child: the continuation machinery gates cold
- * resume on the `continuable` descriptor mode. This module closes that gap
- * for the agents this plugin dispatches: pick the newest inactive one-shot
- * child of the calling parent whose label matches the requested agent, check
- * its last turn outcome, and — unless it completed — resume the session
- * (`ctx.agents.resume()`) with the same persona/model/tool composition and
- * drive exactly one continuation turn, mirroring the in-process one-shot
- * driver's settle semantics.
- *
- * @module dsh-subagent-registry/resume
- */
+/** Foreground recall, with managed fresh dispatch and a scoped cold-resume driver. */
 
 import type { Context } from '@deepseek-ai/cordis'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
@@ -26,6 +7,7 @@ import { foldConsumedWork } from '@deepseek-ai/dsh-agent'
 import type { Agent, AgentOptions } from '@deepseek-ai/dsh-agent'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import type { ToolRestriction } from '@deepseek-ai/dsh-tools'
+import { createLegacyDescendantJoin, drainRunDescendants } from './host-compat.ts'
 import {
   applyChildComposition,
   finalAssistantOutput,
@@ -142,7 +124,14 @@ export function classifyPriorRun(events: readonly MinimalSessionEvent[]): PriorR
   for (const event of events) {
     if (event.type === 'turn/end') turnCount += 1
   }
-  const kind = turnEndKind(accountingTurnEnd(events))
+  const work = foldConsumedWork(events as unknown as readonly SessionEvent[])
+  const openTurns = new Set<unknown>()
+  for (const event of events) {
+    const turn = (event.data as { turn?: unknown } | undefined)?.turn
+    if (event.type === 'turn/start') openTurns.add(turn)
+    if (event.type === 'turn/end') openTurns.delete(turn)
+  }
+  const kind = work.droppedUnrun ? 'aborted' : openTurns.size > 0 ? 'interrupted' : turnEndKind(work.end)
   return {
     status: kind === 'completed' ? 'completed' : 'resumable',
     endedAs: describeTurnEnd(kind),
@@ -167,24 +156,18 @@ export function classifyPriorRun(events: readonly MinimalSessionEvent[]): PriorR
  */
 export interface ChildListEntry {
   readonly id: unknown
-  readonly mode?: 'one-shot' | 'continuable' | 'unknown'
+  readonly mode?: 'one-shot' | 'continuable' | 'external' | 'unknown'
   readonly label?: string
 }
 
-/**
- * Pick the newest listable prior child for one agent label. `listChildren`
- * returns entries ordered by header `createdAt`, so the LAST match wins.
- * Only one-shot children are eligible: continuable children keep their own
- * `send_message` cold-resume path, and an `unknown`-mode row (descriptor
- * never folded) is not provably a one-shot run. Liveness is filtered by the
- * caller ({@link findResumableRun}): a live child cannot be resumed (its
- * session id is taken).
- */
+/** Durable namespace separates managed foreground children from background conversations. */
+export const foregroundLabel = (label: string): string => `[use_agent foreground] ${label}`
+
 export function pickLatestLabeledChild<T extends ChildListEntry>(entries: readonly T[], label: string): T | undefined {
   for (let i = entries.length - 1; i >= 0; i--) {
     const entry = entries[i]
-    if (entry.mode !== 'one-shot') continue
-    if (entry.label !== label) continue
+    if (!(entry.mode === 'one-shot' && entry.label === label)
+      && !(entry.mode === 'continuable' && entry.label === foregroundLabel(label))) continue
     return entry
   }
   return undefined
@@ -239,7 +222,7 @@ export function buildContinuationPrompt(endedAs: string, callerPrompt?: string):
 }
 
 // ---------------------------------------------------------------------------
-// Persistence lookup (fail-open: resume is an optimization, never a blocker)
+// Persistence lookup (strict for dispatch, best-effort for reply observation)
 // ---------------------------------------------------------------------------
 
 /**
@@ -276,61 +259,53 @@ export function getPersistence(ctx: Context): PersistenceLike | undefined {
  * Read stored events through a read handle — the whole log by default, the
  * suffix from `offset` when given. Returns undefined when the log is
  * unreadable (persistence absent, session missing, decode failure); every
- * failure stays contained for the callers' fail-open contracts. The handle
- * is always closed.
+ * strict resume lookup propagates failures; best-effort reply observation
+ * returns undefined. The handle is always closed.
  */
 export async function readStoredEvents(
   ctx: Context,
   id: SessionId,
-  options: { offset?: number; signal?: AbortSignal } = {},
+  options: { offset?: number; signal?: AbortSignal; strict?: boolean } = {},
 ): Promise<readonly MinimalSessionEvent[] | undefined> {
   const persistence = getPersistence(ctx)
   if (persistence === undefined) return undefined
   let handle: Awaited<ReturnType<PersistenceLike['open']>>
   try {
     handle = await persistence.open(id, 'read', { signal: options.signal })
-  } catch {
+  } catch (error) {
+    options.signal?.throwIfAborted()
+    if (options.strict) throw error
     return undefined
   }
   try {
     const { events } = await handle.read(options.offset, undefined, { signal: options.signal })
     return events
-  } catch {
+  } catch (error) {
+    options.signal?.throwIfAborted()
+    if (options.strict) throw error
     return undefined
   } finally {
-    await handle.close().catch(() => {})
+    if (options.strict) await handle.close()
+    else await handle.close().catch(() => {})
   }
 }
 
 /** A prior run selected for continuation. */
 export interface ResumableRun {
   readonly childId: SessionId
+  readonly mode?: 'one-shot' | 'continuable'
   readonly classification: PriorRunClassification
 }
 
-/**
- * Find the parent's latest resumable prior run of one agent label. Fail-open
- * by design: any lookup error (projection registry absent, persistence
- * missing, unreadable log) degrades to "no candidate" and the caller starts
- * fresh — resume must never block a dispatch.
- *
- * Liveness filter: the 0.1.7 catalog no longer carries an `activity` flag, so
- * a picked one-shot child still resident in the live agent registry is
- * skipped — a live child cannot be resumed (its session id is taken), exactly
- * what the pre-0.1.7 `activity: 'inactive'` prefilter expressed.
- */
+/** Select the latest foreground run; unreadable or busy candidates must not create duplicate work. */
 export async function findResumableRun(
   ctx: Context,
   parent: Pick<Agent, 'id'>,
   label: string,
   signal?: AbortSignal,
 ): Promise<ResumableRun | undefined> {
-  let entries: readonly ChildListEntry[]
-  try {
-    entries = await ctx.subagents.listChildren(parent.id, signal)
-  } catch {
-    return undefined
-  }
+  signal?.throwIfAborted()
+  const entries = await ctx.subagents.listChildren(parent.id, signal)
   const candidate = pickLatestLabeledChild(entries, label)
   if (candidate === undefined) return undefined
   // Read the live agent registry without a hard dependency (a bare context —
@@ -338,12 +313,12 @@ export async function findResumableRun(
   const agents = (ctx as unknown as { get(name: string): unknown }).get('agents') as
     | { get(id: SessionId): unknown }
     | undefined
-  if (agents?.get(candidate.id as SessionId) !== undefined) return undefined
-  const events = await readStoredEvents(ctx, candidate.id as SessionId, { signal })
-  if (events === undefined) return undefined
+  if (agents?.get(candidate.id as SessionId) !== undefined) throw new Error('subagent resume is already in progress')
+  const events = await readStoredEvents(ctx, candidate.id as SessionId, { signal, strict: true })
+  if (events === undefined) throw new Error('cannot inspect the prior subagent run; pass fresh=true to start a new run')
   const classification = classifyPriorRun(events)
   if (classification.status !== 'resumable') return undefined
-  return { childId: candidate.id as SessionId, classification }
+  return { childId: candidate.id as SessionId, mode: candidate.mode as 'one-shot' | 'continuable', classification }
 }
 
 // ---------------------------------------------------------------------------
@@ -385,25 +360,59 @@ export interface ResumedRunResult {
  * the session events appended after the resume boundary, and settle-before-
  * dispose so a disposal failure never masks the run outcome (and vice versa).
  */
+const resumingChildren = new Set<SessionId>()
+
 export async function driveResumedRun(input: ResumeDriveInput): Promise<ResumedRunResult> {
+  if (resumingChildren.has(input.childId)) throw new Error('subagent resume is already in progress')
+  resumingChildren.add(input.childId)
+  let releaseParent: (() => unknown) | undefined
+  try {
+    const lifecycle = new AbortController()
+    releaseParent = input.parent.ctx?.effect(() => () => lifecycle.abort())
+    const signal = AbortSignal.any([input.signal, lifecycle.signal])
+    return await driveLegacyResume({ ...input, signal })
+  } finally {
+    try { releaseParent?.() } finally { resumingChildren.delete(input.childId) }
+  }
+}
+
+// ponytail: foreground resume is outside manager capacity/interrupt; migrate when host supports caller-delivery cold resume with composition overrides.
+async function driveLegacyResume(input: ResumeDriveInput): Promise<ResumedRunResult> {
   const { ctx, parent, childId, signal } = input
+  signal.throwIfAborted()
   const childDepth = resolveChildDepth(parent, undefined)
   const handle = await ctx.agents.resume({
     resumeSessionId: childId,
+    parentAgent: parent,
     agentOptions: resolveChildAgentOptions(parent, input.agentOptions, childDepth),
     signal,
-    setup: (childCtx) => {
+    setup: (childCtx, child) => {
+      if (child.session.header.parentSession !== parent.id) throw new Error('resume target belongs to another parent')
       // Cold resume replays the persisted log but not the composition: the
       // one-shot descriptor keeps no persona, so re-apply exactly what a
       // fresh dispatch would (persona section + leaf tool scoping).
       applyChildComposition(childCtx, parent, { persona: input.persona, toolFilter: input.toolFilter })
+      return { commit() {
+        signal.throwIfAborted()
+        if (ctx.agents.get(parent.id) !== parent) throw new Error('resume requires the exact live parent')
+      } }
     },
   })
   const child = handle.agent
+  let join: ReturnType<typeof createLegacyDescendantJoin> | undefined
+  let drain: Promise<void> | undefined
+  const drainDescendants = () => drain ??= Promise.resolve().then(() => drainRunDescendants(ctx, child))
+  const dispose = async () => {
+    const [descendants] = await Promise.allSettled([drainDescendants()])
+    const [handleDisposed] = await Promise.allSettled([handle.dispose()])
+    const errors = [descendants, handleDisposed].flatMap((r) => r.status === 'rejected' ? [r.reason] : [])
+    if (errors.length > 0) throw new AggregateError(errors, 'resumed subagent cleanup failed: ' + errors.map(String).join('; '))
+  }
   const flags = { cancelled: false }
   const onAbort = () => {
     flags.cancelled = true
     child.cancel({ kind: 'parent' })
+    void drainDescendants().catch(() => {})
   }
   signal.addEventListener('abort', onAbort, { once: true })
   if (signal.aborted) onAbort()
@@ -418,6 +427,7 @@ export async function driveResumedRun(input: ResumeDriveInput): Promise<ResumedR
     // the live child before disposal and fail identically in bare contexts
     // without persistence.
     const boundary = child.session.seq
+    if (typeof ctx.subagents.waitForChildren !== 'function') join = createLegacyDescendantJoin(ctx, signal)
     if (!flags.cancelled) {
       child.followup(createUserMessage({
         content: [{ type: 'text', text: input.continuationPrompt }],
@@ -427,19 +437,34 @@ export async function driveResumedRun(input: ResumeDriveInput): Promise<ResumedR
           summary: input.noticeSummary.slice(0, 120),
         },
       }))
-      await child.whenIdle()
+      // Inbox listeners may cancel synchronously before followup wakes its driver.
+      if (signal.aborted) onAbort()
+      if (join) {
+        try { await join.wait(child) } catch (error) {
+          if (!signal.aborted) throw error
+          await child.whenIdle()
+        }
+      } else {
+        while (true) {
+          await child.whenIdle()
+          const seq = child.session.seq
+          await ctx.subagents.waitForChildren(child)
+          if (child.status === 'idle' && child.session.seq === seq) break
+        }
+      }
     }
     const own = child.session.snapshotEvents(boundary)
     const output = finalAssistantOutput(own) ?? []
     const recorded = toStopReason(turnEndKind(accountingTurnEnd(own)))
     outcome = {
       output,
-      stopReason: flags.cancelled && recorded !== 'completed' ? 'aborted' : recorded,
+      stopReason: flags.cancelled ? 'aborted' : recorded,
     }
   } catch (error) {
     // A failed drive still disposes; a disposal failure never masks it.
-    const [disposal] = await Promise.allSettled([handle.dispose()])
+    const [disposal] = await Promise.allSettled([dispose()])
     signal.removeEventListener('abort', onAbort)
+    join?.dispose()
     if (disposal.status === 'rejected') {
       throw new AggregateError(
         [error, disposal.reason],
@@ -449,6 +474,7 @@ export async function driveResumedRun(input: ResumeDriveInput): Promise<ResumedR
     throw error
   }
   signal.removeEventListener('abort', onAbort)
-  await handle.dispose()
+  join?.dispose()
+  await dispose()
   return outcome
 }

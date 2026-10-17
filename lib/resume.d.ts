@@ -1,23 +1,4 @@
-/**
- * Resume support for the `use_agent` tool: recall the parent session's latest
- * failed one-shot run of the same agent and continue it from its persisted
- * partial log instead of restarting the task from scratch.
- *
- * dsh already persists every in-process subagent child as a full session
- * (failed and crash-interrupted runs included), and
- * `ctx.subagents.listChildren()` enumerates those durable children with their
- * creation label. What the stock runtime deliberately does not offer is
- * continuing a settled one-shot child: the continuation machinery gates cold
- * resume on the `continuable` descriptor mode. This module closes that gap
- * for the agents this plugin dispatches: pick the newest inactive one-shot
- * child of the calling parent whose label matches the requested agent, check
- * its last turn outcome, and — unless it completed — resume the session
- * (`ctx.agents.resume()`) with the same persona/model/tool composition and
- * drive exactly one continuation turn, mirroring the in-process one-shot
- * driver's settle semantics.
- *
- * @module dsh-subagent-registry/resume
- */
+/** Foreground recall, with managed fresh dispatch and a scoped cold-resume driver. */
 import type { Context } from '@deepseek-ai/cordis';
 import type { ContentBlock } from '@deepseek-ai/dsh-llm';
 import type { Agent, AgentOptions } from '@deepseek-ai/dsh-agent';
@@ -94,18 +75,11 @@ export declare function classifyPriorRun(events: readonly MinimalSessionEvent[])
  */
 export interface ChildListEntry {
     readonly id: unknown;
-    readonly mode?: 'one-shot' | 'continuable' | 'unknown';
+    readonly mode?: 'one-shot' | 'continuable' | 'external' | 'unknown';
     readonly label?: string;
 }
-/**
- * Pick the newest listable prior child for one agent label. `listChildren`
- * returns entries ordered by header `createdAt`, so the LAST match wins.
- * Only one-shot children are eligible: continuable children keep their own
- * `send_message` cold-resume path, and an `unknown`-mode row (descriptor
- * never folded) is not provably a one-shot run. Liveness is filtered by the
- * caller ({@link findResumableRun}): a live child cannot be resumed (its
- * session id is taken).
- */
+/** Durable namespace separates managed foreground children from background conversations. */
+export declare const foregroundLabel: (label: string) => string;
 export declare function pickLatestLabeledChild<T extends ChildListEntry>(entries: readonly T[], label: string): T | undefined;
 /** When `use_agent` should continue a prior interrupted run. */
 export type ResumeMode = 'auto' | 'opt-in' | 'off';
@@ -159,29 +133,21 @@ export declare function getPersistence(ctx: Context): PersistenceLike | undefine
  * Read stored events through a read handle — the whole log by default, the
  * suffix from `offset` when given. Returns undefined when the log is
  * unreadable (persistence absent, session missing, decode failure); every
- * failure stays contained for the callers' fail-open contracts. The handle
- * is always closed.
+ * strict resume lookup propagates failures; best-effort reply observation
+ * returns undefined. The handle is always closed.
  */
 export declare function readStoredEvents(ctx: Context, id: SessionId, options?: {
     offset?: number;
     signal?: AbortSignal;
+    strict?: boolean;
 }): Promise<readonly MinimalSessionEvent[] | undefined>;
 /** A prior run selected for continuation. */
 export interface ResumableRun {
     readonly childId: SessionId;
+    readonly mode?: 'one-shot' | 'continuable';
     readonly classification: PriorRunClassification;
 }
-/**
- * Find the parent's latest resumable prior run of one agent label. Fail-open
- * by design: any lookup error (projection registry absent, persistence
- * missing, unreadable log) degrades to "no candidate" and the caller starts
- * fresh — resume must never block a dispatch.
- *
- * Liveness filter: the 0.1.7 catalog no longer carries an `activity` flag, so
- * a picked one-shot child still resident in the live agent registry is
- * skipped — a live child cannot be resumed (its session id is taken), exactly
- * what the pre-0.1.7 `activity: 'inactive'` prefilter expressed.
- */
+/** Select the latest foreground run; unreadable or busy candidates must not create duplicate work. */
 export declare function findResumableRun(ctx: Context, parent: Pick<Agent, 'id'>, label: string, signal?: AbortSignal): Promise<ResumableRun | undefined>;
 /** Inputs of the resume driver. */
 export interface ResumeDriveInput {
@@ -209,11 +175,4 @@ export interface ResumedRunResult {
     readonly output: readonly ContentBlock[];
     readonly stopReason: SubagentStopReason;
 }
-/**
- * Resume one persisted one-shot child and drive exactly one continuation
- * turn, then dispose. Mirrors the in-process one-shot driver
- * (`drivePublishedRun`): signal handoff via `child.cancel`, result read from
- * the session events appended after the resume boundary, and settle-before-
- * dispose so a disposal failure never masks the run outcome (and vice versa).
- */
 export declare function driveResumedRun(input: ResumeDriveInput): Promise<ResumedRunResult>;

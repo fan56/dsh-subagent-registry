@@ -37,6 +37,9 @@ import { fileURLToPath } from 'node:url'
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const pkg = JSON.parse(await readFile(path.join(repoRoot, 'package.json'), 'utf8'))
 const ownName = pkg.name // @aiwayds/dsh-subagent-registry
+// Windows needs cmd.exe to launch npm's .cmd shim; keep paths as separate arguments.
+const npm = process.platform === 'win32' ? process.env.ComSpec || 'cmd.exe' : 'npm'
+const npmArgs = process.platform === 'win32' ? ['/d', '/s', '/c', 'npm.cmd'] : []
 
 const work = mkdtempSync(path.join(tmpdir(), 'dsh-subagent-registry-smoke-'))
 const home = path.join(work, 'dsh-home')
@@ -50,7 +53,7 @@ function fail(message, output = '') {
   process.exit(1)
 }
 
-const pack = spawnSync('npm', ['pack', '--pack-destination', work], { cwd: repoRoot, encoding: 'utf8' })
+const pack = spawnSync(npm, [...npmArgs, 'pack', '--pack-destination', work], { cwd: repoRoot, encoding: 'utf8' })
 if (pack.status !== 0 || pack.error) fail('npm pack failed', `${pack.stdout}\n${pack.stderr}`)
 const tarball = path.join(work, pack.stdout.trim().split('\n').at(-1))
 
@@ -72,7 +75,7 @@ writeFileSync(path.join(profile, 'package.json'), JSON.stringify({
   },
 }, null, 2) + '\n')
 
-const install = spawnSync('npm', ['install', '--no-audit', '--no-fund', '--loglevel=error'], { cwd: profile, encoding: 'utf8' })
+const install = spawnSync(npm, [...npmArgs, 'install', '--no-audit', '--no-fund', '--loglevel=error'], { cwd: profile, encoding: 'utf8' })
 if (install.status !== 0 || install.error) fail('npm install in the scratch profile failed (lifecycle scripts on — the consumer path)', `${install.stdout}\n${install.stderr}`)
 
 // Consumer stand-down: the linker must not materialize a @deepseek-ai scope

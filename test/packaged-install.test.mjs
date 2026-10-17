@@ -12,16 +12,19 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 const repoRoot = join(import.meta.dirname, '..')
+// Windows needs cmd.exe to launch npm's .cmd shim; keep paths as separate arguments.
+const npm = process.platform === 'win32' ? process.env.ComSpec || 'cmd.exe' : 'npm'
+const npmArgs = process.platform === 'win32' ? ['/d', '/s', '/c', 'npm.cmd'] : []
 
 if (!existsSync(join(repoRoot, 'lib', 'index.js'))) {
   throw new Error('lib/index.js missing — run `npm run build` before the test chain')
 }
 
-const scratch = mkdtempSync(join(tmpdir(), 'registry-packaged-install-'))
+const scratch = mkdtempSync(join(tmpdir(), 'registry packaged install-'))
 try {
   // 1. Pack from the repo the way CI's release job does.
   const packed = JSON.parse(
-    execFileSync('npm', ['pack', '--json', '--pack-destination', scratch], {
+    execFileSync(npm, [...npmArgs, 'pack', '--json', '--pack-destination', scratch], {
       cwd: repoRoot,
       encoding: 'utf8',
     }),
@@ -29,7 +32,7 @@ try {
   const tarball = join(scratch, packed.filename)
 
   // 2. Tarball contents: the postinstall target ships; the guard markers do not.
-  const contents = execFileSync('tar', ['-tzf', tarball], { encoding: 'utf8' }).split('\n')
+  const contents = execFileSync('tar', ['-tzf', tarball], { encoding: 'utf8' }).split(/\r?\n/)
   assert.ok(
     contents.includes('package/scripts/link-dsh-closure.mjs'),
     'postinstall target scripts/link-dsh-closure.mjs is in the tarball (#2)',
@@ -40,9 +43,11 @@ try {
   // 3. The reporter's exact failing step: a plain npm install of the tarball,
   //    postinstall included. Must exit 0 — MODULE_NOT_FOUND here is #2 again.
   const consumer = join(scratch, 'consumer')
-  execFileSync('npm', ['install', tarball, '--prefix', consumer, '--no-audit', '--no-fund', '--loglevel=error'], {
+  execFileSync(npm, [...npmArgs, 'install', tarball, '--prefix', consumer, '--no-audit', '--no-fund', '--loglevel=error'], {
     cwd: scratch,
     encoding: 'utf8',
+    // A failed guard must reach realpathSync and fail, even on machines without dsh.
+    env: { ...process.env, DSH_CLOSURE_DIR: join(scratch, 'missing-closure') },
   })
   const installed = join(consumer, 'node_modules', '@aiwayds', 'dsh-subagent-registry')
   assert.ok(existsSync(join(installed, 'scripts', 'link-dsh-closure.mjs')), 'installed package carries the hook target')
@@ -53,7 +58,11 @@ try {
     !existsSync(join(installed, 'node_modules', '@deepseek-ai')),
     'linker did not touch the consumer tree (guard markers held)',
   )
-  console.log('packaged-install: tarball installs cleanly, linker stands down outside the repo')
+  assert.ok(
+    !existsSync(join(consumer, 'node_modules', '@deepseek-ai')),
+    'optional host SDK peers did not install a consumer-side copy',
+  )
+  console.log('packaged-install: tarball installs cleanly, linker stands down, no consumer SDK copy')
 } finally {
   rmSync(scratch, { recursive: true, force: true })
 }

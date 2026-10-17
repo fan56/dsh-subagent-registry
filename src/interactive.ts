@@ -12,7 +12,7 @@
  *
  * - `use_agent` gains a `background` switch (tool parameter, with the agent
  *   file's `background` frontmatter as the default): the child is started
- *   through `ctx.subagents.startContinuable()` on the same `spawn` provider,
+ *   through `ctx.subagents.startActivation()` on the same `spawn` provider,
  *   the call returns the durable subagent id immediately, and the parent
  *   keeps working while the child runs. `ask_agent` and `send_message` then
  *   address it, and the runtime's settlement notice reports how it ended.
@@ -174,16 +174,54 @@ export interface ChildReply {
 function sleep(ms: number, signal: AbortSignal): Promise<void> {
   return new Promise((resolve) => {
     if (signal.aborted) return resolve()
-    const timer = setTimeout(resolve, ms)
-    signal.addEventListener(
-      'abort',
-      () => {
-        clearTimeout(timer)
-        resolve()
-      },
-      { once: true },
-    )
+    const done = () => { clearTimeout(timer); signal.removeEventListener('abort', done); resolve() }
+    const timer = setTimeout(done, ms)
+    signal.addEventListener('abort', done, { once: true })
   })
+}
+
+/** Reconstruct inbox claims to identify the turn that consumed this exact delivery. */
+function messageReply(events: readonly MinimalSessionEvent[], messageId: unknown, boundary: number): ChildReply | undefined {
+  const inbox: Record<'next-turn' | 'next-step', { id: unknown }[]> = { 'next-turn': [], 'next-step': [] }
+  let open: number | undefined
+  let consumedTurn: number | undefined
+  let consumedAt = 0
+  let canceled = false
+  const log = events as unknown as readonly SessionEvent[]
+  for (let i = 0; i < log.length; i++) {
+    const event = log[i]
+    if (event.type === 'turn/start') open = event.data.turn
+    if (event.type === 'agent/inbox/spliced') {
+      const { target, start, removedCount = 0, inserted, outcome } = event.data
+      const queue = inbox[target]
+      if (!queue || start < 0 || start > queue.length || start + removedCount > queue.length) return undefined
+      const removed = queue.splice(start, removedCount, ...inserted)
+      if (inserted.some((message) => message.id === messageId)) canceled = false
+      if (removed.some((message) => message.id === messageId)) {
+        if (outcome === 'canceled') {
+          canceled = inserted.length === 0
+          // replace() inserts a successor; GUI steering can reinsert the same id later.
+          if (inserted.length > 0) messageId = inserted[0].id
+        } else {
+          canceled = false
+          consumedTurn = open
+          consumedAt = i
+        }
+      }
+    }
+    if (event.type === 'user/message' && event.data.id === messageId) {
+      consumedTurn = open
+      consumedAt = i
+    }
+    if (event.type === 'turn/end') {
+      if (consumedTurn === event.data.turn && i >= boundary) return {
+        output: finalAssistantOutput(log.slice(consumedAt, i + 1)) ?? [],
+        stopReason: toStopReason(event.data.reason.kind),
+      }
+      if (open === event.data.turn) open = undefined
+    }
+  }
+  return canceled ? { output: [], stopReason: 'aborted' } : undefined
 }
 
 /**
@@ -198,6 +236,7 @@ export async function waitForChildReply(input: {
   ctx: Context
   childId: SessionId
   boundary: number
+  messageId?: unknown
   signal: AbortSignal
   /** Give up after this many ms and return undefined; absent = wait unbounded. */
   timeoutMs?: number
@@ -208,8 +247,13 @@ export async function waitForChildReply(input: {
   const deadline = input.timeoutMs !== undefined ? Date.now() + input.timeoutMs : undefined
   while (true) {
     input.signal.throwIfAborted()
-    const events = await readEventsAfter(input.ctx, input.childId, input.boundary, input.signal)
-    const end = accountingTurnEnd(events)
+    const events = await readEventsAfter(input.ctx, input.childId,
+      input.messageId === undefined ? input.boundary : 0, input.signal)
+    if (input.messageId !== undefined) {
+      const reply = messageReply(events, input.messageId, input.boundary)
+      if (reply !== undefined) return reply
+    }
+    const end = input.messageId === undefined ? accountingTurnEnd(events) : undefined
     if (end !== undefined) {
       const kind = (end.data as { reason?: { kind?: unknown } } | undefined)?.reason?.kind
       return {
@@ -371,6 +415,7 @@ export function askAgentTool(ctx: Context, cfg: AskAgentConfig) {
         ctx,
         childId,
         boundary,
+        messageId,
         signal: exec.signal,
         timeoutMs: typeof args.timeout === 'number' && Number.isFinite(args.timeout) && args.timeout > 0
           ? args.timeout * 1000

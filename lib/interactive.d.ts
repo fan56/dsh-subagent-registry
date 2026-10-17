@@ -12,7 +12,7 @@
  *
  * - `use_agent` gains a `background` switch (tool parameter, with the agent
  *   file's `background` frontmatter as the default): the child is started
- *   through `ctx.subagents.startContinuable()` on the same `spawn` provider,
+ *   through `ctx.subagents.startActivation()` on the same `spawn` provider,
  *   the call returns the durable subagent id immediately, and the parent
  *   keeps working while the child runs. `ask_agent` and `send_message` then
  *   address it, and the runtime's settlement notice reports how it ended.
@@ -93,6 +93,7 @@ export declare function waitForChildReply(input: {
     ctx: Context;
     childId: SessionId;
     boundary: number;
+    messageId?: unknown;
     signal: AbortSignal;
     /** Give up after this many ms and return undefined; absent = wait unbounded. */
     timeoutMs?: number;
