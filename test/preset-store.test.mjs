@@ -57,13 +57,13 @@ try {
   const filled = await store.save({ id: empty.id, version: empty.version, patch: { description: 'Filled' }, body: 'Body' })
   assert.equal(filled.source, '---\r\nname: empty-values\r\ndescription: Filled\r\n---\r\nBody')
 
-  for (const id of ['../outside', '/absolute', 'C:\\outside', '..', 'CON', 'aux', 'COM1', 'LPT9', 'a.md', 'a/b', 'a\\b', 'name.', '-leading', '中文', 'a'.repeat(65)]) {
+  for (const id of ['../outside', '/absolute', 'C:\\outside', '..', 'CON', 'aux', 'COM1', 'LPT9', 'a.md', 'a/b', 'a\\b', 'name.', '-leading', 'тест', 'a'.repeat(65)]) {
     await assert.rejects(store.save({ id, version: null }), code('invalid_id'))
   }
   for (const id of ['../outside', '/absolute', 'C:\\outside', '..', 'a..b', 'CON', 'con.txt', 'COM¹', 'NUL.old', 'aux', 'COM1', 'LPT9', 'a/b', 'a\\b', 'name.', 'tail ', 'control\u0001']) {
     await assert.rejects(store.remove({ id, version: first.version }), code('invalid_id'))
   }
-  for (const id of ['中文 角色', 'older.agent', 'with spaces']) {
+  for (const id of ['тест роль', 'older.agent', 'with spaces']) {
     await writeFile(file(id), `---\nname: ${id}\ndescription: Original\n---\n\r\nRaw body  \r\n`)
     const legacy = await find(id)
     assert.equal(legacy.error, undefined)

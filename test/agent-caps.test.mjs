@@ -62,7 +62,7 @@ mkdirSync(dir, { recursive: true })
 const writeAgent = (name, extra) => writeFileSync(join(dir, `${name}.md`), MD(extra, name))
 try {
   writeAgent('workhorse', 'maxRounds: 60\n')
-  writeAgent('oldfox', 'display_name: 老法师\nmaxRounds: 15\n')
+  writeAgent('oldfox', 'display_name: Старый лис\nmaxRounds: 15\n')
   writeAgent('rubber-duck', '') // no per-agent cap
 
   // Exact name hit returns the frontmatter cap.
@@ -70,14 +70,14 @@ try {
   console.log('PASS exact name hit -> 60')
 
   // Unique display-name hit resolves to the same file's cap.
-  assert.equal(readAgentMaxRounds('老法师', dir), 15)
+  assert.equal(readAgentMaxRounds('Старый лис', dir), 15)
   console.log('PASS unique display_name hit -> 15')
 
   assert.equal(readAgentMaxRounds('[fg] workhorse', dir), 60)
-  assert.equal(readAgentMaxRounds('[fg] 老法师', dir), 15)
+  assert.equal(readAgentMaxRounds('[fg] Старый лис', dir), 15)
   // v0.14.0 wrote the long form — pre-upgrade children keep their caps.
   assert.equal(readAgentMaxRounds('[use_agent foreground] workhorse', dir), 60)
-  assert.equal(readAgentMaxRounds('[use_agent foreground] 老法师', dir), 15)
+  assert.equal(readAgentMaxRounds('[use_agent foreground] Старый лис', dir), 15)
   console.log('PASS managed foreground labels (both prefix forms) retain per-agent caps')
 
   // Agent without the key resolves to undefined (global cap), not an error.
@@ -93,8 +93,8 @@ try {
   console.log('PASS whitespace-padded label -> 60')
 
   // Ambiguous display name -> undefined (a wrong-agent cap is worse than global).
-  writeAgent('oldfox2', 'display_name: 老法师\nmaxRounds: 3\n')
-  assert.equal(readAgentMaxRounds('老法师', dir), undefined)
+  writeAgent('oldfox2', 'display_name: Старый лис\nmaxRounds: 3\n')
+  assert.equal(readAgentMaxRounds('Старый лис', dir), undefined)
   console.log('PASS ambiguous display_name -> undefined')
 
   // Name beats display name: a file whose NAME collides with another's DISPLAY

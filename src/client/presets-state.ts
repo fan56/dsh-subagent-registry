@@ -150,7 +150,7 @@ export class PresetsController {
       try {
         const reply = await this.client.call<null>('remove', { id: confirmation.entry.id, version: confirmation.entry.version })
         if (!reply.ok) this.publish({ failure: reply })
-        else { this.publish({ notice: `已删除 ${confirmation.entry.id}.md` }); await this.loading; await this.load() }
+        else { this.publish({ notice: `Удалён ${confirmation.entry.id}.md` }); await this.loading; await this.load() }
       } catch (error) { this.publish({ failure: caught(error) }) }
       finally { this.publish({ busy: false }) }
     }
@@ -172,7 +172,7 @@ export class PresetsController {
         if (reply.code === 'confirmation_required') this.publish({ confirmation: { kind: 'display', request } })
         else this.publish({ failure: reply })
       } else {
-        this.publish({ draft: undefined, notice: `已保存 ${reply.value.id}.md` })
+        this.publish({ draft: undefined, notice: `Сохранён ${reply.value.id}.md` })
         await this.loading
         await this.load()
       }

@@ -119,7 +119,7 @@ const NOOP_TRAILING_LOG = [
     child({ id: 'newest-background', mode: 'continuable', label: 'workhorse' }),
   ]
   assert.equal(foregroundLabel('workhorse'), '[fg] workhorse')
-  assert.equal(foregroundLabel('牛马狗'), '[fg] 牛马狗')
+  assert.equal(foregroundLabel('Трудяга'), '[fg] Трудяга')
   assert.equal(pickLatestLabeledChild(entries, 'workhorse')?.id, 'managed-foreground', 'managed foreground continuable wins over legacy one-shot')
   assert.equal(pickLatestLabeledChild(entries.slice(0, 5), 'workhorse')?.id, 'newest-failed', 'legacy one-shot remains selectable')
   assert.equal(pickLatestLabeledChild([child({ mode: 'one-shot', label: foregroundLabel('workhorse') })], 'workhorse'), undefined, 'marked label only belongs to continuable foreground')

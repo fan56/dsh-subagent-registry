@@ -12,7 +12,7 @@ import { PresetsController, type PresetsClient } from './presets-state.ts'
 // Supplied by build-client.mjs inside the ModuleLoader factory, never a global stylesheet.
 declare const __PRESETS_CSS__: string
 export const PANEL_ID = 'subagent-presets' as MainPanelId
-export const PANEL_LABEL = '子智能体'
+export const PANEL_LABEL = 'Суб-агенты'
 export const inject = ['slots', 'layout', 'connection', 'remote', 'remote.session']
 
 export function SubagentIcon({ size }: { size?: number }) {

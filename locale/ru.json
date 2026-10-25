@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "dsh-subagent-registry",
+    "description": "Регистрирует ~/.dsh/agents/*.md как вызываемых суб-агентов (use_agent) с продолжением фоновых запусков и уточняющими вопросами через ask_agent."
+  }
+}
