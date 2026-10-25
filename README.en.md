@@ -1,6 +1,6 @@
 # dsh-subagent-registry
 
-[中文](./README.md)
+[Русский](./README.md)
 
 Register locally-defined custom agents (`~/.dsh/agents/*.md`) as callable
 subagents in [dsh](https://github.com/deepseek-ai/deepseek-harness) — the main
@@ -39,9 +39,9 @@ markdown files: edit them freely.
 
 | Agent | Role | Example |
 | ----- | ---- | ------- |
-| **workhorse** (牛马狗) | The workhorse: writes code, investigates, tests, deploys — all the grunt work; default `deepseek-flash`, guarded against dangerous operations | "Use workhorse to turn the release checklist into a table" |
-| **oldfox** (老法师) | The advisor who doesn't build: analysis, trouble shooting, review, audits — checks, never implements; `glm-5.3` | "Have oldfox review this design" |
-| **rubber-duck** (小黄鸭) | Multimodal visual agent: reads screenshots / charts / handwriting, draws plotext / mermaid / matplotlib figures; runs on an image-capable model | "Use rubber-duck on this screenshot, extract the page text" |
+| **workhorse** (Трудяга) | The workhorse: writes code, investigates, tests, deploys — all the grunt work; default `deepseek-flash`, guarded against dangerous operations | "Use workhorse to turn the release checklist into a table" |
+| **oldfox** (Старый лис) | The advisor who doesn't build: analysis, trouble shooting, review, audits — checks, never implements; `glm-5.3` | "Have oldfox review this design" |
+| **rubber-duck** (Жёлтый утёнок) | Multimodal visual agent: reads screenshots / charts / handwriting, draws plotext / mermaid / matplotlib figures; runs on an image-capable model | "Use rubber-duck on this screenshot, extract the page text" |
 
 ## Usage
 
@@ -56,7 +56,7 @@ it waits for the reply.
 
 ## Subagent preset manager
 
-Select **子智能体** in the left sidebar navigation to open a full workspace page. It reads the configured `agentsDir` and supports creating, copying, editing, repairing complete source, and deleting presets. Broken files keep their diagnostics; reading or refreshing an empty directory does not seed files. Existing internal names are fixed. Display-name changes require confirmation because older runs may no longer be found by name.
+Select **Sub-agents** in the left sidebar navigation to open a full workspace page. It reads the configured `agentsDir` and supports creating, copying, editing, repairing complete source, and deleting presets. Broken files keep their diagnostics; reading or refreshing an empty directory does not seed files. Existing internal names are fixed. Display-name changes require confirmation because older runs may no longer be found by name.
 
 Opening, refreshing, saving, or deleting refreshes the roster for subsequent model requests without stopping running calls or changing their personas. After manual file edits, reopen or refresh the page. CLI/TUI dispatch still reads each role at invocation; without the Web manager its static roster updates on remount.
 

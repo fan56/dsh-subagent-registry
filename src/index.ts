@@ -66,7 +66,7 @@ const SKILL_RESOURCE_BASE = {
 const SKILL_INVOCATION = { modelInvocable: true, userInvocable: true } as const
 
 /** Routing description; must stay identical to the SKILL.md frontmatter (asserted in tests). */
-const SKILL_DESCRIPTION = 'dsh 子代理注册表插件（@aiwayds/dsh-subagent-registry）使用与配置指南。凡涉及自定义子代理、use_agent/ask_agent、agents 目录、agent .md 编写、子代理续跑，或要调整本插件配置时先读本指南：~/.dsh/agents/*.md frontmatter 全键（name/deep/display_name/description/model/thinking/background/maxRounds）、entry config 六键（agentsDir/provider/toolName/askToolName/leafDenyTools/resume）、ask_user_question 代写 agent 文件向导、中断 run 续跑语义、接入与使用体检（插件装没装/挂没挂、模型用没用过）。触发词：子代理、agent、use_agent、ask_agent、agents 目录、续跑、resume、体检、调试、没调用。'
+const SKILL_DESCRIPTION = 'Руководство по использованию и настройке плагина реестра суб-агентов dsh (@aiwayds/dsh-subagent-registry). Читайте это руководство при работе с пользовательскими суб-агентами, use_agent/ask_agent, каталогом agents, написанием файлов agent .md, продолжением суб-агентов или настройкой этого плагина: все ключи frontmatter для ~/.dsh/agents/*.md (name/deep/display_name/description/model/thinking/background/maxRounds), шесть ключей конфигурации entry (agentsDir/provider/toolName/askToolName/leafDenyTools/resume), мастер создания файлов агентов через ask_user_question, семантика продолжения прерванных запусков, диагностика подключения и использования (установлен ли плагин/смонтирован ли он/работает ли, использовалась ли модель). Триггерные слова: суб-агент, agent, use_agent, ask_agent, каталог agents, продолжение, resume, диагностика, отладка, не вызывается.'
 
 const SKILL_CANDIDATE: SkillCandidate = {
   name: SKILL_PROVIDER_NAME,
