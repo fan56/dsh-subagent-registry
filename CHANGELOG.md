@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.17.0] - 2026-11-01
+
+### Added
+- **`language` config key (`zh` / `en` / `ru`, default `zh`)** — switches the plugin's user-facing language across four surfaces at once: the web preset-management panel texts (delivered to the client in the `list` reply), the model-facing skill routing description, the bundled skill body (`SKILL.md` / `SKILL.en.md` / `SKILL.ru.md`), and the agent templates seeded on first install (`templates/agents/<language>/`). Existing agent files are never rewritten; the sidebar panel label stays on the compiled default.
+- **English and Russian editions of the bundled skill and shipped agents** (Russian wording contributed by @pahuss1984, PR #7) — skill bodies and the three default agent templates (workhorse / oldfox / rubber-duck) now exist in all three languages, and the bundled skill gains a "switch the plugin language" section (in each language) documenting the key, its effect scope and how to migrate existing agent files.
+- **Per-language drift tests** — each routing description must equal the frontmatter of its matching SKILL file byte-for-byte and stay within the 500-char budget; client tests cover language delivery through the `list` reply and Russian panel rendering.
+
 ## [0.16.0] - 2026-11-01
 
 ### Reverted
