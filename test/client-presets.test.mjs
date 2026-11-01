@@ -259,7 +259,7 @@ const thinkingChip = nodes.find(node => node.props?.['data-kind'] === 'thinking'
 assert.ok(thinkingChip, 'Thinking chip must be present in card meta')
 assert.equal(thinkingChip.props?.['data-active'], 'true')
 assert.equal(thinkingChip.props?.['data-level'], 'high')
-assert.ok(nodes.some(node => node.props?.children === 'Уровень thinking: '))
+assert.ok(nodes.some(node => node.props?.children === 'Thinking: '))
 assert.ok(nodes.some(node => node.props?.children === 'high'))
 assert.ok(nodes.some(node => node.props?.['data-kind'] === 'model'))
 assert.ok(nodes.some(node => node.props?.children === 'engineer.md'))

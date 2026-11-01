@@ -1,6 +1,6 @@
 ---
 name: dsh-subagent-registry-config
-description: "Руководство по использованию и настройке плагина реестра суб-агентов dsh (@aiwayds/dsh-subagent-registry). Читайте это руководство при работе с пользовательскими суб-агентами, use_agent/ask_agent, каталогом agents, написанием файлов agent .md, продолжением суб-агентов или настройкой этого плагина: все ключи frontmatter для ~/.dsh/agents/*.md (name/deep/display_name/description/model/thinking/background/maxRounds), шесть ключей конфигурации entry (agentsDir/provider/toolName/askToolName/leafDenyTools/resume), мастер создания файлов агентов через ask_user_question, семантика продолжения прерванных запусков, диагностика подключения и использования (установлен ли плагин/смонтирован ли он/работает ли, использовалась ли модель). Триггерные слова: суб-агент, agent, use_agent, ask_agent, каталог agents, продолжение, resume, диагностика, отладка, не вызывается."
+description: "Руководство по плагину реестра суб-агентов dsh (@aiwayds/dsh-subagent-registry): использование и настройка. Читайте при работе с суб-агентами, use_agent/ask_agent, каталогом agents, написании agent .md, продолжении (resume) прерванных запусков или настройке плагина: frontmatter ~/.dsh/agents/*.md, ключи entry config, мастер создания агентов через ask_user_question, диагностика. Триггеры: суб-агент, agent, use_agent, ask_agent, agents, продолжение, resume, отладка, не вызывается."
 ---
 
 # Руководство по dsh-subagent-registry (пользовательские суб-агенты / use_agent)
