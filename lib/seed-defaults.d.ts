@@ -10,14 +10,21 @@
  * never overwritten, and a deleted default stays deleted. Reruns are
  * no-ops.
  *
+ * The templates are language-specific: `templates/agents/<language>/`
+ * (zh is the Chinese default set, en the English translation, ru the
+ * Russian one). The language is fixed at first seeding time only — the
+ * seeded files are never rewritten by a later language change.
+ *
  * @module seed-defaults
  */
+import type { Language } from './preset-contract.ts';
 /**
- * The package-shipped default roster (`<package root>/templates/agents`),
- * resolved relative to the compiled file so it works from any cwd. The
- * `templates` directory ships in the npm `files` list.
+ * The package-shipped default roster for one language
+ * (`<package root>/templates/agents/<language>`), resolved relative to the
+ * compiled file so it works from any cwd. The `templates` directory ships
+ * in the npm `files` list.
  */
-export declare function bundledAgentsTemplatesDir(): string;
+export declare function bundledAgentsTemplatesDir(language?: Language): string;
 /**
  * Copy every parseable bundled template into `targetDir` (under the
  * template's frontmatter `name`, keeping the file byte-for-byte). One-time:
@@ -26,7 +33,7 @@ export declare function bundledAgentsTemplatesDir(): string;
  * cheap (a handful of small files) so `apply` can run it before the
  * `use_agent` tool builds its roster.
  */
-export declare function seedBundledAgents(targetDir: string, sourceDir?: string): {
+export declare function seedBundledAgents(targetDir: string, language?: Language, sourceDir?: string): {
     seeded: number;
     errors: Array<{
         file: string;

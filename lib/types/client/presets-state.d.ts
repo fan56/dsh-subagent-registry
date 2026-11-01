@@ -1,4 +1,4 @@
-import { type PresetEntry, type PresetFields, type PresetKey, type PresetList, type PresetReply, type SavePreset } from '../preset-contract.ts';
+import { type Language, type PresetEntry, type PresetFields, type PresetKey, type PresetList, type PresetReply, type SavePreset } from '../preset-contract.ts';
 import type { ModelCatalog } from '@deepseek-ai/dsh-api-session-controller/types';
 export type DraftMode = 'create' | 'copy' | 'edit' | 'repair';
 export interface Draft {
@@ -37,6 +37,7 @@ export interface PresetsSnapshot {
     catalog?: ModelCatalog;
     catalogStatus: 'idle' | 'loading' | 'ready' | 'error';
     catalogError?: string;
+    language?: Language;
 }
 export interface PresetsClient {
     call<T>(endpoint: 'list' | 'save' | 'remove', payload: unknown): Promise<PresetReply<T>>;

@@ -3,11 +3,10 @@ import { Button, Input, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ModelCatalogModel, ModelProviderGroup } from '@deepseek-ai/dsh-api-session-controller/types'
 import type { PresetKey } from '../preset-contract.ts'
 import { isDirty, type PresetsController } from './presets-state.ts'
+import { stringsFor } from './strings.ts'
 import styles from './PresetsPage.module.css'
 
 export interface PresetsPageProps { controller: PresetsController }
-const titles = { create: '新建子智能体', copy: '复制子智能体', edit: '编辑子智能体', repair: '原文修复' }
-const labels: Record<PresetKey | 'body' | 'source', string> = { name: '内部名称', display_name: '显示名', description: '职责描述', model: '模型', thinking: '思考强度', deep: '深度', background: '后台运行', maxRounds: '轮数上限', body: '系统提示词', source: '完整 Markdown 原文' }
 
 function WarningIcon({ className }: { className?: string }) {
   return (
@@ -109,6 +108,7 @@ function AgentAvatar({ name, isError }: { name: string; isError?: boolean }) {
 
 export function PresetsPage({ controller }: PresetsPageProps) {
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot)
+  const t = stringsFor(state.language)
   const { draft, confirmation, busy } = state
   const issue = state.failure ?? state.listError
   const failure = issue?.field === 'id' ? { ...issue, field: 'name' } : issue
@@ -131,7 +131,7 @@ export function PresetsPage({ controller }: PresetsPageProps) {
   const common = (key: string) => ({ id: fieldId(key), disabled: busy, 'aria-invalid': Boolean(fieldError(key)), 'aria-describedby': `${fieldId(key)}-hint${fieldError(key) ? ` ${fieldId(key)}-error` : ''}` })
   const field = (key: PresetKey | 'body' | 'source', hint: string, control: ReactNode, extraHeader?: ReactNode) => <div className={styles.field} data-state={fieldError(key) ? 'error' : busy ? 'disabled' : undefined}>
     <div className={styles.fieldHeader}>
-      <label className={styles.label} htmlFor={fieldId(key)}>{labels[key]}</label>
+      <label className={styles.label} htmlFor={fieldId(key)}>{t.labels[key]}</label>
       {extraHeader}
     </div>
     {control}
@@ -146,11 +146,11 @@ export function PresetsPage({ controller }: PresetsPageProps) {
     </select>)
   const editable = draft?.mode === 'create' || draft?.mode === 'copy'
   const raw = draft?.mode === 'repair'
-  const summaryField = failure?.field && failure.field in labels ? (raw && failure.field !== 'source' ? 'source' : failure.field) : undefined
+  const summaryField = failure?.field && failure.field in t.labels ? (raw && failure.field !== 'source' ? 'source' : failure.field) : undefined
 
   const catalogGroups: readonly ModelProviderGroup[] = state.catalog?.groups ?? []
   const defaultModelSelection = state.catalog?.default
-  const defaultModelLabel = defaultModelSelection ? `继承默认 (${defaultModelSelection.provider}/${defaultModelSelection.model})` : '继承默认'
+  const defaultModelLabel = defaultModelSelection ? t.inheritDefaultRoute(`${defaultModelSelection.provider}/${defaultModelSelection.model}`) : t.inheritDefault
   const currentModel = draft?.fields[key_of('model')] ?? ''
   function key_of(k: PresetKey): PresetKey { return k }
   const isModelInCatalog = currentModel === '' || catalogGroups.some(g => g.models.some(m => `${g.id}/${m.id}` === currentModel))
@@ -191,7 +191,7 @@ export function PresetsPage({ controller }: PresetsPageProps) {
   }
 
   let thinkingOptions: [string, string][] = []
-  let thinkingHint = '留空继承当前部署的思考设置。'
+  let thinkingHint = t.thinkingHint
   let thinkingDisabled = false
 
   if (effectiveModelObj) {
@@ -199,37 +199,37 @@ export function PresetsPage({ controller }: PresetsPageProps) {
     if (reasoning?.efforts && reasoning.efforts.length > 0) {
       const defaultEffortNote = reasoning.defaultEffort ? ` (${reasoning.defaultEffort})` : ''
       thinkingOptions = [
-        ['', `继承默认${defaultEffortNote}`],
+        ['', t.inheritDefaultWithNote(defaultEffortNote)],
         ...reasoning.efforts.map(e => [
           e.id,
           e.name && e.name.toLowerCase() !== e.id.toLowerCase() ? `${e.name} (${e.id})` : e.id,
         ] as [string, string]),
       ]
       if (draft?.fields.thinking && !thinkingOptions.some(([val]) => val === draft.fields.thinking)) {
-        thinkingOptions.push([draft.fields.thinking, `${draft.fields.thinking} (未在列表中)`])
+        thinkingOptions.push([draft.fields.thinking, t.thinkingUnlisted(draft.fields.thinking)])
       }
-      thinkingHint = `留空继承当前部署的思考设置。当前模型可用：${reasoning.efforts.map(e => e.id).join(' / ')}。`
+      thinkingHint = t.thinkingHintEfforts(reasoning.efforts.map(e => e.id).join(' / '))
     } else {
-      thinkingOptions = [['', '不支持思考强度（继承/关闭）']]
+      thinkingOptions = [['', t.thinkingUnsupportedOption]]
       if (draft?.fields.thinking) {
-        thinkingOptions.push([draft.fields.thinking, `${draft.fields.thinking} (该模型不支持)`])
+        thinkingOptions.push([draft.fields.thinking, t.thinkingUnsupportedValue(draft.fields.thinking)])
       }
-      thinkingHint = `当前模型（${effectiveModelObj.name}）不支持思考强度设置。`
+      thinkingHint = t.thinkingUnsupportedHint(effectiveModelObj.name)
       thinkingDisabled = true
     }
   } else {
     const fallbackLevels = ['off', 'low', 'medium', 'high', 'xhigh', 'max']
     thinkingOptions = [
-      ['', '继承当前部署的思考设置'],
+      ['', t.thinkingInheritDeployment],
       ...fallbackLevels.map(l => [l, l] as [string, string]),
     ]
     if (draft?.fields.thinking && !thinkingOptions.some(([val]) => val === draft.fields.thinking)) {
       thinkingOptions.push([draft.fields.thinking, draft.fields.thinking])
     }
     if (state.catalogStatus === 'loading') {
-      thinkingHint = '正在加载可用思考强度…'
+      thinkingHint = t.thinkingLoading
     } else if (currentModel !== '') {
-      thinkingHint = '未在模型目录中找到该模型，提供标准思考强度选项。'
+      thinkingHint = t.thinkingFallbackHint
     }
   }
 
@@ -237,46 +237,46 @@ export function PresetsPage({ controller }: PresetsPageProps) {
     <div className={styles.content}>
       <header className={styles.header}>
         <div className={styles.headingGroup}>
-          {draft && <Button type="button" className={styles.action} variant="ghost" disabled={busy} onClick={() => controller.discard('list')}>返回列表</Button>}
-          <h1 ref={heading} tabIndex={-1} className={styles.title}>{draft ? titles[draft.mode] : '子智能体'}</h1>
-          {draft?.mode === 'copy' && <p className={styles.hint}>复制自 {draft.original?.id}.md，保存为新文件。</p>}
+          {draft && <Button type="button" className={styles.action} variant="ghost" disabled={busy} onClick={() => controller.discard('list')}>{t.backToList}</Button>}
+          <h1 ref={heading} tabIndex={-1} className={styles.title}>{draft ? t.titles[draft.mode] : t.agentsTitle}</h1>
+          {draft?.mode === 'copy' && <p className={styles.hint}>{t.copiedFrom(draft.original?.id ?? '')}</p>}
         </div>
         <div className={styles.actions}>
-          <Button type="button" className={styles.action} variant="outline" disabled={busy || state.status === 'loading'} onClick={() => controller.discard('refresh')}>{state.status === 'loading' ? '正在刷新…' : '刷新'}</Button>
-          {!draft && <Button type="button" className={styles.action} variant="primary" disabled={busy || state.status !== 'ready'} onClick={() => controller.start('create')}>新建子智能体</Button>}
+          <Button type="button" className={styles.action} variant="outline" disabled={busy || state.status === 'loading'} onClick={() => controller.discard('refresh')}>{state.status === 'loading' ? t.refreshing : t.refresh}</Button>
+          {!draft && <Button type="button" className={styles.action} variant="primary" disabled={busy || state.status !== 'ready'} onClick={() => controller.start('create')}>{t.createAgent}</Button>}
         </div>
       </header>
       <div className={styles.directory}>
         <div className={styles.directoryHeader}>
           <FolderIcon className={styles.directoryIcon} />
-          {state.list && <p className={styles.directoryPath}>目录：{state.list.directory}</p>}
+          {state.list && <p className={styles.directoryPath}>{t.directory(state.list.directory)}</p>}
         </div>
-        <p className={styles.hint}>指向此目录的 profile 共享预设。修改将用于后续调用，已运行的任务保持原提示词。</p>
+        <p className={styles.hint}>{t.directoryHint}</p>
       </div>
       {failure && <div ref={errorSummary} tabIndex={-1} role="alert" className={styles.errorSummary}>
-        <p className={styles.errorTitle}>{state.failure ? '操作未完成' : '读取失败'}</p>
+        <p className={styles.errorTitle}>{state.failure ? t.errorActionIncomplete : t.errorReadFailed}</p>
         <p className={styles.errorText}>{failure.error}</p>
-        {draft && summaryField && <a className={styles.errorLink} href={`#${fieldId(summaryField)}`} onClick={event => { event.preventDefault(); document.getElementById(fieldId(summaryField))?.focus() }}>检查{labels[summaryField as keyof typeof labels]}</a>}
-        {draft && failure.code === 'source_required' && draft.mode === 'edit' && <Button type="button" className={styles.action} onClick={() => controller.discard('repair')}>转到原文修复</Button>}
+        {draft && summaryField && <a className={styles.errorLink} href={`#${fieldId(summaryField)}`} onClick={event => { event.preventDefault(); document.getElementById(fieldId(summaryField))?.focus() }}>{t.checkField(t.labels[summaryField as keyof typeof t.labels])}</a>}
+        {draft && failure.code === 'source_required' && draft.mode === 'edit' && <Button type="button" className={styles.action} onClick={() => controller.discard('repair')}>{t.goToRepair}</Button>}
       </div>}
       {state.notice && <p className={styles.notice} role="status">{state.notice}</p>}
       {!draft ? <>
-        {state.status === 'loading' && <p className={styles.status} role="status">正在读取预设目录…</p>}
-        {state.status === 'error' && <p className={styles.hint}>未能读取最新目录。请检查上方错误后刷新{state.list ? '；下方保留上次读取的列表。' : '。'}</p>}
+        {state.status === 'loading' && <p className={styles.status} role="status">{t.loadingPresets}</p>}
+        {state.status === 'error' && <p className={styles.hint}>{t.refreshFailed(Boolean(state.list))}</p>}
         {state.status === 'ready' && state.list?.entries.length === 0 && (
           <div className={styles.empty}>
             <EmptyIcon className={styles.emptyIcon} />
-            <h2 className={styles.emptyTitle}>此目录暂无子智能体</h2>
-            <p className={styles.hint}>创建一个子智能体，填写它的职责和系统提示词。</p>
-            <Button type="button" className={styles.action} variant="primary" onClick={() => controller.start('create')}>新建子智能体</Button>
+            <h2 className={styles.emptyTitle}>{t.emptyTitle}</h2>
+            <p className={styles.hint}>{t.emptyHint}</p>
+            <Button type="button" className={styles.action} variant="primary" onClick={() => controller.start('create')}>{t.createAgent}</Button>
           </div>
         )}
         <div className={styles.list}>
           {state.list?.entries.map(entry => {
             const displayName = entry.fields.display_name || entry.id
             const isThinkingActive = Boolean(entry.fields.thinking && entry.fields.thinking !== 'off')
-            const thinkingValue = entry.fields.thinking || '继承默认'
-            const modelValue = entry.fields.model || '继承默认'
+            const thinkingValue = entry.fields.thinking || t.inheritDefault
+            const modelValue = entry.fields.model || t.inheritDefault
 
             return (
               <article
@@ -296,7 +296,7 @@ export function PresetsPage({ controller }: PresetsPageProps) {
                           data-status={entry.error ? 'error' : entry.structured ? 'ready' : 'unstructured'}
                         >
                           <span className={styles.statusDot} aria-hidden="true" />
-                          {entry.error ? '文件错误' : entry.structured ? '可用' : '原文编辑'}
+                          {entry.error ? t.statusBadgeError : entry.structured ? t.statusBadgeReady : t.statusBadgeRaw}
                         </span>
                       </div>
                     </div>
@@ -306,32 +306,32 @@ export function PresetsPage({ controller }: PresetsPageProps) {
                       type="button"
                       className={styles.action}
                       variant="outline"
-                      aria-label={`${entry.error ? '修复' : '编辑'} ${entry.id}`}
+                      aria-label={t.editAria(entry.id, Boolean(entry.error))}
                       disabled={busy || state.status !== 'ready'}
                       onClick={() => controller.start(entry.error || !entry.structured ? 'repair' : 'edit', entry)}
                     >
-                      {entry.error ? '原文修复' : entry.structured ? '编辑' : '原文编辑'}
+                      {entry.error ? t.titles.repair : entry.structured ? t.editAction : t.statusBadgeRaw}
                     </Button>
                     {!entry.error && entry.structured && (
                       <Button
                         type="button"
                         className={styles.action}
                         variant="outline"
-                        aria-label={`复制 ${entry.id}`}
+                        aria-label={t.copyAria(entry.id)}
                         disabled={busy || state.status !== 'ready'}
                         onClick={() => controller.start('copy', entry)}
                       >
-                        复制
+                        {t.copyAction}
                       </Button>
                     )}
                     <Button
                       type="button"
                       className={`${styles.action} ${styles.danger}`}
-                      aria-label={`删除 ${entry.id}.md`}
+                      aria-label={t.deleteAria(entry.id)}
                       disabled={busy || state.status !== 'ready'}
                       onClick={() => controller.askDelete(entry)}
                     >
-                      删除
+                      {t.deleteAction}
                     </Button>
                   </div>
                 </div>
@@ -341,18 +341,18 @@ export function PresetsPage({ controller }: PresetsPageProps) {
                     <div className={styles.cardErrorBox} role="alert">
                       <div className={styles.cardErrorHeader}>
                         <WarningIcon />
-                        <span>配置解析异常</span>
+                        <span>{t.parseError}</span>
                       </div>
                       <p className={`${styles.errorText} ${styles.cardErrorText}`}>{entry.error}</p>
                     </div>
                   ) : (
                     <>
                       <p className={styles.description} data-empty={!entry.fields.description}>
-                        {entry.fields.description || '未填写职责描述'}
+                        {entry.fields.description || t.descriptionEmpty}
                       </p>
                       {!entry.structured && (
                         <p className={styles.unstructuredNotice}>
-                          此文件需要通过原文编辑保留结构。
+                          {t.unstructuredNotice}
                         </p>
                       )}
                     </>
@@ -361,9 +361,9 @@ export function PresetsPage({ controller }: PresetsPageProps) {
 
                 {!entry.error && (
                   <div className={styles.cardMeta}>
-                    <span className={styles.metaChip} data-kind="model" title={`模型路由：${modelValue}`}>
+                    <span className={styles.metaChip} data-kind="model" title={t.modelRouteTitle(modelValue)}>
                       <ModelIcon className={styles.chipIcon} />
-                      <span className={styles.chipLabel}>模型：</span>
+                      <span className={styles.chipLabel}>{t.modelChipLabel}</span>
                       <span className={styles.chipValue}>{modelValue}</span>
                     </span>
 
@@ -372,10 +372,10 @@ export function PresetsPage({ controller }: PresetsPageProps) {
                       data-kind="thinking"
                       data-active={isThinkingActive ? 'true' : 'false'}
                       data-level={entry.fields.thinking || 'default'}
-                      title={`思考强度：${thinkingValue}`}
+                      title={t.thinkingChipTitle(thinkingValue)}
                     >
                       <ThinkingIcon className={styles.chipIcon} />
-                      <span className={styles.chipLabel}>思考强度：</span>
+                      <span className={styles.chipLabel}>{t.thinkingChipLabel}</span>
                       <span className={styles.chipValue}>{thinkingValue}</span>
                     </span>
 
@@ -383,11 +383,11 @@ export function PresetsPage({ controller }: PresetsPageProps) {
                       <span
                         className={styles.metaChip}
                         data-kind="background"
-                        title={entry.fields.background === 'true' ? '后台可持续会话' : '前台一次性运行'}
+                        title={entry.fields.background === 'true' ? t.backgroundContinuousTitle : t.backgroundOnceTitle}
                       >
                         <BackgroundIcon className={styles.chipIcon} />
                         <span className={styles.chipValue}>
-                          {entry.fields.background === 'true' ? '后台可持续' : '前台运行'}
+                          {entry.fields.background === 'true' ? t.backgroundContinuous : t.backgroundForeground}
                         </span>
                       </span>
                     )}
@@ -396,11 +396,11 @@ export function PresetsPage({ controller }: PresetsPageProps) {
                       <span
                         className={styles.metaChip}
                         data-kind="deep"
-                        title={entry.fields.deep === '0' ? '叶子节点：禁止派发子代理' : `派发深度：${entry.fields.deep}`}
+                        title={entry.fields.deep === '0' ? t.deepLeafTitle : t.deepDispatchTitle(entry.fields.deep)}
                       >
                         <DeepIcon className={styles.chipIcon} />
                         <span className={styles.chipValue}>
-                          {entry.fields.deep === '0' ? '叶子(禁派发)' : `深度：${entry.fields.deep}`}
+                          {entry.fields.deep === '0' ? t.deepLeaf : t.deepValue(entry.fields.deep)}
                         </span>
                       </span>
                     )}
@@ -409,10 +409,10 @@ export function PresetsPage({ controller }: PresetsPageProps) {
                       <span
                         className={styles.metaChip}
                         data-kind="rounds"
-                        title={`单次会话轮数上限：${entry.fields.maxRounds} 轮`}
+                        title={t.roundsTitle(entry.fields.maxRounds)}
                       >
                         <RoundsIcon className={styles.chipIcon} />
-                        <span className={styles.chipValue}>上限 {entry.fields.maxRounds} 轮</span>
+                        <span className={styles.chipValue}>{t.roundsValue(entry.fields.maxRounds)}</span>
                       </span>
                     )}
                   </div>
@@ -422,17 +422,17 @@ export function PresetsPage({ controller }: PresetsPageProps) {
           })}
         </div>
       </> : <form className={styles.form} onSubmit={event => { event.preventDefault(); void controller.save() }}>
-        {input('name', editable ? '新文件名等于内部名称；使用安全且唯一的名称。' : '内部名称固定为当前文件标识，不能通过编辑或修复改名。', { readOnly: !editable, required: true })}
+        {input('name', editable ? t.nameHintEditable : t.nameHintFixed, { readOnly: !editable, required: true })}
         {raw ? <>
-          {draft.original?.error && <div className={styles.diagnostic}><p className={styles.errorTitle}>原文件诊断</p><p className={styles.errorText}>{draft.original.error}</p></div>}
-          {field('source', `包含 frontmatter 和系统提示词。将 name 纠正为 ${draft.original!.id}；保存时按同一规则校验。`, <textarea {...common('source')} className={`${styles.control} ${styles.source}`} value={draft.source} spellCheck={false} onChange={event => controller.text('source', event.target.value)} />)}
+          {draft.original?.error && <div className={styles.diagnostic}><p className={styles.errorTitle}>{t.diagnosticTitle}</p><p className={styles.errorText}>{draft.original.error}</p></div>}
+          {field('source', t.sourceHint(draft.original!.id), <textarea {...common('source')} className={`${styles.control} ${styles.source}`} value={draft.source} spellCheck={false} onChange={event => controller.text('source', event.target.value)} />)}
         </> : <>
-          {input('display_name', '可留空，使用内部名称作为显示标签。变更已有显示名时会提示历史任务影响。')}
-          {input('description', '一行职责描述，用于帮助选择合适的子智能体。')}
-          {customModelMode ? field('model', '填写自定义 provider/model 路由（例如 openai/gpt-6.1-sol）或留空继承默认。',
-            <Input {...common('model')} className={styles.input} placeholder="例如：openai/gpt-6.1-sol" value={currentModel} onChange={event => onModelChange(event.target.value)} />,
-            <button type="button" className={styles.toggleCustom} onClick={() => setCustomModelMode(false)}>从列表选择</button>
-          ) : field('model', '从当前部署已启用的模型中选择；留空继承默认设置。',
+          {input('display_name', t.displayNameHint)}
+          {input('description', t.descriptionHint)}
+          {customModelMode ? field('model', t.customModelHint,
+            <Input {...common('model')} className={styles.input} placeholder={t.customModelPlaceholder} value={currentModel} onChange={event => onModelChange(event.target.value)} />,
+            <button type="button" className={styles.toggleCustom} onClick={() => setCustomModelMode(false)}>{t.selectFromList}</button>
+          ) : field('model', t.catalogModelHint,
             <select
               {...common('model')}
               className={styles.control}
@@ -454,41 +454,41 @@ export function PresetsPage({ controller }: PresetsPageProps) {
                 </optgroup>
               ))}
               {!isModelInCatalog && currentModel !== '' && (
-                <optgroup label="当前设置 / 未在目录中">
+                <optgroup label={t.notInCatalogGroup}>
                   <option value={currentModel}>{currentModel}</option>
                 </optgroup>
               )}
-              <option value="__custom__">自定义输入…</option>
+              <option value="__custom__">{t.customInputOption}</option>
             </select>,
-            <button type="button" className={styles.toggleCustom} onClick={() => setCustomModelMode(true)}>自定义输入</button>
+            <button type="button" className={styles.toggleCustom} onClick={() => setCustomModelMode(true)}>{t.customInputButton}</button>
           )}
-          {state.catalogStatus === 'loading' && <p className={styles.hint} role="status">正在加载模型目录…</p>}
-          {state.catalogError && <div className={styles.catalogError} role="status"><p className={styles.errorText}>模型目录加载失败：{state.catalogError}</p><p className={styles.hint}>当前模型值仍保留，可继续使用自定义路由。</p><Button type="button" className={styles.action} disabled={busy || state.catalogStatus === 'loading'} onClick={() => { void controller.loadModels() }}>重试模型目录</Button></div>}
-          {state.catalog?.failures.map(item => <p className={styles.errorText} key={item.id}>模型目录 {item.name}：{item.message}</p>)}
+          {state.catalogStatus === 'loading' && <p className={styles.hint} role="status">{t.loadingCatalog}</p>}
+          {state.catalogError && <div className={styles.catalogError} role="status"><p className={styles.errorText}>{t.catalogError(state.catalogError)}</p><p className={styles.hint}>{t.catalogErrorHint}</p><Button type="button" className={styles.action} disabled={busy || state.catalogStatus === 'loading'} onClick={() => { void controller.loadModels() }}>{t.retryCatalog}</Button></div>}
+          {state.catalog?.failures.map(item => <p className={styles.errorText} key={item.id}>{t.catalogFailure(item.name, item.message)}</p>)}
           {select('thinking', thinkingHint, thinkingOptions, thinkingDisabled)}
-          {field('body', '作为系统提示词原样使用，支持 Markdown。', <textarea {...common('body')} className={`${styles.control} ${styles.body}`} value={draft.body} onChange={event => controller.text('body', event.target.value)} />)}
+          {field('body', t.bodyHint, <textarea {...common('body')} className={`${styles.control} ${styles.body}`} value={draft.body} onChange={event => controller.text('body', event.target.value)} />)}
           <details className={styles.advanced} open={draft.advanced} onToggle={event => controller.advanced(event.currentTarget.open)}>
-            <summary className={styles.advancedToggle}>高级设置</summary>
+            <summary className={styles.advancedToggle}>{t.advancedTitle}</summary>
             <div className={styles.advancedFields}>
-              {input('deep', '留空沿用缺省深度 1；0 禁止此角色继续派发子代理。', { type: 'number', min: 0, step: 1, placeholder: '继承（1）' })}
-              {select('background', '留空沿用缺省前台；true 为后台可持续会话。', [['', '继承（前台）'], ['false', 'false（前台）'], ['true', 'true（后台）']])}
-              {input('maxRounds', '留空继承全局轮数上限；填写正整数。', { type: 'number', min: 1, step: 1, placeholder: '继承全局' })}
+              {input('deep', t.deepHint, { type: 'number', min: 0, step: 1, placeholder: t.deepPlaceholder })}
+              {select('background', t.backgroundHint, [['', t.backgroundInheritOption], ['false', t.backgroundFalseOption], ['true', t.backgroundTrueOption]])}
+              {input('maxRounds', t.maxRoundsHint, { type: 'number', min: 1, step: 1, placeholder: t.maxRoundsPlaceholder })}
             </div>
           </details>
         </>}
         <footer className={styles.formFooter}>
-          <p className={styles.hint} role="status">{busy ? '正在保存…' : isDirty(draft) ? '有未保存的修改' : '尚未修改'}</p>
+          <p className={styles.hint} role="status">{busy ? t.saving : isDirty(draft) ? t.unsavedChanges : t.noChanges}</p>
           <div className={styles.actions}>
-            <Button type="button" className={styles.action} variant="outline" disabled={busy} onClick={() => controller.discard('list')}>取消</Button>
-            <Button type="submit" className={styles.action} variant="primary" disabled={busy || (!editable && !isDirty(draft))}>{busy ? '正在保存…' : '保存预设'}</Button>
+            <Button type="button" className={styles.action} variant="outline" disabled={busy} onClick={() => controller.discard('list')}>{t.cancel}</Button>
+            <Button type="submit" className={styles.action} variant="primary" disabled={busy || (!editable && !isDirty(draft))}>{busy ? t.saving : t.savePreset}</Button>
           </div>
         </footer>
       </form>}
     </div>
-    <Modal open={Boolean(confirmation)} onClose={() => controller.cancelConfirmation()} title={confirmation?.kind === 'delete' ? `删除 ${confirmation.entry.id}.md？` : confirmation?.kind === 'display' ? '确认显示名变更' : '放弃未保存的修改？'} closeLabel="取消确认" footer={<div className={styles.actions}><Button type="button" className={styles.action} data-modal-autofocus disabled={busy} onClick={() => controller.cancelConfirmation()}>取消</Button><Button type="button" className={styles.action} variant="primary" disabled={busy} onClick={() => { void controller.confirm() }}>{confirmation?.kind === 'delete' ? '确认删除' : confirmation?.kind === 'display' ? '确认并保存' : '放弃修改'}</Button></div>}>
-      <p className={styles.confirmText}>{confirmation?.kind === 'delete' ? `将删除 ${confirmation.entry.id}.md。所有指向此目录的 profile 都将失去此预设；删除后无法从本页恢复。` : confirmation?.kind === 'display' ? '显示名新增、清除或变更会改变查找历史任务时使用的显示标签。旧任务可能无法再按 name 续跑或追问，历史记录不会迁移。' : confirmation?.kind === 'discard' && confirmation.action === 'refresh' ? '刷新将丢弃当前输入并重新读取目录。' : confirmation?.kind === 'discard' && confirmation.action === 'repair' ? '将丢弃当前表单输入，并打开读取时的完整原文。' : '返回列表将丢弃当前输入。'}</p>
-      {confirmation?.kind === 'delete' && <p className={styles.directoryPath}>目录：{state.list?.directory}</p>}
-      {confirmation?.kind === 'display' && <p className={styles.directoryPath}>目标：{confirmation.request.id}.md</p>}
+    <Modal open={Boolean(confirmation)} onClose={() => controller.cancelConfirmation()} title={confirmation?.kind === 'delete' ? t.deleteConfirmTitle(confirmation.entry.id) : confirmation?.kind === 'display' ? t.displayNameConfirmTitle : t.discardConfirmTitle} closeLabel={t.closeLabel} footer={<div className={styles.actions}><Button type="button" className={styles.action} data-modal-autofocus disabled={busy} onClick={() => controller.cancelConfirmation()}>{t.cancel}</Button><Button type="button" className={styles.action} variant="primary" disabled={busy} onClick={() => { void controller.confirm() }}>{confirmation?.kind === 'delete' ? t.confirmDelete : confirmation?.kind === 'display' ? t.confirmSave : t.discardChanges}</Button></div>}>
+      <p className={styles.confirmText}>{confirmation?.kind === 'delete' ? t.deleteConfirmText(confirmation.entry.id) : confirmation?.kind === 'display' ? t.displayNameConfirmText : confirmation?.kind === 'discard' && confirmation.action === 'refresh' ? t.discardRefreshText : confirmation?.kind === 'discard' && confirmation.action === 'repair' ? t.discardRepairText : t.discardListText}</p>
+      {confirmation?.kind === 'delete' && <p className={styles.directoryPath}>{t.directory(state.list?.directory ?? '')}</p>}
+      {confirmation?.kind === 'display' && <p className={styles.directoryPath}>{t.confirmTarget(confirmation.request.id)}</p>}
     </Modal>
   </section>
 }

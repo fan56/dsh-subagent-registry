@@ -134,11 +134,12 @@ runInNewContext(js, { module, exports: module.exports, __PRESETS_CSS__: css, doc
 const registrations = new Map()
 const cleanups = []
 const navigation = []
+let listLanguage
 module.exports.apply({
   effect(effect) { cleanups.push(effect()) },
   slots: { inject(_slot, callback) { cleanups.push(callback()) }, register(options, component) { registrations.set(options.name, { options, component }); return () => registrations.delete(options.name) } },
   layout: { selectPanel(id) { navigation.push(id) } },
-  connection: { rpc: { async call(channel, endpoint, payload) { assert.equal(channel, '/api'); if (endpoint === 'subagent-presets/save') return { ok: true, value: { ok: false, code: 'invalid_id', field: 'id', error: 'Unsafe name' } }; assert.equal(endpoint, 'subagent-presets/list'); assert.equal(payload, null); return { ok: true, value: { ok: true, value: list } } } } },
+  connection: { rpc: { async call(channel, endpoint, payload) { assert.equal(channel, '/api'); if (endpoint === 'subagent-presets/save') return { ok: true, value: { ok: false, code: 'invalid_id', field: 'id', error: 'Unsafe name' } }; assert.equal(endpoint, 'subagent-presets/list'); assert.equal(payload, null); return { ok: true, value: { ok: true, value: listLanguage ? { ...list, language: listLanguage } : list } } } } },
   remote: {
     session: {
       async modelCatalog() {
@@ -272,6 +273,18 @@ nodes.length = 0
 collect(main.component({ controller: pageController }))
 assert.equal(byId('name').props['aria-invalid'], true, 'backend file id errors must target the internal-name input')
 assert.ok(nodes.some(node => node.props?.id === 'test-field-name-error' && node.props.children === 'Unsafe name'))
+
+// A list reply carrying language: 'ru' must switch the rendered strings to the Russian table.
+pageController.discard('list')
+if (pageController.getSnapshot().confirmation) await pageController.confirm()
+listLanguage = 'ru'
+await pageController.load()
+nodes.length = 0
+collect(main.component({ controller: pageController }))
+assert.equal(pageController.getSnapshot().language, 'ru')
+assert.ok(nodes.some(node => node.props?.children === 'Модель: '), 'list reply language=ru must render the Russian model chip label')
+assert.ok(!nodes.some(node => node.props?.children === '模型：'), 'Chinese chip label must be replaced under language=ru')
+
 for (const cleanup of cleanups.reverse()) cleanup()
 assert.equal(styleNodes.length, 0)
 assert.equal(registrations.size, 0)

@@ -91,12 +91,27 @@ Frontmatter 字段：`name`（必填）、`description`、`display_name`、`mode
 → **完整参考**：[docs/AGENT-FORMAT.md](./docs/AGENT-FORMAT.md)（英文）——每个字段
 的校验与失败行为、`deep`/`thinking` 语义、续跑机制、后台派发、配置项、已知边界。
 
+## 插件配置（entry config 七键）
+
+配置挂在加载本插件的 patch 挂载块上（cordis.patch.yml 的 `config:` 段）：
+
+| 键              | 默认            | 说明                                                                                             |
+| --------------- | --------------- | ------------------------------------------------------------------------------------------------ |
+| `agentsDir`     | `~/.dsh/agents` | agent 文件目录；默认字面量按 `$DSH_HOME` 解析，自定义值展开 `~` 后原样使用。                       |
+| `provider`      | `spawn`         | 子代理 provider（复用 dsh-base 的 spawn）。                                                       |
+| `toolName`      | `use_agent`     | 派发工具名。                                                                                      |
+| `askToolName`   | `ask_agent`     | 追问工具名。                                                                                      |
+| `leafDenyTools` | `[]`            | `deep: 0` 叶子子的禁用工具表；空 = 静态默认再与宿主已注册工具取交集。                              |
+| `resume`        | `auto`          | 续跑档位：`auto` / `opt-in` / `off`。                                                             |
+| `language`      | `zh`            | 界面语言：`zh`（中文，默认）/ `en`（English）/ `ru`（Русский）。作用于 web 管理面板文案、内置技能正文与模型路由描述、首次播种的预置 agent 模板（`templates/agents/<language>/`）；改后重启 dsh 生效，已存在的 agent 文件不会被改写。 |
+
 ## 内置技能
 
 插件随包注册一个名为 `dsh-subagent-registry-config` 的技能（bundled skill）。对话涉及自定义
 子代理、agent `.md` 编写、子代理续跑或本插件配置时，dsh 会自动加载这份使用与配置指南，
 主模型可以据此用 `ask_user_question` 代写 agent 文件、调整插件配置，无需翻 README。
-技能与插件同版本发布，随 npm 包携带（`skills/dsh-subagent-registry-config/SKILL.md`）。
+技能与插件同版本发布，随 npm 包携带（`skills/dsh-subagent-registry-config/SKILL.md`，
+另有英文版 `SKILL.en.md` 与俄文版 `SKILL.ru.md`，由 `language` 键选择，见上表）。
 
 ## 安装
 

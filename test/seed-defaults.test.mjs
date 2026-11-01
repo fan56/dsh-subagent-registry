@@ -83,7 +83,7 @@ const makeTempDir = (label) => mkdtempSync(join(tmpdir(), `seed-defaults-${label
   try {
     writeFileSync(join(source, 'good.md'), '---\nname: renamed\n---\nBody.')
     writeFileSync(join(source, 'bad.md'), 'no frontmatter here')
-    const { seeded, errors } = seedBundledAgents(dir, source)
+    const { seeded, errors } = seedBundledAgents(dir, 'zh', source)
     assert.equal(seeded, 1, 'only the parseable template seeded')
     assert.equal(errors.length, 1, 'broken template reported')
     assert.equal(errors[0].file, 'bad.md', 'error names the broken file')
@@ -102,10 +102,67 @@ const makeTempDir = (label) => mkdtempSync(join(tmpdir(), `seed-defaults-${label
 {
   const dir = makeTempDir('nosrc')
   try {
-    const { seeded, errors } = seedBundledAgents(dir, join(dir, 'does-not-exist'))
+    const { seeded, errors } = seedBundledAgents(dir, 'zh', join(dir, 'does-not-exist'))
     assert.equal(seeded, 0, 'nothing seeded from a missing source')
     assert.equal(errors.length, 0, 'missing source is not an error')
     console.log('PASS missing source: clean no-op')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
+// --- language selection: 'ru' seeds templates/agents/ru, 'en' templates/agents/en ---
+
+for (const language of ['en', 'ru']) {
+  {
+    const dir = makeTempDir(language)
+    try {
+      const templatesDir = bundledAgentsTemplatesDir(language)
+      assert.ok(
+        templatesDir.replaceAll('\\', '/').endsWith(`templates/agents/${language}`),
+        `templates dir follows the language (${templatesDir})`,
+      )
+      const { seeded, errors } = seedBundledAgents(dir, language)
+      assert.equal(errors.length, 0, `no broken ${language} templates`)
+      assert.equal(seeded, 3, `all three ${language} defaults seeded`)
+      for (const name of ['workhorse', 'oldfox', 'rubber-duck']) {
+        const path = join(dir, `${name}.md`)
+        assert.ok(existsSync(path), `${language} ${name}.md written`)
+        const source = readFileSync(join(templatesDir, `${name}.md`))
+        assert.ok(source.equals(readFileSync(path)), `${language} template copied verbatim`)
+      }
+      // The seeded content is the translated set, not the zh default.
+      const workhorse = readFileSync(join(dir, 'workhorse.md'), 'utf8')
+      const displayNames = { en: 'Workhorse', ru: 'Трудяга' }
+      assert.ok(
+        workhorse.includes(`display_name: ${displayNames[language]}`),
+        `${language} seeding picked templates/agents/${language}`,
+      )
+      assert.ok(!/[\u4e00-\u9fff]/.test(workhorse), `${language} template carries no Chinese`)
+      console.log(`PASS language ${language}: templates/agents/${language} seeded verbatim`)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  }
+}
+
+// --- default language: zh (plain templates/agents dir name kept for zh) ---
+
+{
+  const dir = makeTempDir('langzh')
+  try {
+    assert.ok(
+      bundledAgentsTemplatesDir().replaceAll('\\', '/').endsWith('templates/agents/zh'),
+      'default templates dir is templates/agents/zh',
+    )
+    const { seeded, errors } = seedBundledAgents(dir)
+    assert.equal(errors.length, 0, 'no broken zh templates')
+    assert.equal(seeded, 3, 'default (zh) seeding still seeds three')
+    assert.ok(
+      readFileSync(join(dir, 'workhorse.md'), 'utf8').includes('display_name: 牛马狗'),
+      'default seeding picks the zh set',
+    )
+    console.log('PASS default language: zh templates seeded')
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }

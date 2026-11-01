@@ -105,6 +105,21 @@ TUI's hard-stop ladder.
 validation and failure modes, `deep`/`thinking` semantics, resume mechanics,
 background dispatch, configuration fields, known limitations.
 
+## Plugin config (entry config, seven keys)
+
+The config hangs on the patch mount block that loads the plugin (the `config:`
+section of the cordis.patch.yml `insert` entry):
+
+| Key             | Default         | Description                                                                                       |
+| --------------- | --------------- | ------------------------------------------------------------------------------------------------- |
+| `agentsDir`     | `~/.dsh/agents` | Agent file directory; the default literal is resolved against `$DSH_HOME`, custom values are used verbatim after `~` expansion. |
+| `provider`      | `spawn`         | Subagent provider (reuses dsh-base's `spawn`).                                                    |
+| `toolName`      | `use_agent`     | Dispatch tool name.                                                                               |
+| `askToolName`   | `ask_agent`     | Follow-up tool name.                                                                              |
+| `leafDenyTools` | `[]`            | Tool deny list for `deep: 0` leaf children; empty = static default intersected with the host's registered tools. |
+| `resume`        | `auto`          | Resume mode: `auto` / `opt-in` / `off`.                                                           |
+| `language`      | `zh`            | UI language: `zh` (Chinese, the default) / `en` (English) / `ru` (Русский). Affects the web management panel texts, the bundled skill body and its model-facing routing description, and the agent templates seeded on first install (`templates/agents/<language>/`); restart dsh after changing. Existing agent files are never rewritten. |
+
 ## Bundled skill
 
 The plugin ships a bundled skill named `dsh-subagent-registry-config`. Whenever the
@@ -113,7 +128,8 @@ or this plugin's configuration, dsh loads the bundled usage & configuration
 guide, so the model can write agent files for you (collecting choices via
 `ask_user_question`) and adjust the plugin config without digging through the
 README. The skill is versioned and published with the package
-(`skills/dsh-subagent-registry-config/SKILL.md`).
+(`skills/dsh-subagent-registry-config/SKILL.md`, plus an English `SKILL.en.md`
+and a Russian `SKILL.ru.md` selected by the `language` key — see the table above).
 
 ## Installation
 

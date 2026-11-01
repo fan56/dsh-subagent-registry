@@ -10,21 +10,28 @@
  * never overwritten, and a deleted default stays deleted. Reruns are
  * no-ops.
  *
+ * The templates are language-specific: `templates/agents/<language>/`
+ * (zh is the Chinese default set, en the English translation, ru the
+ * Russian one). The language is fixed at first seeding time only — the
+ * seeded files are never rewritten by a later language change.
+ *
  * @module seed-defaults
  */
 
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import type { Language } from './preset-contract.ts'
 import { listAgentFiles, parseAgentMarkdown } from './agents-dir.ts'
 
 /**
- * The package-shipped default roster (`<package root>/templates/agents`),
- * resolved relative to the compiled file so it works from any cwd. The
- * `templates` directory ships in the npm `files` list.
+ * The package-shipped default roster for one language
+ * (`<package root>/templates/agents/<language>`), resolved relative to the
+ * compiled file so it works from any cwd. The `templates` directory ships
+ * in the npm `files` list.
  */
-export function bundledAgentsTemplatesDir(): string {
-  return resolve(dirname(fileURLToPath(import.meta.url)), '..', 'templates', 'agents')
+export function bundledAgentsTemplatesDir(language: Language = 'zh'): string {
+  return resolve(dirname(fileURLToPath(import.meta.url)), '..', 'templates', 'agents', language)
 }
 
 /**
@@ -37,7 +44,8 @@ export function bundledAgentsTemplatesDir(): string {
  */
 export function seedBundledAgents(
   targetDir: string,
-  sourceDir: string = bundledAgentsTemplatesDir(),
+  language: Language = 'zh',
+  sourceDir: string = bundledAgentsTemplatesDir(language),
 ): { seeded: number; errors: Array<{ file: string; error: string }> } {
   mkdirSync(targetDir, { recursive: true })
   const { agents } = listAgentFiles(targetDir)

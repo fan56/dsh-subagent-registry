@@ -1,4 +1,5 @@
-import { PRESET_KEYS, type PresetEntry, type PresetFields, type PresetKey, type PresetList, type PresetReply, type SavePreset } from '../preset-contract.ts'
+import { PRESET_KEYS, type Language, type PresetEntry, type PresetFields, type PresetKey, type PresetList, type PresetReply, type SavePreset } from '../preset-contract.ts'
+import { stringsFor } from './strings.ts'
 import type { ModelCatalog } from '@deepseek-ai/dsh-api-session-controller/types'
 
 export type DraftMode = 'create' | 'copy' | 'edit' | 'repair'
@@ -28,6 +29,7 @@ export interface PresetsSnapshot {
   catalog?: ModelCatalog
   catalogStatus: 'idle' | 'loading' | 'ready' | 'error'
   catalogError?: string
+  language?: Language
 }
 export interface PresetsClient {
   call<T>(endpoint: 'list' | 'save' | 'remove', payload: unknown): Promise<PresetReply<T>>
@@ -88,7 +90,7 @@ export class PresetsController {
   private async fetchList(): Promise<void> {
     try {
       const reply = await this.client.call<PresetList>('list', null)
-      if (reply.ok) this.publish({ status: 'ready', list: reply.value, listError: undefined })
+      if (reply.ok) this.publish({ status: 'ready', list: reply.value, listError: undefined, language: reply.value.language })
       else this.publish({ status: 'error', listError: reply })
     } catch (error) { this.publish({ status: 'error', listError: caught(error) }) }
   }
@@ -150,7 +152,7 @@ export class PresetsController {
       try {
         const reply = await this.client.call<null>('remove', { id: confirmation.entry.id, version: confirmation.entry.version })
         if (!reply.ok) this.publish({ failure: reply })
-        else { this.publish({ notice: `已删除 ${confirmation.entry.id}.md` }); await this.loading; await this.load() }
+        else { this.publish({ notice: stringsFor(this.snapshot.language).deletedNotice(confirmation.entry.id) }); await this.loading; await this.load() }
       } catch (error) { this.publish({ failure: caught(error) }) }
       finally { this.publish({ busy: false }) }
     }
@@ -172,7 +174,7 @@ export class PresetsController {
         if (reply.code === 'confirmation_required') this.publish({ confirmation: { kind: 'display', request } })
         else this.publish({ failure: reply })
       } else {
-        this.publish({ draft: undefined, notice: `已保存 ${reply.value.id}.md` })
+        this.publish({ draft: undefined, notice: stringsFor(this.snapshot.language).savedNotice(reply.value.id) })
         await this.loading
         await this.load()
       }

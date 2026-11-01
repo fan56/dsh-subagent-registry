@@ -1,8 +1,11 @@
 // Anti-drift tests for the bundled usage/config skill: the packaged
-// skills/dsh-subagent-registry-config/SKILL.md must be served through
+// skills/dsh-subagent-registry-config/SKILL.md (plus its per-language
+// SKILL.en.md / SKILL.ru.md bodies) must be served through
 // ctx.skills.registerProvider with a routing description that matches the
-// frontmatter byte for byte (the description is the model's routing surface —
-// drift between it and the packaged body misroutes skill discovery).
+// matching frontmatter byte for byte (the description is the model's routing
+// surface — drift between it and the packaged body misroutes skill discovery),
+// each within the 500-char budget, and each following the configured
+// `language` entry-config key.
 // Run: node test/skill.test.mjs  (after `pnpm build`)
 import assert from 'node:assert/strict'
 import { mkdtempSync, rmSync } from 'node:fs'
@@ -64,12 +67,42 @@ function frontmatterValue(markdown, key) {
   return line.slice(key.length + 1).trim().replace(/^"(.*)"$/s, '$1')
 }
 
+/** Path of the packaged skill body for one language (zh keeps the plain name). */
+function skillBodyUrl(language) {
+  const file = language === 'zh' ? 'SKILL.md' : `SKILL.${language}.md`
+  return new URL(`../skills/dsh-subagent-registry-config/${file}`, import.meta.url)
+}
+
+/** Marker heading served as SkillDefinition.content for one language. */
+const BODY_MARKERS = {
+  zh: '# dsh-subagent-registry 使用指南',
+  en: '# dsh-subagent-registry guide',
+  ru: '# Руководство по dsh-subagent-registry',
+}
+
+/** Register the provider for one language and return { provider, candidate }. */
+async function providerFor(language) {
+  const ctx = mockCtx()
+  apply(ctx, {
+    agentsDir: AGENTS_DIR,
+    provider: 'spawn',
+    toolName: 'use_agent',
+    askToolName: 'ask_agent',
+    language,
+  })
+  assert.equal(ctx.registered.length, 1)
+  const provider = ctx.registered[0]
+  const [candidate] = await provider.list({})
+  return { provider, candidate }
+}
+
 test('plugin metadata: name and inject expose the skills dependency', () => {
   assert.equal(name, 'dsh-subagent-registry')
   assert.ok(inject.includes('skills'), 'inject must declare the skills service')
 })
 
 test('apply registers the bundled skill provider on ctx.skills', async () => {
+  // Default (no language key): zh.
   const ctx = mockCtx()
   apply(ctx, {
     agentsDir: AGENTS_DIR,
@@ -102,7 +135,7 @@ test('apply registers the bundled skill provider on ctx.skills', async () => {
   )
 })
 
-test('provider.get loads the packaged SKILL.md with matching metadata', async () => {
+test('provider.get loads the packaged SKILL.md with matching metadata (zh default)', async () => {
   const ctx = mockCtx()
   apply(ctx, {
     agentsDir: AGENTS_DIR,
@@ -121,18 +154,60 @@ test('provider.get loads the packaged SKILL.md with matching metadata', async ()
   // GitHub/manual install paths (same shape the filesystem provider serves).
   assert.ok(!definition.content.startsWith('---'), 'get() must not serve the frontmatter block')
   assert.ok(
-    definition.content.includes('# dsh-subagent-registry 使用指南'),
+    definition.content.includes(BODY_MARKERS.zh),
     'body must be the packaged skill markdown',
   )
 
   // Anti-drift: the hardcoded routing description must equal the SKILL.md
   // frontmatter, and the frontmatter itself must satisfy the registry grammar.
-  const markdown = await readFile(
-    new URL('../skills/dsh-subagent-registry-config/SKILL.md', import.meta.url),
-    'utf8',
-  )
+  const markdown = await readFile(skillBodyUrl('zh'), 'utf8')
   assert.equal(frontmatterValue(markdown, 'name'), 'dsh-subagent-registry-config')
   assert.equal(frontmatterValue(markdown, 'description'), candidate.description)
+})
+
+// Per-language anti-drift: each language's routing description (as served by
+// the provider built for that language) equals the frontmatter description of
+// the matching SKILL.<lang>.md byte for byte, stays within the 500-char
+// budget, and the served body is the matching file.
+for (const language of ['zh', 'en', 'ru']) {
+  test(`language "${language}": description matches frontmatter, within budget, body follows language`, async () => {
+    const { provider, candidate } = await providerFor(language)
+
+    const markdown = await readFile(skillBodyUrl(language), 'utf8')
+    assert.equal(frontmatterValue(markdown, 'name'), 'dsh-subagent-registry-config')
+    assert.equal(frontmatterValue(markdown, 'description'), candidate.description)
+    assert.ok(candidate.description.length > 0)
+    assert.ok(
+      candidate.description.length <= 500,
+      `"${language}" description must stay within the 500-char routing budget`,
+    )
+
+    const definition = await provider.get(candidate, {})
+    assert.equal(definition.description, candidate.description)
+    assert.ok(!definition.content.startsWith('---'), 'get() must not serve the frontmatter block')
+    assert.ok(
+      definition.content.includes(BODY_MARKERS[language]),
+      `body must be the ${language} skill file`,
+    )
+    // The language-switching section ships in every language's body.
+    assert.ok(definition.content.includes('language'), 'body must document the language key')
+  })
+}
+
+// Distinct languages must serve distinct descriptions and bodies (guards
+// against the map collapsing back to a single-language constant).
+test('languages zh/en/ru serve distinct descriptions and bodies', async () => {
+  const zh = await providerFor('zh')
+  const en = await providerFor('en')
+  const ru = await providerFor('ru')
+  const descriptions = new Set([zh.candidate.description, en.candidate.description, ru.candidate.description])
+  assert.equal(descriptions.size, 3, 'each language has its own routing description')
+  const bodies = new Set([
+    (await zh.provider.get(zh.candidate, {})).content,
+    (await en.provider.get(en.candidate, {})).content,
+    (await ru.provider.get(ru.candidate, {})).content,
+  ])
+  assert.equal(bodies.size, 3, 'each language serves its own body')
 })
 
 test('stripFrontmatter tolerates missing or unclosed frontmatter', () => {

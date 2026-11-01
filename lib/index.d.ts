@@ -48,8 +48,12 @@ export declare const inject: string[];
  * dispatch tool, `askToolName` names the follow-up tool, `leafDenyTools`
  * overrides the tool list removed from `deep: 0` (leaf) agents' children
  * (default: all agent-spawning tools in the dsh base distribution plus
- * `toolName` itself), and `resume` selects when `use_agent` continues a
- * prior interrupted run of the same agent (default `auto`).
+ * `toolName` itself), `resume` selects when `use_agent` continues a
+ * prior interrupted run of the same agent (default `auto`), and
+ * `language` selects the UI/skill/seed language (`zh` Chinese default,
+ * `en`, `ru`): the bundled skill body and its model-facing routing
+ * description, the web panel texts and the agent templates seeded on
+ * first install all follow it. Seven keys in total.
  */
 export declare const Config: z<Schemastery.ObjectS<NoInfer<{
     agentsDir: z<string, string, "defined">;
@@ -58,6 +62,7 @@ export declare const Config: z<Schemastery.ObjectS<NoInfer<{
     askToolName: z<string, string, "defined">;
     leafDenyTools: z<string[], string[], "defined">;
     resume: z<"off" | "auto" | "opt-in", "off" | "auto" | "opt-in", "defined">;
+    language: z<"zh" | "en" | "ru", "zh" | "en" | "ru", "defined">;
 }>>, Schemastery.ObjectT<NoInfer<{
     agentsDir: z<string, string, "defined">;
     provider: z<string, string, "defined">;
@@ -65,5 +70,6 @@ export declare const Config: z<Schemastery.ObjectS<NoInfer<{
     askToolName: z<string, string, "defined">;
     leafDenyTools: z<string[], string[], "defined">;
     resume: z<"off" | "auto" | "opt-in", "off" | "auto" | "opt-in", "defined">;
+    language: z<"zh" | "en" | "ru", "zh" | "en" | "ru", "defined">;
 }>>, "plain">;
 export declare function apply(ctx: Context, config: RunAgentConfig): void;

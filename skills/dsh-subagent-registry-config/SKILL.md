@@ -1,6 +1,6 @@
 ---
 name: dsh-subagent-registry-config
-description: "dsh 子代理注册表插件（@aiwayds/dsh-subagent-registry）使用与配置指南。凡涉及自定义子代理、use_agent/ask_agent、agents 目录、agent .md 编写、子代理续跑，或要调整本插件配置时先读本指南：~/.dsh/agents/*.md frontmatter 全键（name/deep/display_name/description/model/thinking/background/maxRounds）、entry config 六键（agentsDir/provider/toolName/askToolName/leafDenyTools/resume）、ask_user_question 代写 agent 文件向导、中断 run 续跑语义、接入与使用体检（插件装没装/挂没挂、模型用没用过）。触发词：子代理、agent、use_agent、ask_agent、agents 目录、续跑、resume、体检、调试、没调用。"
+description: "dsh 子代理注册表插件（@aiwayds/dsh-subagent-registry）使用与配置指南。凡涉及自定义子代理、use_agent/ask_agent、agents 目录、agent .md 编写、子代理续跑，或要调整本插件配置时先读本指南：~/.dsh/agents/*.md frontmatter 全键（name/deep/display_name/description/model/thinking/background/maxRounds）、entry config 七键（agentsDir/provider/toolName/askToolName/leafDenyTools/resume/language）、ask_user_question 代写 agent 文件向导、中断 run 续跑语义、接入与使用体检（插件装没装/挂没挂、模型用没用过）。触发词：子代理、agent、use_agent、ask_agent、agents 目录、续跑、resume、体检、调试、没调用、语言、换语言。"
 ---
 
 # dsh-subagent-registry 使用指南（自定义子代理 / use_agent）
@@ -67,7 +67,7 @@ system prompt，**逐字使用**，不要二次改写），并告知生效时机
 - **新文件立即可按名调用**——`use_agent` 执行时会从磁盘重读文件。在 Web 左侧导航打开“子智能体”或手动刷新，工具名册在后续模型请求中同步更新，无需重启；页面保存/删除也自动刷新。纯 CLI/TUI 没有 Web 管理页时，名册在插件下次挂载时更新。
 - **已有文件的修改**（正文、frontmatter）下次 `use_agent` 调用即生效，无需重启。
 
-## 插件自身配置（entry config 六键）
+## 插件自身配置（entry config 七键）
 
 本插件没有 settings 命名空间，配置挂在**加载它的 patch 挂载块**上（bundle 的
 cordis.patch.yml `insert` 项的 `config:` 段，即 entry config）：
@@ -83,6 +83,7 @@ cordis.patch.yml `insert` 项的 `config:` 段，即 entry config）：
         askToolName: ask_agent     # 追问工具名
         # leafDenyTools: []        # deep:0 叶子子的禁用工具表；空 = 静态默认（dsh 自带派发工具 + toolName）再与宿主已注册工具取交集；非空原样透传（不交集）
         resume: auto               # auto | opt-in | off
+        language: zh               # zh | en | ru（默认 zh），见下方"切换插件语言"
 ```
 
 | 键              | 默认           | 说明                                                                                             |
@@ -93,6 +94,7 @@ cordis.patch.yml `insert` 项的 `config:` 段，即 entry config）：
 | `askToolName`   | `ask_agent`    | 追问工具名。                                                                                      |
 | `leafDenyTools` | `[]`           | 空 = 静态默认（`subagent`/`subagent_fork`/`workflow`/`ralph` + `toolName`）∩ 宿主当前注册的工具（防陈旧名触发宿主 fail-fast）；非空**原样透传**、不交集，陈旧条目由宿主校验拒绝。 |
 | `resume`        | `auto`         | 续跑档位，见下节。                                                                                |
+| `language`      | `zh`           | 界面/指南/预置 agent 模板语言：`zh` / `en` / `ru`，改后重启 dsh 生效，见下节。                      |
 
 ### 并发与深度上限（dsh 0.1.7 起，官方托管）
 
@@ -103,6 +105,15 @@ profile patch 写 `subagent: { maxActiveSubagents: N, maxDepth: M }`，或运行
 `settings.update('subagent', …)`；agent 文件的 `deep` 只是在这条官方预算内收紧
 （`deep: 0` 叶子直接拔掉派发工具）。`maxRounds`（per-agent 轮数上限）仍是本插件
 frontmatter 键，官方没有轮数预算能力，继续由宿主 TUI 硬停梯消费。
+
+## 切换插件语言（language）
+
+本插件支持三种语言：`zh`（中文，默认）、`en`（English）、`ru`（Русский），由 entry config 的 `language` 键控制。
+
+- 改法：在插件配置中把 `language` 设为 `zh` / `en` / `ru`（cordis.patch.yml 或 web 插件设置），保存后重启 dsh 生效。
+- 生效范围：web 管理面板文案、本指南（对应语言的正文与模型路由描述）、首次播种的预置 agent（`templates/agents/<language>/`）。
+- 不会改写已存在的 agent 文件：要更换既有 agent 的语言，直接编辑 `~/.dsh/agents/*.md`，或清空 agents 目录后由播种按新语言重建。
+- 当用户问"怎么换成英文/俄语界面"时：说明上面的改法，或代为修改配置并提示重启。触发词：语言、界面语言、换语言、language、язык。
 
 ## 续跑与追问
 

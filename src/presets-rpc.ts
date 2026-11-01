@@ -1,10 +1,15 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-client-connection'
-import { PRESETS_CHANNEL, PRESETS_ENDPOINT_PREFIX, type PresetReply } from './preset-contract.ts'
+import { PRESETS_CHANNEL, PRESETS_ENDPOINT_PREFIX, type Language, type PresetReply } from './preset-contract.ts'
 import { createPresetStore } from './preset-store.ts'
 
 /** Public exact Connection routes inherit the /api authentication and Host/Origin fence. */
-export async function registerPresetsRpc(ctx: Context, directory: string, refreshRoster: () => Promise<void>): Promise<void> {
+export async function registerPresetsRpc(
+  ctx: Context,
+  directory: string,
+  refreshRoster: () => Promise<void>,
+  getLanguage: () => Language,
+): Promise<void> {
   const store = createPresetStore(directory)
   const { clientRequestSchema } = await import('@deepseek-ai/dsh-client-connection')
   for (const endpoint of ['list', 'save', 'remove']) {
@@ -26,7 +31,7 @@ export async function registerPresetsRpc(ctx: Context, directory: string, refres
           let value: unknown
           if (endpoint === 'list') {
             if (payload !== null && payload !== undefined) throw Object.assign(new Error('列表请求不接受参数'), { code: 'invalid_input' })
-            value = await store.list()
+            value = { ...(await store.list()), language: getLanguage() }
           } else if (endpoint === 'save') value = await store.save(payload)
           else { await store.remove(payload); value = null }
           // A completed file operation stays committed even if the request is then cancelled.

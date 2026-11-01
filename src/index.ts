@@ -27,6 +27,7 @@ import type { Context } from '@deepseek-ai/cordis'
 // The host injects the real service at runtime; these types only shape the
 // provider object this plugin hands it.
 import type { SkillCandidate, SkillDefinition, SkillProvider } from '@deepseek-ai/dsh-skill'
+import type { Language } from './preset-contract.ts'
 
 /** Mirrors dsh-skill's bundled-skill rank (a non-load-bearing ordering hint;
  *  the constant is hardcoded there too). Local copy — see the type-import
@@ -54,8 +55,14 @@ export const name = 'dsh-subagent-registry'
 /** Provider name under `ctx.skills`; doubles as the skill name. */
 const SKILL_PROVIDER_NAME = 'dsh-subagent-registry-config'
 
-/** Packaged skill body; `../skills/` resolves to the package root from both lib/ and src/. */
-const SKILL_BODY_URL = new URL('../skills/dsh-subagent-registry-config/SKILL.md', import.meta.url)
+/** Packaged skill body per language; `../skills/` resolves to the package root
+ *  from both lib/ and src/. `zh` keeps the plain `SKILL.md` filename for
+ *  backward compatibility (existing installs and the GitHub/manual path). */
+const SKILL_BODY_URLS: Record<Language, URL> = {
+  zh: new URL('../skills/dsh-subagent-registry-config/SKILL.md', import.meta.url),
+  en: new URL('../skills/dsh-subagent-registry-config/SKILL.en.md', import.meta.url),
+  ru: new URL('../skills/dsh-subagent-registry-config/SKILL.ru.md', import.meta.url),
+}
 
 /** Resource base served with the skill so its relative links resolve. */
 const SKILL_RESOURCE_BASE = {
@@ -65,34 +72,49 @@ const SKILL_RESOURCE_BASE = {
 
 const SKILL_INVOCATION = { modelInvocable: true, userInvocable: true } as const
 
-/** Routing description; must stay identical to the SKILL.md frontmatter (asserted in tests). */
-const SKILL_DESCRIPTION = 'dsh 子代理注册表插件（@aiwayds/dsh-subagent-registry）使用与配置指南。凡涉及自定义子代理、use_agent/ask_agent、agents 目录、agent .md 编写、子代理续跑，或要调整本插件配置时先读本指南：~/.dsh/agents/*.md frontmatter 全键（name/deep/display_name/description/model/thinking/background/maxRounds）、entry config 六键（agentsDir/provider/toolName/askToolName/leafDenyTools/resume）、ask_user_question 代写 agent 文件向导、中断 run 续跑语义、接入与使用体检（插件装没装/挂没挂、模型用没用过）。触发词：子代理、agent、use_agent、ask_agent、agents 目录、续跑、resume、体检、调试、没调用。'
-
-const SKILL_CANDIDATE: SkillCandidate = {
-  name: SKILL_PROVIDER_NAME,
-  description: SKILL_DESCRIPTION,
-  invocation: SKILL_INVOCATION,
-  provider: SKILL_PROVIDER_NAME,
-  source: 'bundled',
-  resourceBase: SKILL_RESOURCE_BASE,
-  rank: BUNDLED_SKILL_RANK,
-  locator: SKILL_BODY_URL,
+/**
+ * Routing descriptions, one per language; each must stay identical to the
+ * frontmatter of the matching SKILL.<lang>.md file (asserted in tests) and
+ * within the 500-char routing budget.
+ */
+const SKILL_DESCRIPTIONS: Record<Language, string> = {
+  zh: 'dsh 子代理注册表插件（@aiwayds/dsh-subagent-registry）使用与配置指南。凡涉及自定义子代理、use_agent/ask_agent、agents 目录、agent .md 编写、子代理续跑，或要调整本插件配置时先读本指南：~/.dsh/agents/*.md frontmatter 全键（name/deep/display_name/description/model/thinking/background/maxRounds）、entry config 七键（agentsDir/provider/toolName/askToolName/leafDenyTools/resume/language）、ask_user_question 代写 agent 文件向导、中断 run 续跑语义、接入与使用体检（插件装没装/挂没挂、模型用没用过）。触发词：子代理、agent、use_agent、ask_agent、agents 目录、续跑、resume、体检、调试、没调用、语言、换语言。',
+  en: 'Guide to the dsh subagent registry plugin. Covers custom subagents, use_agent/ask_agent, the agents dir, agent .md authoring, resume semantics, plugin config: ~/.dsh/agents/*.md frontmatter keys (name/deep/display_name/description/model/thinking/background/maxRounds), entry config keys agentsDir/provider/toolName/askToolName/leafDenyTools/resume/language, ask_user_question wizard, usage diagnostics. Triggers: subagent, agent, use_agent, ask_agent, resume, debug, not called, language, язык.',
+  ru: 'Руководство по плагину реестра суб-агентов dsh (@aiwayds/dsh-subagent-registry): использование и настройка. Читайте при работе с суб-агентами, use_agent/ask_agent, каталогом agents, написании agent .md, продолжении (resume) прерванных запусков или настройке плагина: frontmatter ~/.dsh/agents/*.md, ключи entry config, мастер создания агентов через ask_user_question, диагностика. Триггеры: суб-агент, agent, use_agent, ask_agent, agents, продолжение, resume, отладка, не вызывается, язык.',
 }
 
-const skillProvider: SkillProvider = {
-  name: SKILL_PROVIDER_NAME,
-  list: () => Promise.resolve([SKILL_CANDIDATE]),
-  async get(_candidate): Promise<SkillDefinition> {
-    return {
-      name: SKILL_CANDIDATE.name,
-      description: SKILL_CANDIDATE.description,
-      invocation: SKILL_CANDIDATE.invocation,
-      provider: SKILL_CANDIDATE.provider,
-      source: SKILL_CANDIDATE.source,
-      resourceBase: SKILL_RESOURCE_BASE,
-      content: stripFrontmatter(await readFile(SKILL_BODY_URL, 'utf8')),
-    }
-  },
+/**
+ * Build the bundled-skill provider for one language: the routing description
+ * and the served body both follow the configured `language` (zh serves the
+ * plain SKILL.md for backward compatibility). Built inside `apply` so the
+ * language is read from the run config captured there.
+ */
+function buildSkillProvider(language: Language): SkillProvider {
+  const candidate: SkillCandidate = {
+    name: SKILL_PROVIDER_NAME,
+    description: SKILL_DESCRIPTIONS[language],
+    invocation: SKILL_INVOCATION,
+    provider: SKILL_PROVIDER_NAME,
+    source: 'bundled',
+    resourceBase: SKILL_RESOURCE_BASE,
+    rank: BUNDLED_SKILL_RANK,
+    locator: SKILL_BODY_URLS[language],
+  }
+  return {
+    name: SKILL_PROVIDER_NAME,
+    list: () => Promise.resolve([candidate]),
+    async get(_candidate): Promise<SkillDefinition> {
+      return {
+        name: candidate.name,
+        description: candidate.description,
+        invocation: candidate.invocation,
+        provider: candidate.provider,
+        source: candidate.source,
+        resourceBase: SKILL_RESOURCE_BASE,
+        content: stripFrontmatter(await readFile(SKILL_BODY_URLS[language], 'utf8')),
+      }
+    },
+  }
 }
 
 /**
@@ -136,8 +158,12 @@ export const inject = ['tools', 'subagents', 'agents', 'skills', 'systemPrompt']
  * dispatch tool, `askToolName` names the follow-up tool, `leafDenyTools`
  * overrides the tool list removed from `deep: 0` (leaf) agents' children
  * (default: all agent-spawning tools in the dsh base distribution plus
- * `toolName` itself), and `resume` selects when `use_agent` continues a
- * prior interrupted run of the same agent (default `auto`).
+ * `toolName` itself), `resume` selects when `use_agent` continues a
+ * prior interrupted run of the same agent (default `auto`), and
+ * `language` selects the UI/skill/seed language (`zh` Chinese default,
+ * `en`, `ru`): the bundled skill body and its model-facing routing
+ * description, the web panel texts and the agent templates seeded on
+ * first install all follow it. Seven keys in total.
  */
 export const Config = z.object({
   agentsDir: z.string().default('~/.dsh/agents'),
@@ -146,13 +172,20 @@ export const Config = z.object({
   askToolName: z.string().default('ask_agent'),
   leafDenyTools: z.array(z.string()).default([]),
   resume: z.union(['auto', 'opt-in', 'off']).default('auto'),
+  language: z.union(['zh', 'en', 'ru']).default('zh'),
 })
 
 export function apply(ctx: Context, config: RunAgentConfig): void {
+  // The UI/skill/seed language: read once at apply time (the schema default
+  // keeps `zh` when the key is absent). The runConfig-wide type keeps working
+  // whether or not the shared RunAgentConfig interface already carries the
+  // field.
+  const language: Language = (config as { language?: Language }).language ?? 'zh'
   // `inject = ['skills']` guarantees the service exists on every real host;
   // register unconditionally so a missing service fails loud instead of
-  // silently dropping the bundled skill.
-  ctx.skills.registerProvider(() => skillProvider)
+  // silently dropping the bundled skill. The provider is built per apply so
+  // the routing description and served body follow the configured language.
+  ctx.skills.registerProvider(() => buildSkillProvider(language))
   // Resolve the agents dir against the dsh home: the schema default literal
   // means "the agents dir under the dsh home", so `$DSH_HOME` is honored by
   // the same resolution the host uses (dshHome) — this keeps seeding, the
@@ -160,7 +193,7 @@ export function apply(ctx: Context, config: RunAgentConfig): void {
   // under one root. A configured custom path is taken verbatim (after `~`
   // expansion).
   const dir = config.agentsDir === '~/.dsh/agents' ? agentsDir() : expandHome(config.agentsDir)
-  const runConfig: RunAgentConfig = { ...config, agentsDir: dir }
+  const runConfig: RunAgentConfig & { language: Language } = { ...config, agentsDir: dir, language }
   // One-time seeding of the bundled default roster (workhorse / oldfox /
   // rubber-duck) into the configured agents dir: a fresh install starts
   // with a usable roster. Runs synchronously BEFORE the tool registers, so
@@ -169,7 +202,7 @@ export function apply(ctx: Context, config: RunAgentConfig): void {
   // always user-owned. Best-effort: an unwritable dir must not break the
   // plugin mount, so failures are swallowed.
   try {
-    seedBundledAgents(dir)
+    seedBundledAgents(dir, runConfig.language)
   } catch {
     // Seeding is an install convenience, never a hard dependency.
   }
@@ -184,7 +217,7 @@ export function apply(ctx: Context, config: RunAgentConfig): void {
   // call time through ctx.subagents.startActivation, so no further check is needed.
   let refreshRoster = async (): Promise<void> => {}
   // Web is optional: CLI/TUI mounts must keep their dispatch tools without Connection.
-  ctx.inject?.(['connection', 'webServer'], web => registerPresetsRpc(web, dir, () => refreshRoster()))
+  ctx.inject?.(['connection', 'webServer'], web => registerPresetsRpc(web, dir, () => refreshRoster(), () => runConfig.language))
   // Activation hosts (the 0.2.1 line) carry a fresh child's persona and leaf
   // scoping out-of-band: the start request no longer holds `persona` /
   // `toolFilter`, so each dispatch reserves them under the child's durable id
