@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-11-01
+
+### Added
+- **Russian translation of the bundled UI, skill and shipped agents** (contributed by @pahuss1984, PR #7) — the web preset-management panel, the bundled `dsh-subagent-registry-config` skill (SKILL.md and model-facing routing description), the shipped agent templates (`workhorse`, `oldfox`, `rubber-duck`) and the README now ship in Russian; identifiers, frontmatter keys, model routes and dispatch/resume semantics are unchanged, and `locale/ru.json` is added alongside the existing `en`/`zh` resources.
+
+### Changed
+- **Routing description trimmed to the 500-char budget** (maintainer review-fixup) — the translated `SKILL_DESCRIPTION` measured 864 chars against the budget asserted by `test/skill.test.mjs`; it now carries the same trigger words in 483 chars, byte-identical between `src/index.ts` and the SKILL.md frontmatter.
+- **Review fixes on top of the contribution** (maintainer review-fixup) — `test/client-presets.test.mjs` expected the old full chip label while the component renders the compact `Thinking: ` chip (full Russian label moved to the tooltip); `lib/` artifacts regenerated from source (the committed `lib/types/client/index.d.ts` still carried the previous-language panel label).
+
 ## [0.14.1] - 2026-10-19
 
 ### Changed
