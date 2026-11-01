@@ -25,13 +25,13 @@ export async function registerPresetsRpc(ctx: Context, directory: string, refres
           const payload = envelope.data.payload
           let value: unknown
           if (endpoint === 'list') {
-            if (payload !== null && payload !== undefined) throw Object.assign(new Error('Запрос списка не принимает аргументы'), { code: 'invalid_input' })
+            if (payload !== null && payload !== undefined) throw Object.assign(new Error('列表请求不接受参数'), { code: 'invalid_input' })
             value = await store.list()
           } else if (endpoint === 'save') value = await store.save(payload)
           else { await store.remove(payload); value = null }
           // A completed file operation stays committed even if the request is then cancelled.
           try { await refreshRoster() } catch (error) {
-            throw Object.assign(new Error(`Файловая операция завершена, но обновить реестр не удалось. Обновите страницу и повторите: ${error instanceof Error ? error.message : String(error)}`), { code: 'roster_refresh_failed' })
+            throw Object.assign(new Error(`文件操作已完成，但名册刷新失败，请刷新重试：${error instanceof Error ? error.message : String(error)}`), { code: 'roster_refresh_failed' })
           }
           reply = { ok: true, value }
         } catch (error) {

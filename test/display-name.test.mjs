@@ -11,14 +11,14 @@ import { buildStartRequest } from '../lib/tool-run-agent.js'
   const md = `---
 name: duck
 description: "demo agent"
-display_name: Утя
+display_name: 鸭鸭
 ---
 You are the body.`
   const parsed = parseAgentMarkdown(md, '/fake/duck.md')
-  assert.equal(parsed.ok, true, 'parse ok with unquoted Cyrillic display_name')
+  assert.equal(parsed.ok, true, 'parse ok with unquoted Chinese display_name')
   const { meta, body } = parsed.agent
   assert.equal(meta.name, 'duck', 'name preserved (display_name does not overwrite name)')
-  assert.equal(meta.displayName, 'Утя', 'unquoted Cyrillic display_name parsed')
+  assert.equal(meta.displayName, '鸭鸭', 'unquoted Chinese display_name parsed')
   assert.ok(body.startsWith('You are the body'), 'body kept')
   console.log(`PASS parse: name=${meta.name} displayName=${JSON.stringify(meta.displayName)}`)
 }
@@ -43,8 +43,8 @@ const parentAtDepth = (depth) => ({ options: {}, session: { header: { delegation
 const base = { prompt: 'do the thing', parent: parentAtDepth(1), persona: 'body', deep: 1, toolName: 'use_agent' }
 
 {
-  const request = buildStartRequest({ ...base, agentName: 'duck', displayName: 'Утя' })
-  assert.equal(request.label, 'Утя', 'label = displayName when displayName present')
+  const request = buildStartRequest({ ...base, agentName: 'duck', displayName: '鸭鸭' })
+  assert.equal(request.label, '鸭鸭', 'label = displayName when displayName present')
   console.log('PASS buildStartRequest label=displayName:', JSON.stringify(request.label))
 }
 

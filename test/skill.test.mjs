@@ -121,7 +121,7 @@ test('provider.get loads the packaged SKILL.md with matching metadata', async ()
   // GitHub/manual install paths (same shape the filesystem provider serves).
   assert.ok(!definition.content.startsWith('---'), 'get() must not serve the frontmatter block')
   assert.ok(
-    definition.content.includes('# Руководство по dsh-subagent-registry'),
+    definition.content.includes('# dsh-subagent-registry 使用指南'),
     'body must be the packaged skill markdown',
   )
 

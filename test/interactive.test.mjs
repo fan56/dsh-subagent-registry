@@ -344,7 +344,7 @@ function fakeSessions(map) {
 const AGENTS_DIR = mkdtempSync(join(tmpdir(), 'registry-interactive-'))
 writeFileSync(
   join(AGENTS_DIR, 'workhorse.md'),
-  '---\nname: workhorse\ndisplay_name: Трудяга\ndescription: "demo agent"\n---\nYou are the workhorse body.\n',
+  '---\nname: workhorse\ndisplay_name: 牛马狗\ndescription: "demo agent"\n---\nYou are the workhorse body.\n',
 )
 
 const PARENT = {
@@ -359,7 +359,7 @@ const EXEC = { agent: PARENT, signal: new AbortController().signal }
  * wins" ordering stays exercisable. */
 let __childSeq = 0
 const WORKHORSE_CHILD = (id, over = {}) => (
-  { id, createdAt: ++__childSeq, mode: 'continuable', label: 'Трудяга', ...over }
+  { id, createdAt: ++__childSeq, mode: 'continuable', label: '牛马狗', ...over }
 )
 
 try {

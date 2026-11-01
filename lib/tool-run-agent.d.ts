@@ -93,12 +93,12 @@ export declare function textOf(output: readonly unknown[]): string;
  * 1. drop the leading run of backslashes left by an escaped-quote residue
  *    (`\\\\"…"`), 2. peel one pair of surrounding quotes, 3. drop any stray
  *    backslashes, 4. drop a `>` wedged between two CJK characters (markdown
- *    blockquote artifact), 5. collapse whitespace.
+ *    blockquote artifact, e.g. `稳>定性`), 5. collapse whitespace.
  */
 export declare function sanitizeDescription(raw: string): string;
 /**
  * Split a dsh model route (`provider/model`) into `agentOptions`. Tolerant of
- * suffixes and unusual shapes (e.g. `deepseek-v4-flash (stable)`): the first
+ * suffixes and unusual shapes (e.g. `deepseek-v4-flash（正式版）`): the first
  * slash splits provider from model and trailing parenthetical notes are kept
  * in the model string. A value without a slash yields provider-only routing.
  */

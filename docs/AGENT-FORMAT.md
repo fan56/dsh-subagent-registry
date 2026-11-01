@@ -13,7 +13,7 @@ Both hosts support foreground resume and background follow-ups within their own 
 
 ## Web preset management
 
-The **Sub-agents** sidebar entry opens a full workspace page with separate create, copy, edit and complete-source repair forms. It uses the configured directory, including shared profile directories. Existing names remain fixed; display-name changes require confirmation because historical runs retain their old labels. File identity must match the frontmatter name. Invalid files remain visible with diagnostics.
+The **子智能体** sidebar entry opens a full workspace page with separate create, copy, edit and complete-source repair forms. It uses the configured directory, including shared profile directories. Existing names remain fixed; display-name changes require confirmation because historical runs retain their old labels. File identity must match the frontmatter name. Invalid files remain visible with diagnostics.
 
 Structured saves patch only edited fields and body text, preserving comments and unknown keys; opaque frontmatter uses source editing. Hash revisions reject stale saves and deletes. Publication uses a synced temporary file, exclusive creation and replacement rather than truncation. Operations are serialized within this store; an external process can still race the final revision check and rename/unlink. New names use 1–64 ASCII letters, digits, underscores or hyphens. Existing safe Unicode basenames remain manageable. Links and path fragments are refused. Text submissions are capped at 8 MiB; reading existing larger files is supported.
 
@@ -55,7 +55,7 @@ Minimal working template:
 ```markdown
 ---
 name: my-agent
-display_name: Мой агент
+display_name: 我的代理
 description: "Short subtitle shown in the use_agent roster"
 model: opencode-go/deepseek-v4-flash
 thinking: high
