@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-11-01
+
+### Reverted
+- **PR #7's wholesale default-language switch to Russian** — merging the translation changed the default web panel text, the bundled skill (including the model-facing routing description) and the shipped agent personas from Chinese to Russian for every user, which is not the intended product direction. The complete translation, including the maintainer review fix-ups (routing-description budget trim, chip-label test alignment, regenerated `lib/` artifacts), is preserved on the `i18n/ru` branch and may land behind an opt-in locale mechanism instead of a default swap.
+
 ## [0.14.1] - 2026-10-19
 
 ### Changed
