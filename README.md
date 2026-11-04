@@ -18,6 +18,12 @@
   `ask_agent` 发追问并等它的回复。
 - **开箱即用三个人物** — 装好即自动植入 `workhorse` / `oldfox` / `rubber-duck`
   三个预置 agent（见下）。
+- **/subagents 管理命令** — 向导式停用/启用任意名册 agent（`disabledAgents`
+  配置键过滤，永不碰 md 文件）、安装两个 opt-in agent、联动 codemode 工具链
+  开关（见下）。
+- **opt-in PTC 能力** — 0.18.0 并入 `@aiwayds/dsh-ptc-subagent` 全部代码：
+  `codemode` 工具（jev 判定 + 会话级 store）按 `ptcEnabled` 门控注册，默认
+  完全关闭（见下）。
 - **站在官方 subagent 机制之上** — 不自建执行器：每个自定义 agent 都通过 dsh
   官方的 `spawn` provider 启动，子代理就是货真价实的 dsh subagent（完整会话、
   持久化、continuable）。官方 subagent 栈的新能力（如双向通信）本插件自动
@@ -26,7 +32,7 @@
 
 按宿主公开 API 自动选择派发方式（功能探测，无版本号分支）：0.2.1 线使用 `startActivation`，前台/后台分别以 `caller` / `parent` 投递；0.2.0 线使用 `start` / `startContinuable`。已选择的接口失败后直接报错，不尝试另一接口重复派发。0.2.1 线的启动请求不再携带 persona 与 leaf 工具限制——本插件在 `subagent/start` 边缘把预留的 persona 段与 leaf 工具限制安装到子代理自身作用域（宿主自身合成同一窗口的同一 section/restrict），语义与 0.2.0 线的请求字段一致。前台续跑使用公开 `agents.resume`，支持当前 persona/model/工具配置及调用取消，但不占用 manager 并发槽，也不能由 `interrupt_agent` 打断；续跑子代理不能使用 stock `send_message` 联系父级。后台追问继续由 manager 管理。已选中的旧会话若读取或恢复失败，会报错；显式 `fresh: true` 才重新派发。
 
-## 三个预置 agent
+## 三个预置 agent（三件套种子）+ 两个 opt-in
 
 首次启动时植入 `~/.dsh/agents/`（仅当目录里还没有可解析的 agent 时；你的修改
 永远不会被覆盖）。它们就是普通的 markdown 文件，随便改。
@@ -36,6 +42,12 @@
 | **workhorse**（牛马狗） | 干活的主力：写代码、调查、测试、部署，脏活累活全包；默认 `deepseek-flash`，受保护禁止危险操作 | 「用 workhorse 把发布清单整理成表格」 |
 | **oldfox**（老法师） | 顾问不干活：分析、trouble shooting、review 挑刺，只把关不动手；`glm-5.3` | 「让 oldfox 审一下这个方案」 |
 | **rubber-duck**（小黄鸭） | 多模态视觉 agent：看截图/图表/手写字，画 plotext/mermaid/matplotlib 图；跑在支持图像的模型上 | 「用 rubber-duck 看这个截图，提取页面文字」 |
+
+另有**两个 opt-in agent**（默认不装）：`ptc-subagent`（批量判定专员，联动
+codemode 工具链）与 `minimal-subagent`（极简终端执行器，叶子）。经
+`/subagents` 命令勾选安装，或手工拷贝包内
+`templates/opt-in-agents/<语言>/<名字>.md`；已有文件不覆盖，取消勾选不删除。
+种子只撒三件套——opt-in 永不自动安装。
 
 ## 用法
 
@@ -91,7 +103,7 @@ Frontmatter 字段：`name`（必填）、`description`、`display_name`、`mode
 → **完整参考**：[docs/AGENT-FORMAT.md](./docs/AGENT-FORMAT.md)（英文）——每个字段
 的校验与失败行为、`deep`/`thinking` 语义、续跑机制、后台派发、配置项、已知边界。
 
-## 插件配置（entry config 七键）
+## 插件配置（entry config）
 
 配置挂在加载本插件的 patch 挂载块上（cordis.patch.yml 的 `config:` 段）：
 
@@ -104,6 +116,48 @@ Frontmatter 字段：`name`（必填）、`description`、`display_name`、`mode
 | `leafDenyTools` | `[]`            | `deep: 0` 叶子子的禁用工具表；空 = 静态默认再与宿主已注册工具取交集。                              |
 | `resume`        | `auto`          | 续跑档位：`auto` / `opt-in` / `off`。                                                             |
 | `language`      | `zh`            | 界面语言：`zh`（中文，默认）/ `en`（English）/ `ru`（Русский）。作用于 web 管理面板文案、内置技能正文与模型路由描述、首次播种的预置 agent 模板（`templates/agents/<language>/`）；改后重启 dsh 生效，已存在的 agent 文件不会被改写。 |
+| `disabledAgents` | `[]`（volatile） | **名册开关**：名单里的 agent 从 `use_agent`/`ask_agent` 名册隐藏、按名调用被拒；**只过滤名册，永不改动 agent 文件**。volatile 写热生效；`/subagents` 命令可代写，执行期还会按活值再查（模型硬调停用名会被拒绝）。 |
+| `ptcEnabled`    | `false`         | **opt-in 门控**：false（默认）不注册任何额外工具；true 在插件下次挂载（重启 dsh）时按 standing scope 注册 `codemode` 工具（主代理与派发子代理都可见）。 |
+| `jevEnabled` 等 六键 | 见 ptc 章节 | jev 能力的 volatile 配置：`jevEnabled`（默认 false = 零 jev 调用）/`jevBackend`（zen）/`jevModel`（'' = 后端默认）/`jevTimeoutMs`（3000）/`jevSecretFile`（''）/`storageDir`（'' = `<dsh home>/storages/ptc-subagent`）。 |
+
+## /subagents 命令
+
+会话里输入 `/subagents` 打开管理向导（ask_user_question 两道多选题）：
+
+1. **停用开关**：勾选要停用的 agent（勾选集合 = 新的 `disabledAgents`；不勾 =
+   全部启用；已停用的名字要**保持勾选**才继续停用，选项描述标注当前状态）。
+   开关作用域覆盖名册全部 agent（含你自己定义的），**永不碰任何 md 文件**。
+2. **opt-in 安装**：勾选 `ptc-subagent` / `minimal-subagent` 安装可选 agent
+   （拷模板、已有不覆盖、取消勾选不删除）。选 ptc 联动 `ptcEnabled: true` +
+   拷 md；取消选联动反向（写 false + 把 ptc-subagent 停用进 `disabledAgents`，
+   已拷 md 保留不删）。
+
+生效时机：`disabledAgents` 是 volatile 键，命令收尾自动刷新名册、立即生效；
+`ptcEnabled` 变更要等插件下次挂载（重启 dsh）。无头部署没有 ask 面板（ask 报
+NO_PROVIDER）时，命令降级为错误文案，指引用手改配置键（`disabledAgents` /
+`ptcEnabled` + 手工拷 `templates/opt-in-agents/<语言>/<名字>.md`）。
+
+## ptc 能力（opt-in：codemode 工具）
+
+0.18.0 起本插件并入了原 `@aiwayds/dsh-ptc-subagent` 的全部代码：`codemode`
+工具是一台插件自有的 PTC runner——异步 TypeScript 程序体跑在公开
+`ctx.ptcRuntime` seam 上，带一对为批量工作造的绑定：**`jev`**（校准判定后端，
+`classify` 一次往返判成批 choice/score/noul 问题，失败返回结构化 `{error}`
+而绝不 reject；1:1 直通 `@aiwayds/dsh-jev-core`）与 **`store`**（会话级键值
+记忆，挂在会话持久日志上——resume 后仍在、按 fork 隔离，配额 256KB/值、
+1MB/分支）。失败的 run 以宿主自身的 `CODE_RUN_FAILED` 合同返回（失败类别 +
+捕获日志），结果报告 `{value, logs, jevCalls, storeWrites}`。
+
+- **默认完全关闭**：`ptcEnabled: false` 不注册工具；`jevEnabled: false` 零
+  jev 调用。每次 jev 调用（含失败）在
+  `<dsh home>/storages/ptc-subagent/usage.jsonl` 落一行（只记元数据与 token
+  数，永记状态文本）。
+- **配套**：`ptc-subagent` opt-in 模板是专职派发角色；bundle patch 迁入了
+  agent-preset 四守卫行（`agent-preset-registry` / `subagent-model-selection-settings` /
+  `preset-native` / `preset-codemode`）——profile 已挂 agent-preset 层的，先
+  去掉重复 id 行再装，否则 loader 拒绝重复 id。
+- **升级自独立 ptc 仓**：用法与配置键同名同义（entry id 换成
+  `dsh-subagent-registry`），usage.jsonl 落盘路径不变，历史记录直接延续。
 
 ## 内置技能
 

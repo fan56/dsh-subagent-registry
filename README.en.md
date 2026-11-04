@@ -21,6 +21,12 @@ partial work. No host patching, no code — a markdown file per agent.
   `ask_agent` sends a follow-up and waits for the reply.
 - **Three personas out of the box** — `workhorse` / `oldfox` / `rubber-duck`
   are seeded on first start (see below).
+- **The /subagents management command** — wizard-based enable/disable for any
+  roster agent (a `disabledAgents` config-key filter that never touches md
+  files), opt-in agent installs, and the codemode toolchain switch (below).
+- **Opt-in PTC capability** — 0.18.0 merges the entire `@aiwayds/dsh-ptc-subagent`:
+  the `codemode` tool (jev decisions + session-scoped store) registers behind
+  the `ptcEnabled` gate, fully off by default (below).
 - **Built on the official subagent machinery** — no reimplementation: every
   custom agent starts through dsh's stock `spawn` provider, so each child is a
   real dsh subagent (full session, persistence, continuable). New capabilities
@@ -31,7 +37,7 @@ partial work. No host patching, no code — a markdown file per agent.
 
 Dispatch is selected by public API availability (feature detection, no version-number branches): the 0.2.1 line uses `startActivation` with `caller` / `parent` delivery for foreground/background work; the 0.2.0 line uses `start` / `startContinuable`. A selected call's failure is propagated without retrying through another dispatch API. On the 0.2.1 line the start request no longer carries a child persona or the leaf tool filter — the plugin installs the reserved persona section and leaf restriction on the child's own agent scope at the `subagent/start` edge (the same section and window the host's own composition uses), matching the 0.2.0-line request-field semantics. Foreground resume uses public `agents.resume` with current composition and caller cancellation, but is outside manager capacity and `interrupt_agent` control; resumed children cannot use stock `send_message` to contact the parent. Background follow-ups remain managed. Failure to inspect or resume a selected session is an error; use explicit `fresh: true` to restart.
 
-## The three shipped agents
+## The three shipped agents (the seed trio) + two opt-ins
 
 Seeded into `~/.dsh/agents/` on first start (only when the directory holds no
 parsable agent — your edits are never overwritten). All three are ordinary
@@ -42,6 +48,14 @@ markdown files: edit them freely.
 | **workhorse** (牛马狗) | The workhorse: writes code, investigates, tests, deploys — all the grunt work; default `deepseek-flash`, guarded against dangerous operations | "Use workhorse to turn the release checklist into a table" |
 | **oldfox** (老法师) | The advisor who doesn't build: analysis, trouble shooting, review, audits — checks, never implements; `glm-5.3` | "Have oldfox review this design" |
 | **rubber-duck** (小黄鸭) | Multimodal visual agent: reads screenshots / charts / handwriting, draws plotext / mermaid / matplotlib figures; runs on an image-capable model | "Use rubber-duck on this screenshot, extract the page text" |
+
+Two **opt-in agents** ship alongside (not installed by default): `ptc-subagent`
+(the batch decision-work specialist; linked to the codemode toolchain) and
+`minimal-subagent` (the terminal-only executor, a leaf). Install them through
+the `/subagents` command or by copying
+`templates/opt-in-agents/<language>/<name>.md` from the package by hand;
+existing files are never overwritten, unchecking never deletes. The seed is
+the trio only — opt-ins are never installed automatically.
 
 ## Usage
 
@@ -105,7 +119,7 @@ TUI's hard-stop ladder.
 validation and failure modes, `deep`/`thinking` semantics, resume mechanics,
 background dispatch, configuration fields, known limitations.
 
-## Plugin config (entry config, seven keys)
+## Plugin config (entry config)
 
 The config hangs on the patch mount block that loads the plugin (the `config:`
 section of the cordis.patch.yml `insert` entry):
@@ -119,6 +133,60 @@ section of the cordis.patch.yml `insert` entry):
 | `leafDenyTools` | `[]`            | Tool deny list for `deep: 0` leaf children; empty = static default intersected with the host's registered tools. |
 | `resume`        | `auto`          | Resume mode: `auto` / `opt-in` / `off`.                                                           |
 | `language`      | `zh`            | UI language: `zh` (Chinese, the default) / `en` (English) / `ru` (Русский). Affects the web management panel texts, the bundled skill body and its model-facing routing description, and the agent templates seeded on first install (`templates/agents/<language>/`); restart dsh after changing. Existing agent files are never rewritten. |
+| `disabledAgents` | `[]` (volatile) | **The roster toggle**: listed agent names vanish from the `use_agent`/`ask_agent` rosters and calls by name are refused; **a pure roster filter that never touches agent files**. Volatile writes hot-apply; the `/subagents` command writes it for you, and the execute path re-checks the live value (a model hard-naming a disabled agent is refused). |
+| `ptcEnabled`    | `false`         | **The opt-in gate**: false (default) registers nothing extra; true registers the `codemode` tool at standing scope (visible to the main agent and every dispatched subagent) on the next plugin mount (dsh restart). |
+| six jev keys    | see the ptc section | The volatile jev configuration: `jevEnabled` (default false = zero jev calls) / `jevBackend` (zen) / `jevModel` ('' = backend default) / `jevTimeoutMs` (3000) / `jevSecretFile` ('') / `storageDir` ('' = `<dsh home>/storages/ptc-subagent`). |
+
+## The /subagents command
+
+Type `/subagents` in the session to open the management wizard (two
+multi-select questions through ask_user_question):
+
+1. **The disable toggle**: check the agents to disable (the checked set
+   becomes the new `disabledAgents`; nothing checked = all enabled; currently
+   disabled names must STAY checked to remain disabled — option descriptions
+   mark the current state). The scope covers every roster agent (including
+   your own), and **no md file is ever touched**.
+2. **Opt-in installs**: check `ptc-subagent` / `minimal-subagent` to install
+   (template copy; existing files never overwritten; unchecking never
+   deletes). Selecting ptc links `ptcEnabled: true` and copies the md;
+   unselecting links the reverse (writes false and parks ptc-subagent in
+   `disabledAgents`, the copied md is kept).
+
+Timing: `disabledAgents` is volatile — the command refreshes the roster at the
+end, so it applies immediately; a `ptcEnabled` change waits for the next plugin
+mount (dsh restart). On a headless deployment without an ask surface (the ask
+rejects with NO_PROVIDER) the command degrades to an error message with the
+manual recipe (the `disabledAgents` / `ptcEnabled` keys plus copying
+`templates/opt-in-agents/<language>/<name>.md` by hand).
+
+## The ptc capability (opt-in: the codemode tool)
+
+Since 0.18.0 this package carries the entire former `@aiwayds/dsh-ptc-subagent`:
+the `codemode` tool is a plugin-owned PTC runner — async TypeScript program
+bodies over the public `ctx.ptcRuntime` seam, with a binding pair purpose-built
+for batch work: **`jev`** (one calibrated decision backend; `classify` answers
+a batched set of choice/score/noul questions in one round trip and resolves
+structured `{error}` results instead of rejecting; a 1:1 passthrough to
+`@aiwayds/dsh-jev-core`) and **`store`** (session-scoped key/value memory on
+the durable session log — survives resume, fork-separated; 256KB per value,
+1MB per branch). A failed run returns through the host's own `CODE_RUN_FAILED`
+contract (failure kind + captured logs); the result reports
+`{value, logs, jevCalls, storeWrites}`.
+
+- **Everything ships off**: `ptcEnabled: false` registers no tool;
+  `jevEnabled: false` makes zero jev calls. Every jev call (failures included)
+  appends one row to `<dsh home>/storages/ptc-subagent/usage.jsonl` (metadata
+  and token counts only, never state text).
+- **What comes with it**: the `ptc-subagent` opt-in template is the dedicated
+  dispatch role; the bundle patch carries the four agent-preset guard rows
+  (`agent-preset-registry` / `subagent-model-selection-settings` /
+  `preset-native` / `preset-codemode`) — a profile that already mounts an
+  agent-preset layer must remove duplicate id rows before installing, or the
+  loader rejects the duplicated id.
+- **Upgrading from the standalone ptc repo**: usage and config keys keep their
+  names and meanings (the entry id becomes `dsh-subagent-registry`), the
+  usage.jsonl path is unchanged, and existing records carry over.
 
 ## Bundled skill
 

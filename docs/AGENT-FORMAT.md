@@ -75,6 +75,9 @@ You are my-agent. The markdown body is used verbatim as the system prompt.
 | `askToolName` | `ask_agent`          | Name of the follow-up tool (send a message to a background run and wait for its reply). |
 | `leafDenyTools` | `[]` (computed default) | Explicit tool-deny list installed on `deep: 0` (leaf) children. Empty = computed default (every agent-spawning tool in the dsh base distribution plus `toolName`). |
 | `resume`      | `auto`               | When `use_agent` continues a prior interrupted run: `auto` resumes whenever one exists, `opt-in` only when the caller passes `resume: true`, `off` never (an explicit `resume: true` still overrides). |
+| `language`    | `zh`                 | UI language: `zh` / `en` / `ru` — the web panel texts, the bundled skill body and routing description, and the agent templates seeded on first install. |
+| `disabledAgents` | `[]` (volatile)   | The roster toggle: agent names hidden from the `use_agent`/`ask_agent` rosters. **Enable/disable semantics live in this config key, not in the frontmatter** — there is no `enabled:` frontmatter field. A disabled agent's `.md` stays on disk untouched; a live write hot-swaps and the next roster refresh applies it (the `/subagents` command writes it through the wizard). The execute path re-checks the live value, so a model that hard-names a disabled agent is refused. |
+| `ptcEnabled`  | `false`              | Opt-in gate for the codemode (jev + store) PTC toolchain migrated from `@aiwayds/dsh-ptc-subagent`: false registers no extra tool; true registers the `codemode` tool at standing scope on the next plugin mount. Six further volatile `jevEnabled`/`jevBackend`/`jevModel`/`jevTimeoutMs`/`jevSecretFile`/`storageDir` keys configure it (defaults off; usage sink `<dsh home>/storages/ptc-subagent`). |
 
 ## Resuming interrupted runs
 
