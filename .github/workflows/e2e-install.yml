@@ -6,8 +6,12 @@
 # running in consumer trees, or a host that stops composing/booting the
 # released plugins all turn this red without anyone re-running anything.
 #
-# Versions resolve LIVE from the official registry at run time (with
+# Plugin versions resolve LIVE from the official registry at run time (with
 # fix-version floors), so the suite always tests what users install today.
+# The dsh HOST is pinned for now: 2026-11-04 incident pin — upstream `next`
+# (0.2.2-rc.1) shipped an incomplete wave (@deepseek-ai/dsh-plan-mode@
+# 0.2.2-rc.1 is 404) that breaks this 0.2.1-rc.5-era plugin. See the install
+# step below and CHANGELOG "Unreleased" for the ride-the-0.2.2-wave follow-up.
 name: e2e install
 
 on:
@@ -38,23 +42,19 @@ jobs:
         with:
           node-version: 22
 
-      - name: Install the dsh CLI (rolling next-or-latest, prerelease-aware)
+      - name: Install the dsh CLI (PINNED 0.2.1-rc.5 wave — 2026-11-04 incident pin)
         run: |
-          S="$(npm view @deepseek-ai/dsh@latest version --registry=https://registry.npmjs.org)"
-          R="$(npm view @deepseek-ai/dsh@next version --registry=https://registry.npmjs.org 2>/dev/null || true)"
-          V="$(STABLE="$S" RC="$R" node -e '
-            const cmp = (x, y) => {
-              const parse = (v) => { const [core, pre] = v.split("-"); const c = core.split(".").map(Number); while (c.length < 3) c.push(0); return { c, pre } }
-              const A = parse(x), B = parse(y)
-              for (let i = 0; i < 3; i++) if (A.c[i] !== B.c[i]) return A.c[i] - B.c[i]
-              if ((A.pre === undefined) !== (B.pre === undefined)) return A.pre === undefined ? 1 : -1
-              return String(A.pre ?? "").localeCompare(String(B.pre ?? ""))
-            }
-            const s = process.env.STABLE || "", r = process.env.RC || ""
-            if (!s && !r) { console.error("cannot resolve @deepseek-ai/dsh"); process.exit(1) }
-            console.log(!s ? r : !r ? s : (cmp(s, r) >= 0 ? s : r))
-          ')"
-          echo "host dsh: $V (latest=$S, next=$R)"
+          # 2026-11-04 incident pin (suspends the rolling next-or-latest,
+          # prerelease-aware resolution): upstream `next` = 0.2.2-rc.1 shipped
+          # an incomplete wave — @deepseek-ai/dsh-plan-mode@0.2.2-rc.1 is 404
+          # on the registry, PromptPresentation lost the `tools` property, and
+          # CodeRunFailedError moved to @deepseek-ai/dsh-tool-executor-ptc —
+          # which breaks this 0.2.1-rc.5-era plugin. Pin the host to the last
+          # complete wave; restore the rolling resolution once the 0.2.2 wave
+          # completes and the source is adapted (CHANGELOG "Unreleased";
+          # previous step body recoverable from this file's git history).
+          V="0.2.1-rc.5"
+          echo "host dsh: $V (pinned — rolling next-or-latest suspended)"
           npm install -g --no-fund --no-audit "@deepseek-ai/dsh@$V"
           dsh --version
 

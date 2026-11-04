@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- **CI closure supply pinned to the 0.2.1-rc.5 wave (2026-11-04 upstream incident)** — upstream `next` moved to `@deepseek-ai/dsh@0.2.2-rc.1` and CI's rolling newest-of(latest,next) resolution picked it, red-running `Build` in every job. That wave is incomplete and breaking for this 0.2.1-rc.5-era source: `PromptPresentation` lost the `tools` property (read by `src/delegation-guidance.ts`), `CodeRunFailedError` moved to the new `@deepseek-ai/dsh-tool-executor-ptc` (imported from `@deepseek-ai/dsh-tools` by `src/ptc/runner.ts`), and `@deepseek-ai/dsh-plan-mode@0.2.2-rc.1` is 404 on the registry, so the full 0.2.2 tower cannot even be installed locally to stage a migration patch. ci.yml (both jobs) and e2e-install.yml now install `@deepseek-ai/dsh@0.2.1-rc.5` exact instead of resolving latest/next at run time.
+
+### Pending (ride the 0.2.2 wave)
+- Once the 0.2.2-rc wave is complete on the registry (`@deepseek-ai/dsh-plan-mode@0.2.2-rc.1` resolvable), adapt the source to the two breaking changes (drop `assembly.tools` from the delegation guidance presentation; re-point `CodeRunFailedError` at `@deepseek-ai/dsh-tool-executor-ptc`), then restore the rolling newest-of(latest,next) closure resolution in ci.yml and e2e-install.yml and re-point the devDeps tower. No source-side migration patch is staged before the wave completes — the incomplete tower cannot be installed to verify against.
+
 ## [0.18.0] - 2026-11-04
 
 ### Added
