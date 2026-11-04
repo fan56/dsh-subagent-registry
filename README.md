@@ -186,4 +186,4 @@ devDependencies，也不要去掉 `optional: true`（非 optional peer 在
 
 ## License
 
-MIT
+Apache-2.0

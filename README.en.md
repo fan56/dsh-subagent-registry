@@ -211,4 +211,4 @@ them: a pinned second copy shadows the host's bundled closure just the same.
 
 ## License
 
-MIT
+Apache-2.0

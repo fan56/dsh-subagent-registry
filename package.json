@@ -6,7 +6,7 @@
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
   "icon": "./icon.svg",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "keywords": [
     "dsh",
     "dsh-plugin",
