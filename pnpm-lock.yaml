@@ -7,6 +7,10 @@ settings:
 importers:
 
   .:
+    dependencies:
+      '@aiwayds/dsh-jev-core':
+        specifier: ^0.1.5
+        version: 0.1.5
     devDependencies:
       '@deepseek-ai/cordis':
         specifier: ~4.0.5
@@ -124,6 +128,10 @@ importers:
         version: 5.9.3
 
 packages:
+
+  '@aiwayds/dsh-jev-core@0.1.5':
+    resolution: {integrity: sha512-S3mCHYvv/M6Awhgq5z4hCAKa5xDpl+C7Q9x/5gSPleftGycWDiwrXY7NA5JEwLeMr8CNbglAxuH8Q/8GqJL+Eg==}
+    engines: {node: '>=22'}
 
   '@deepseek-ai/cordis@4.0.5':
     resolution: {integrity: sha512-Sktq5axy0owk9PdnivBRNOJjHEVEibCt0+TDDZcv0+UH2KS1M910fX4kn5y45YFsrpZIi1mJf/1s5VzywMUnyg==}
@@ -869,6 +877,8 @@ packages:
     resolution: {integrity: sha512-ytENFjIJFl2UwYglde2jchW2Hwm4GJFLDiSXWdTrJQBIN9Fcyp7n4DhxJEiWNAJMV1/BqWfW/kkg71UDcHJyTQ==}
 
 snapshots:
+
+  '@aiwayds/dsh-jev-core@0.1.5': {}
 
   '@deepseek-ai/cordis@4.0.5':
     dependencies:

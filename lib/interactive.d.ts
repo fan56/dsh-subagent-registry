@@ -30,6 +30,7 @@ import type { Context } from '@deepseek-ai/cordis';
 import type { ContentBlock } from '@deepseek-ai/dsh-llm';
 import type { SessionId } from '@deepseek-ai/dsh-session';
 import { type ChildListEntry, type MinimalSessionEvent } from './resume.ts';
+import { type DisabledAgentsInput } from './tool-run-agent.ts';
 /**
  * Resolve the dispatch mode for one `use_agent` call: an explicit tool
  * parameter wins, the agent file's `background` frontmatter is the default,
@@ -108,6 +109,14 @@ export interface AskAgentConfig {
     dispatchToolName?: string;
     /** Poll cadence override (ms) for tests. */
     pollMs?: number;
+    /**
+     * The `disabledAgents` roster toggle (same filter the dispatch tool
+     * applies): disabled names vanish from the description's name list, and an
+     * execute-time re-check refuses to address them by name. Addressing by the
+     * raw `agent_id` of an already-dispatched background run stays allowed —
+     * the toggle governs the roster, not live children.
+     */
+    disabledAgents?: DisabledAgentsInput;
 }
 /**
  * The cordis `ctx.tools.register`-ready definition for the `ask_agent` tool.

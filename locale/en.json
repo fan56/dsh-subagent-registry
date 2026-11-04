@@ -2,5 +2,38 @@
   "meta": {
     "title": "dsh-subagent-registry",
     "description": "Registers ~/.dsh/agents/*.md as callable subagents (use_agent) with continuable background dispatch and ask_agent follow-ups."
+  },
+  "subagents": {
+    "commandDescription": "Manage subagents: toggle roster agents on/off, install opt-in agents (ptc-subagent / minimal-subagent), flip the codemode (PTC) toolchain switch.",
+    "askUnavailable": "No ask surface is available (the userQuestions service is not mounted). Edit the dsh-subagent-registry entry config manually (profile cordis.patch.yml or the settings page).",
+    "askFailed": "The wizard could not complete ({error}). Configure manually, see below.",
+    "manualHint": "Manual configuration: set disabledAgents (array of agent names hidden from the roster; agent files are never touched) and ptcEnabled (true/false — the codemode toolchain switch, applied on the next plugin mount) on the dsh-subagent-registry entry config (profile cordis.patch.yml or the settings page). Opt-in agents install by copying templates/opt-in-agents/<language>/<name>.md from the package into ~/.dsh/agents/ (existing files are never overwritten).",
+    "qDisableHeader": "Disable agents",
+    "qDisableQuestion": "Check the agents to disable (unchecked = enabled).",
+    "qDisableDetail": "Disabling only hides an agent from the use_agent roster and refuses calls by name; the agent file is never modified. Currently disabled names must STAY checked to remain disabled.",
+    "markDisabled": "currently disabled — keep checked to stay disabled, uncheck to re-enable",
+    "markEnabled": "currently enabled — check to disable",
+    "qOptInHeader": "Opt-in agents",
+    "qOptInQuestion": "Check the opt-in agents to install / keep enabled.",
+    "qOptInDetail": "Installing copies the template into the agents dir (an existing file is never overwritten; unchecking never deletes a copied file).",
+    "ptcBlurb": "Batch decision-work specialist; links ptcEnabled (the codemode toolchain).",
+    "minimalBlurb": "Minimal terminal-only executor (leaf); no config linkage.",
+    "stateInstalled": "installed",
+    "stateMissing": "not installed",
+    "ptcOnNow": "codemode enabled",
+    "ptcOffNow": "codemode disabled",
+    "noChanges": "Nothing changed.",
+    "savedHeader": "Subagent settings saved.",
+    "disabledLine": "Disabled: {names}",
+    "enabledLine": "Enabled: {names}",
+    "installedLine": "Installed: {ids}",
+    "presentLine": "Already present (not overwritten): {ids}",
+    "installFailedLine": "Install failed: {id} ({error})",
+    "ptcEnabledLine": "ptcEnabled → true: the codemode tool registers on the next plugin mount (dsh restart).",
+    "ptcDisabledLine": "ptcEnabled → false: the codemode tool will not register (applied on the next mount); an installed ptc-subagent.md is kept but excluded from the roster.",
+    "rosterRefreshed": "Tool roster refreshed.",
+    "rosterRefreshFailed": "Roster refresh failed: {error} — it applies when the management page is reopened or on the next dispatch.",
+    "persistFailed": "Config write failed: {error}",
+    "settingsUnavailable": "Settings service unavailable; no config was written."
   }
 }

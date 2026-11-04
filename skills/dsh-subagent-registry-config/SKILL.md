@@ -1,6 +1,6 @@
 ---
 name: dsh-subagent-registry-config
-description: "dsh 子代理注册表插件（@aiwayds/dsh-subagent-registry）使用与配置指南。凡涉及自定义子代理、use_agent/ask_agent、agents 目录、agent .md 编写、子代理续跑，或要调整本插件配置时先读本指南：~/.dsh/agents/*.md frontmatter 全键（name/deep/display_name/description/model/thinking/background/maxRounds）、entry config 七键（agentsDir/provider/toolName/askToolName/leafDenyTools/resume/language）、ask_user_question 代写 agent 文件向导、中断 run 续跑语义、接入与使用体检（插件装没装/挂没挂、模型用没用过）。触发词：子代理、agent、use_agent、ask_agent、agents 目录、续跑、resume、体检、调试、没调用、语言、换语言。"
+description: "dsh 子代理注册表插件（@aiwayds/dsh-subagent-registry）使用与配置指南。凡涉及自定义子代理、use_agent/ask_agent、/subagents 命令、agents 目录、agent .md 编写、子代理续跑，或要调整本插件配置时先读本指南：~/.dsh/agents/*.md frontmatter 全键、entry config 全键（agentsDir…language/disabledAgents/ptcEnabled/jev*）、opt-in agent 安装（ptc-subagent/minimal-subagent）、ask_user_question 代写向导、中断续跑、接入与使用体检。触发词：子代理、agent、use_agent、ask_agent、/subagents、停用、disabledAgents、ptc、codemode、续跑、resume、体检、调试、没调用、语言。"
 ---
 
 # dsh-subagent-registry 使用指南（自定义子代理 / use_agent）
@@ -67,10 +67,11 @@ system prompt，**逐字使用**，不要二次改写），并告知生效时机
 - **新文件立即可按名调用**——`use_agent` 执行时会从磁盘重读文件。在 Web 左侧导航打开“子智能体”或手动刷新，工具名册在后续模型请求中同步更新，无需重启；页面保存/删除也自动刷新。纯 CLI/TUI 没有 Web 管理页时，名册在插件下次挂载时更新。
 - **已有文件的修改**（正文、frontmatter）下次 `use_agent` 调用即生效，无需重启。
 
-## 插件自身配置（entry config 七键）
+## 插件自身配置（entry config）
 
 本插件没有 settings 命名空间，配置挂在**加载它的 patch 挂载块**上（bundle 的
-cordis.patch.yml `insert` 项的 `config:` 段，即 entry config）：
+cordis.patch.yml `insert` 项的 `config:` 段，即 entry config）。九个注册键 +
+六个 jev 键（ptc 能力，见下节）：
 
 ```yaml
 - insert:
@@ -84,6 +85,14 @@ cordis.patch.yml `insert` 项的 `config:` 段，即 entry config）：
         # leafDenyTools: []        # deep:0 叶子子的禁用工具表；空 = 静态默认（dsh 自带派发工具 + toolName）再与宿主已注册工具取交集；非空原样透传（不交集）
         resume: auto               # auto | opt-in | off
         language: zh               # zh | en | ru（默认 zh），见下方"切换插件语言"
+        disabledAgents: []         # 名册开关：要停用的 agent 名单（停用 = 从名册隐藏并拒按名调用，不动文件）
+        ptcEnabled: false          # opt-in：codemode（jev + store）工具链开关，false 不注册工具
+        # jevEnabled: false        # jev 总开关（默认关：零 jev 调用）
+        # jevBackend: zen          # zen | native | openrouter
+        # jevModel: ''             # 钉死的模型 id；空 = 调用时取后端默认
+        # jevTimeoutMs: 3000       # 单次 classify 超时；一个 signal，不重试
+        # jevSecretFile: ''        # 出站密钥闸的明文清单（一行一个）
+        # storageDir: ''           # 用量落盘目录；空 = <dsh home>/storages/ptc-subagent
 ```
 
 | 键              | 默认           | 说明                                                                                             |
@@ -95,6 +104,42 @@ cordis.patch.yml `insert` 项的 `config:` 段，即 entry config）：
 | `leafDenyTools` | `[]`           | 空 = 静态默认（`subagent`/`subagent_fork`/`workflow`/`ralph` + `toolName`）∩ 宿主当前注册的工具（防陈旧名触发宿主 fail-fast）；非空**原样透传**、不交集，陈旧条目由宿主校验拒绝。 |
 | `resume`        | `auto`         | 续跑档位，见下节。                                                                                |
 | `language`      | `zh`           | 界面/指南/预置 agent 模板语言：`zh` / `en` / `ru`，改后重启 dsh 生效，见下节。                      |
+| `disabledAgents` | `[]`（volatile） | 名册开关：名单里的 agent 从 `use_agent`/`ask_agent` 名册隐藏，执行期按活值再查、硬调被拒。**停用语义在配置键，不在 frontmatter**——agent 文件永不改动。volatile 写热生效（配合名册刷新）；`/subagents` 命令可代写。 |
+| `ptcEnabled`    | `false`        | codemode 工具链门控：false 完全不注册额外工具；true 在插件下次挂载（重启 dsh）时按原 ptc 仓的 standing scope 注册 `codemode` 工具。六个 jev 键均为 volatile、逐调用热读。 |
+
+## /subagents 命令（名册开关 + opt-in 安装）
+
+会话里输入 `/subagents` 打开管理向导（经 ask_user_question 两道多选题）：
+
+1. **停用开关**：勾选要停用的 agent（勾选集合 = 新的 `disabledAgents` 清单，
+   不勾 = 全部启用；当前已停用的名字必须**保持勾选**才会继续停用，选项描述
+   会标注当前状态）。停用只是从名册隐藏并拒绝按名调用，**永不改动任何
+   agent 文件**。
+2. **opt-in 安装**：勾选要安装的可选 agent——`ptc-subagent`（批量判定专员，
+   联动 `ptcEnabled`）与 `minimal-subagent`（极简终端执行器，无配置联动）。
+   安装 = 把包内 `templates/opt-in-agents/<语言>/<名字>.md` 拷入 agents 目录
+   （已存在不覆盖；取消勾选**不删除**已拷文件）。选 `ptc-subagent` 联动
+   `ptcEnabled: true`；取消选联动反向（写 false + 把 ptc-subagent 停用进
+   `disabledAgents`，文件保留）。
+
+生效时机：`disabledAgents` 是 volatile 键，写完即热生效（命令收尾自动刷新
+名册）；`ptcEnabled` 的变更要等插件下次挂载（重启 dsh）时注册/注销 codemode
+工具。无头部署（无 ask 面板，ask 报 NO_PROVIDER）时命令降级为一条错误文案，
+指引用手改配置键（`disabledAgents` / `ptcEnabled` + 手工拷模板）。
+
+## ptc 能力（opt-in：codemode 工具）
+
+0.18.0 起本插件并入了原 `@aiwayds/dsh-ptc-subagent` 的全部代码：`codemode`
+工具（jev 判定绑定 + 会话级 store 绑定，跑在公开 `ctx.ptcRuntime` seam 上）
+按 `ptcEnabled` 门控注册，注册后主代理与所有派发子代理都可见（standing
+scope，同原仓）。默认完全关闭（`jevEnabled: false` = 零 jev 调用）。
+`jev.classify` 把成批的 choice/score/noul 问题一次打包判定，失败以结构化
+`{error}` 结果返回、绝不 reject；`store` 是会话级键值记忆（挂在会话持久日志
+上，配额 256KB/值、1MB/分支）。每次 jev 调用（含失败）记一行到
+`<dsh home>/storages/ptc-subagent/usage.jsonl`（只记元数据与 token 数）。
+bundle patch 同时迁入了 agent-preset 四守卫行（agent-preset-registry /
+subagent-model-selection-settings / preset-native / preset-codemode）——若
+profile 已挂 agent-preset 层，须先去掉重复 id 行，否则 loader 拒绝重复 id。
 
 ### 并发与深度上限（dsh 0.1.7 起，官方托管）
 
@@ -192,5 +237,8 @@ grep dsh-subagent-registry ~/.dsh/profiles/<profile>/cordis.patch.yml
    `$DSH_HOME/agents`）；文件是不是 `<名字>.md` 直接放在目录顶层（不递归子目录）；
    frontmatter 是否合法且 name 与文件名一致（见上一条）。Web 管理页打开或刷新会同步名册；纯 CLI/TUI 下次挂载更新名册，新文件均可立即按名调用。
 3. **预置 agent 丢了/被改** → 首次启动只在目录为空时植入 workhorse / oldfox /
-   rubber-duck 三个预置 agent；已有文件永远不会被覆盖，删掉就是删掉。卸载插件也
-   不会动 `~/.dsh/agents/` 里的文件。
+   rubber-duck 三个预置 agent（"三件套种子"）；ptc-subagent / minimal-subagent
+   是**两个 opt-in**，只经 `/subagents` 命令或手工拷贝安装，绝不自动播种。已有
+   文件永远不会被覆盖，删掉就是删掉。卸载插件也不会动 `~/.dsh/agents/` 里的
+   文件。名册里少人先查是不是被 `/subagents`（`disabledAgents`）停用了——停用
+   只隐藏不改文件。

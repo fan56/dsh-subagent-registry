@@ -2,5 +2,38 @@
   "meta": {
     "title": "dsh-subagent-registry",
     "description": "将 ~/.dsh/agents/*.md 注册为可调用子代理（use_agent），支持可续跑的后台派发与 ask_agent 追问。"
+  },
+  "subagents": {
+    "commandDescription": "管理子代理：勾选要停用的 agent、安装可选 agent（ptc-subagent / minimal-subagent）、联动 codemode（PTC）工具链开关。",
+    "askUnavailable": "当前没有可用的问答面板（userQuestions 服务未挂载）。请手工修改 dsh-subagent-registry 的 entry config（profile cordis.patch.yml 或设置页）。",
+    "askFailed": "向导未能完成（{error}）。可手工修改配置，见下。",
+    "manualHint": "手工配置方法：在 dsh-subagent-registry 的 entry config 里改 disabledAgents（数组，要停用的 agent 名单，从名册隐藏但不动文件）与 ptcEnabled（true/false，codemode 工具链开关，改动在插件下次挂载时生效）；可选 agent 安装：把包内 templates/opt-in-agents/<语言>/<名字>.md 拷入 ~/.dsh/agents/（已存在不覆盖）。",
+    "qDisableHeader": "停用 agent",
+    "qDisableQuestion": "勾选要停用的 agent（取消勾选 = 保持启用）。",
+    "qDisableDetail": "停用只是把它从 use_agent 名册隐藏并拒绝按名调用，agent 文件不会被改动。当前已停用的名字必须保持勾选才会继续停用。",
+    "markDisabled": "已停用——保持勾选维持停用，取消勾选恢复启用",
+    "markEnabled": "已启用——勾选即停用",
+    "qOptInHeader": "可选 agent",
+    "qOptInQuestion": "勾选要安装/启用的可选 agent。",
+    "qOptInDetail": "安装是把模板拷入 agents 目录（已有文件不覆盖，取消勾选不删除已拷文件）。",
+    "ptcBlurb": "批量判定专员；联动 ptcEnabled（codemode 工具链）。",
+    "minimalBlurb": "极简终端执行器（叶子）；无配置联动。",
+    "stateInstalled": "已安装",
+    "stateMissing": "未安装",
+    "ptcOnNow": "codemode 已启用",
+    "ptcOffNow": "codemode 已停用",
+    "noChanges": "未做任何修改。",
+    "savedHeader": "子代理配置已保存。",
+    "disabledLine": "已停用：{names}",
+    "enabledLine": "已启用：{names}",
+    "installedLine": "已安装：{ids}",
+    "presentLine": "已存在（未覆盖）：{ids}",
+    "installFailedLine": "安装失败：{id}（{error}）",
+    "ptcEnabledLine": "ptcEnabled → true：codemode 工具将在插件下次挂载（重启 dsh）后注册。",
+    "ptcDisabledLine": "ptcEnabled → false：codemode 工具将不再注册（下次挂载生效）；已安装的 ptc-subagent.md 保留但被移出名册。",
+    "rosterRefreshed": "工具名册已刷新。",
+    "rosterRefreshFailed": "名册刷新失败：{error}——重新打开管理页或下次派发时生效。",
+    "persistFailed": "配置写入失败：{error}",
+    "settingsUnavailable": "设置服务不可用，配置未写入。"
   }
 }

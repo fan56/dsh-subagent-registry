@@ -1,7 +1,7 @@
 {
   "name": "@aiwayds/dsh-subagent-registry",
-  "version": "0.17.0",
-  "description": "dsh plugin: register locally-defined custom agents (~/.dsh/agents/*.md) as callable subagents via the use_agent tool, with continuable background dispatch and ask_agent follow-ups",
+  "version": "0.18.0",
+  "description": "dsh plugin: register locally-defined custom agents (~/.dsh/agents/*.md) as callable subagents via the use_agent tool, with continuable background dispatch, ask_agent follow-ups, the /subagents management command, and the opt-in codemode (jev + store) PTC toolchain",
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
@@ -17,7 +17,10 @@
     "background",
     "send-message",
     "resume",
-    "persistence"
+    "persistence",
+    "ptc",
+    "codemode",
+    "jev"
   ],
   "repository": {
     "type": "git",
@@ -45,12 +48,13 @@
     "smoke": "node scripts/smoke-boot.mjs",
     "test:host": "node test/host-activation.test.mjs",
     "test:hosts": "node test/host-matrix.test.mjs",
-    "test": "node test/deep-semantics.test.mjs && node test/display-name.test.mjs && node test/resume.test.mjs && node test/thinking-level.test.mjs && node test/agent-options.test.mjs && node test/interactive.test.mjs && node test/apply-smoke.test.mjs && node test/skill.test.mjs && node test/seed-defaults.test.mjs && node test/profile-resolution.test.mjs && node test/agent-caps.test.mjs && node test/host-compat.test.mjs && node --experimental-strip-types test/preset-store.test.mjs && node test/client-presets.test.mjs && node test/packaged-install.test.mjs",
+    "test": "node test/deep-semantics.test.mjs && node test/display-name.test.mjs && node test/resume.test.mjs && node test/thinking-level.test.mjs && node test/agent-options.test.mjs && node test/interactive.test.mjs && node test/apply-smoke.test.mjs && node test/skill.test.mjs && node test/seed-defaults.test.mjs && node test/profile-resolution.test.mjs && node test/agent-caps.test.mjs && node test/host-compat.test.mjs && node --experimental-strip-types test/preset-store.test.mjs && node test/client-presets.test.mjs && node test/packaged-install.test.mjs && node test/ptc-usage-log.test.mjs && node test/ptc-jev-binding.test.mjs && node test/ptc-store-binding.test.mjs && node test/ptc-runner.test.mjs && node test/roster-toggle.test.mjs && node test/opt-in-agents.test.mjs && node test/ptc-gating.test.mjs && node test/subagents-command.test.mjs && node test/patch-ids.test.mjs",
     "postinstall": "node scripts/link-dsh-closure.mjs"
   },
   "peerDependencies": {
     "@deepseek-ai/dsh-agent": ">=0.2.0-rc.2 || >=0.2.1-rc.1",
     "@deepseek-ai/dsh-llm": ">=0.2.0-rc.2 || >=0.2.1-rc.1",
+    "@deepseek-ai/dsh-ptc-runtime": ">=0.2.0-rc.2 || >=0.2.1-rc.1",
     "@deepseek-ai/dsh-scope": ">=0.2.0-rc.2 || >=0.2.1-rc.1",
     "@deepseek-ai/dsh-skill": ">=0.2.0-rc.2 || >=0.2.1-rc.1",
     "@deepseek-ai/dsh-subagent": ">=0.2.0-rc.2 || >=0.2.1-rc.1",
@@ -66,6 +70,9 @@
     "@deepseek-ai/dsh-api-remotes": ">=0.2.0-rc.2 || >=0.2.1-rc.1"
   },
   "peerDependenciesMeta": {
+    "@deepseek-ai/dsh-ptc-runtime": {
+      "optional": true
+    },
     "@deepseek-ai/dsh-tools": {
       "optional": true
     },
@@ -112,7 +119,11 @@
       "optional": true
     }
   },
+  "dependencies": {
+    "@aiwayds/dsh-jev-core": "^0.1.5"
+  },
   "devDependencies": {
+    "@aiwayds/dsh-jev-core": "0.1.5",
     "@deepseek-ai/cordis": "~4.0.5",
     "@deepseek-ai/dsh-agent": "0.2.1-rc.5",
     "@deepseek-ai/dsh-agent-preset-registry": "0.2.1-rc.5",

@@ -42,7 +42,7 @@ import {
   type ChildListEntry,
   type MinimalSessionEvent,
 } from './resume.ts'
-import { loadAgent, stopReasonError, textOf } from './tool-run-agent.ts'
+import { isAgentDisabled, loadAgent, stopReasonError, textOf, type DisabledAgentsInput } from './tool-run-agent.ts'
 
 // ---------------------------------------------------------------------------
 // Dispatch-mode decision (pure)
@@ -278,6 +278,14 @@ export interface AskAgentConfig {
   dispatchToolName?: string
   /** Poll cadence override (ms) for tests. */
   pollMs?: number
+  /**
+   * The `disabledAgents` roster toggle (same filter the dispatch tool
+   * applies): disabled names vanish from the description's name list, and an
+   * execute-time re-check refuses to address them by name. Addressing by the
+   * raw `agent_id` of an already-dispatched background run stays allowed —
+   * the toggle governs the roster, not live children.
+   */
+  disabledAgents?: DisabledAgentsInput
 }
 
 /**
@@ -288,7 +296,8 @@ export interface AskAgentConfig {
 export function askAgentTool(ctx: Context, cfg: AskAgentConfig) {
   const dispatchTool = cfg.dispatchToolName ?? 'use_agent'
   const { agents, broken } = listAgentFiles(cfg.agentsDir)
-  const nameList = agents.map((agent) => agent.meta.name).join(', ')
+  const visible = agents.filter((agent) => !isAgentDisabled(agent.meta.name, cfg.disabledAgents))
+  const nameList = visible.map((agent) => agent.meta.name).join(', ')
   const brokenNote = broken.length > 0 ? ` (unparsable agents excluded: ${broken.map((b) => b.path).join(', ')})` : ''
 
   const description =
@@ -355,8 +364,16 @@ export function askAgentTool(ctx: Context, cfg: AskAgentConfig) {
       if (hasId) {
         childId = (args.agent_id as string) as unknown as SessionId
       } else {
-        const available = agents.map((agent) => agent.meta.name)
+        const available = visible.map((agent) => agent.meta.name)
         const agent = loadAgent(cfg.agentsDir, args.agent as string, available)
+        // Same live toggle re-check the dispatch tool applies: the
+        // description's name list may lag a hot-swap of disabledAgents.
+        if (isAgentDisabled(args.agent as string, cfg.disabledAgents)) {
+          throw new Error(
+            `${cfg.toolName}: agent "${args.agent}" is disabled by the disabledAgents plugin config ` +
+            `(roster toggle) — enable it via the /subagents command or the plugin entry config`,
+          )
+        }
         const labels = [...new Set([agent.meta.displayName ?? agent.meta.name, agent.meta.name])]
         let entries: readonly ChildListEntry[]
         try {

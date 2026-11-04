@@ -38,6 +38,7 @@ import { createLegacyDescendantJoin, drainRunDescendants, legacySubagents, reser
 import { expandHome, listAgentFiles, parseAgentMarkdown, type AgentFile, type ThinkingLevel } from './agents-dir.ts'
 import { composeAgentRuntime } from './profile-resolution.ts'
 import { decideBackgroundMode } from './interactive.ts'
+import type { VolatileRef } from './ptc/config.ts'
 import {
   buildContinuationPrompt,
   decideResume,
@@ -49,6 +50,27 @@ import {
   toStopReason,
   type ResumeMode,
 } from './resume.ts'
+
+/**
+ * The `disabledAgents` config value in either shape it arrives in: the live
+ * volatile reference the loader hands `apply` (hot-swapped on a settings
+ * write), or a plain array (tests, hand-built configs). Absent = nothing
+ * disabled.
+ */
+export type DisabledAgentsInput = VolatileRef<readonly string[]> | readonly string[] | undefined
+
+/** Read the current disabled-agent list out of either input shape. */
+export function currentDisabledAgents(input: DisabledAgentsInput): readonly string[] {
+  if (input === undefined) return []
+  const ref = input as VolatileRef<readonly string[]>
+  if (typeof ref.get === 'function') return ref.get() ?? []
+  return input as readonly string[]
+}
+
+/** Whether one agent name is toggled off through the `disabledAgents` key. */
+export function isAgentDisabled(name: string, input: DisabledAgentsInput): boolean {
+  return currentDisabledAgents(input).includes(name)
+}
 
 /** The writable knob surface for this plugin (a subset of the Config schema). */
 export interface RunAgentConfig {
@@ -75,6 +97,14 @@ export interface RunAgentConfig {
    * in the background dispatch's guidance text. Informational only.
    */
   askToolName?: string
+  /**
+   * Agent names excluded from the roster (`disabledAgents` config key, the
+   * `/subagents` command's toggle). A pure configuration filter: a disabled
+   * agent's `<name>.md` stays on disk untouched — it just disappears from the
+   * tool description roster, and an execute-time re-check refuses to run it
+   * even when the model names it directly.
+   */
+  disabledAgents?: DisabledAgentsInput
 }
 
 /**
@@ -180,16 +210,25 @@ interface Roster {
   nameList: string
 }
 
-/** Build the static roster (agents already sorted by listAgentFiles). */
-function buildRoster(dir: string): Roster {
+/**
+ * Build the static roster (agents already sorted by listAgentFiles).
+ * `disabledAgents` names are excluded entirely — the toggle is a roster
+ * filter, never a file operation (see {@link RunAgentConfig.disabledAgents}).
+ */
+function buildRoster(dir: string, disabledAgents?: DisabledAgentsInput): Roster {
   const { agents, broken } = listAgentFiles(dir)
-  const lines = agents.map((agent) => {
-    const label = agent.meta.displayName !== undefined
-      ? `${agent.meta.name} (${agent.meta.displayName})`
-      : agent.meta.name
-    return `- ${label}: ${sanitizeDescription(agent.meta.description ?? '')}`
-  })
-  const nameList = agents.map((agent) => agent.meta.name).join(', ')
+  const lines = agents
+    .filter((agent) => !isAgentDisabled(agent.meta.name, disabledAgents))
+    .map((agent) => {
+      const label = agent.meta.displayName !== undefined
+        ? `${agent.meta.name} (${agent.meta.displayName})`
+        : agent.meta.name
+      return `- ${label}: ${sanitizeDescription(agent.meta.description ?? '')}`
+    })
+  const nameList = agents
+    .filter((agent) => !isAgentDisabled(agent.meta.name, disabledAgents))
+    .map((agent) => agent.meta.name)
+    .join(', ')
   if (broken.length > 0) {
     lines.push(`- (unparsable agents excluded: ${broken.map((b) => b.path).join(', ')})`)
   }
@@ -476,7 +515,11 @@ export function loadAgent(dir: string, name: string, available: string[]): Agent
 /** The cordis `ctx.tools.register`-ready definition for the `use_agent` tool. */
 export function runAgentTool(ctx: Context, cfg: RunAgentConfig) {
   const dir = expandHome(cfg.agentsDir)
-  const { rosterText, nameList } = buildRoster(dir)
+  // Roster snapshot for the static description: disabled agents are excluded
+  // at build time (refreshRoster rebuilds the definition when the toggle
+  // changes). The execute-time check below re-reads the live value, so a
+  // hot-swap takes effect immediately even before the description refreshes.
+  const { rosterText, nameList } = buildRoster(dir, cfg.disabledAgents)
   const description =
     `Call one of the locally-defined custom agents by name. These are your own ` +
     `custom sub-agents (defined in ${dir}/<name>.md); each runs as its own ` +
@@ -552,6 +595,17 @@ export function runAgentTool(ctx: Context, cfg: RunAgentConfig) {
       }
       // Re-check existence at execute time with a friendly, roster-aware error.
       const agent = loadAgent(dir, args.agent, nameList === '' ? [] : nameList.split(',').map((n) => n.trim()))
+      // Re-check the toggle at execute time against the LIVE disabledAgents
+      // value: the description's roster snapshot may lag a hot-swap, and a
+      // model that hard-names a disabled agent must be refused here — the
+      // file stays on disk, only the call is rejected.
+      if (isAgentDisabled(args.agent, cfg.disabledAgents)) {
+        throw new Error(
+          `agent "${args.agent}" is disabled by the disabledAgents plugin config ` +
+          `(roster toggle; the ${args.agent}.md file is untouched) — enable it via the /subagents command ` +
+          `or remove it from the disabledAgents list in the plugin entry config`,
+        )
+      }
       // Synthesize the effective model/thinking for this dispatch: the file
       // frontmatter is the BASELINE and a workspace profile pin
       // (`.dsh-profile` → `$DSH_HOME/model-profiles.json` per-agent override)

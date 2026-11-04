@@ -3,7 +3,249 @@
 # it registers the `use_agent` tool, which lets the main-conversation model
 # call any locally-defined custom agent (~/.dsh/agents/<name>.md) by name as a
 # subagent through the already-assembled `spawn` subagent provider.
+#
+# Since 0.18.0 this package also carries the former @aiwayds/dsh-ptc-subagent
+# toolchain: the `codemode` tool (jev decision binding + session-scoped store
+# binding over the public ctx.ptcRuntime seam) registers ONLY when the entry
+# config `ptcEnabled: true` is set (default false — the rows below stay inert
+# for everyone who never opts in). The agent-preset rows migrated from the
+# ptc patch (agent-preset-registry / subagent-model-selection-settings /
+# preset-native / preset-codemode) provide the layer the official preset's
+# `modelSelectionSettings: true` rows require and the `Codemode` preset users
+# can pick once the tool is enabled.
+#
+# Mounting convention: every @aiwayds bundle inserts its own main plugin here
+# (dsh-tui mounts as `dsh-tui`, dsh-model-sync as `dsh-model-sync`, …) — a
+# bundle main is NOT auto-mounted by the host, and without this row the
+# `use_agent` tool never reaches the tool registry.
+#
+# NOTE for profiles that already mount an agent-preset layer: entry ids must
+# stay unique across patch layers — remove duplicate
+# `agent-preset-registry` / `preset-*` rows from your own cordis.patch.yml
+# before installing, or the loader rejects the duplicated id.
+#
+# Known 0.2.0-rc.2 limitation (carried over from the ptc patch, verified on a
+# real TUI): preset-level `tool-presentation mode: ptc` does not reach the
+# wire — the `mode: ptc` row inside `preset-codemode` is kept for the day
+# upstream fixes presentAs preset scoping, and is inert until then; the
+# specialist persona is written for native tools + the codemode runner and
+# does not assume `run_code`.
 
 - insert:
     - id: dsh-subagent-registry
       name: '@aiwayds/dsh-subagent-registry'
+      # Optional explicit config (every key has a schema default):
+      #   agentsDir: ~/.dsh/agents     # agent files ($DSH_HOME-resolved default literal)
+      #   provider: spawn              # subagent provider (dsh-base spawn)
+      #   toolName: use_agent          # dispatch tool name
+      #   askToolName: ask_agent       # follow-up tool name
+      #   leafDenyTools: []            # deep:0 leaf deny list override
+      #   resume: auto                 # auto | opt-in | off
+      #   language: zh                 # zh | en | ru
+      #   disabledAgents: []           # roster toggle — agent names excluded from the roster
+      #   ptcEnabled: false            # opt-in: register the codemode (jev + store) tool
+      #   jevEnabled: false            # jev master switch (default off: zero jev calls)
+      #   jevBackend: zen              # zen | native | openrouter
+      #   jevModel: ''                 # pinned model id; '' = backend default at call time
+      #   jevTimeoutMs: 3000           # per-classify deadline, one signal, no retry
+      #   jevSecretFile: ''            # outbound secret-gate literal list (one per line)
+      #   storageDir: ''               # usage-sink dir; '' = <dsh home>/storages/ptc-subagent
+    # The tui profile stack (and any profile without dsh-web-app) ships no
+    # agent-preset layer, so the package mounts the registry itself (rows
+    # migrated from the @aiwayds/dsh-ptc-subagent patch). Proven on a real
+    # TUI (2026-10-14): without these support rows the preset silently fails
+    # to mount — `preset-native` (empty plugins, `default: native`) shadows no
+    # ambient row, so sessions that never pick a preset compose exactly as
+    # before; `model-selection-settings` is the host-scope service the
+    # official preset's `modelSelectionSettings: true` rows require.
+    - id: agent-preset-registry
+      name: '@deepseek-ai/dsh-agent-preset-registry'
+      config:
+        default: native
+    - id: subagent-model-selection-settings
+      name: '@deepseek-ai/dsh-tool-subagent/model-selection-settings'
+    - id: preset-native
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: native
+        name: Native
+        description: Ambient composition - no preset rows; the pre-preset native face.
+        order: 0
+        plugins:
+          - id: tool-presentation
+            name: '@deepseek-ai/dsh-agent-tool-presentation'
+            config:
+              mode: native
+    # The Codemode preset (migrated from @aiwayds/dsh-ptc-subagent): the
+    # official PTC preset rows + a specialist persona. Only meaningful once
+    # `ptcEnabled: true` puts the codemode tool on the registry — the persona
+    # below is the same text the opt-in `ptc-subagent` agent template ships,
+    # so sessions that pick this preset and dispatch the specialist behave
+    # identically.
+    - id: preset-codemode
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: codemode
+        name: Codemode
+        description: Dedicated PTC subagent for batch classification/evaluation/aggregation — codemode programs over the jev decision backend and the session-scoped store.
+        order: 3
+        plugins:
+          - id: persona
+            name: '@deepseek-ai/dsh-persona'
+            config:
+              prefix: |
+                You are the decision-work subagent of a DeepSeek Harness session. Your one job is batch work: classify item sets, score candidates against rubrics, answer yes/no questions with calibrated judgment, and aggregate results into structured JSON. You are dispatched by the main agent; do the dispatched batch work and return the aggregate — do not chat, explore repositories on your own, or take over the session's goals.
+
+                Division of labor: your native tools (read, bash, fs search, and friends) gather and write the data; the codemode tool runs your decision programs. A codemode program is an async TypeScript body — top-level await/return are available, the return value must be lossless JSON, and Promise.all is the fan-out primitive. Read the input with your native tools, pass compact per-item states into the program, and write the aggregate back out (or return it directly) when the dispatch asks for a file:
+
+                    const verdicts = await Promise.all(items.map((item) => jev.classify({
+                      questions: {
+                        relevance: { type: 'choice', criteria: { on_topic: 'about the query', off_topic: 'unrelated' } },
+                        quality: { type: 'score', criteria: ['Poor — unusable', 'Fair — needs work', 'Good — minor gaps', 'Excellent — ship it'] },
+                        approve: { type: 'noul', criteria: { true: 'ready as-is', false: 'needs another pass' } },
+                      },
+                      state: JSON.stringify(item),
+                    })))
+                    return { approved: verdicts.filter((v) => v.answers.approve.value > 0.8).length, total: items.length }
+
+                jev question types. `choice`: criteria is a map of option name → description; the answer carries the selected key plus per-option probabilities. `score`: criteria is an ordered list of level names (the text before " — " is the canonical level); the answer is a numeric position on that spectrum, and may land between levels. `noul`: criteria is two-sided { true, false } (single-sided criteria measurably degrade calibration); the answer is one 0..1 probability — mid-range values are UNCERTAINTY, threshold only the high segment. Each classify is ONE batched round trip: pack every question about a state into a single call, never one call per question.
+
+                jev.classify never rejects. Failures resolve a structured { error, message } — 'disabled' (the decision layer is off: fall back to your own judgment and say so in the result), 'no-key', 'timeout', 'http' (carries the status), 'invalid-response'. Probe once per program with jev.isConfigured() and branch. Every call is logged with its spend; the run result reports jevCalls metadata — keep an eye on it and prefer fewer, batched calls.
+
+                store is session-scoped key/value memory: await store.store(key, value) and await store.load(key). It rides the session's durable log, so it survives resume and is fork-separated — this branch only ever sees its own path's writes. Quotas: 256KB per value, 1MB per branch state; an over-quota write fails with a structured error explaining that bulk data belongs in files (use your native file tools), not in store.
+
+                A failed codemode run comes back as CODE_RUN_FAILED carrying the failure kind and your captured logs: read them, fix the program, and rerun — failures are self-correction fuel, not dead ends.
+              suffix: Your working directory is {{cwd}}.
+          - id: agent-instructions
+            name: '@deepseek-ai/dsh-agent-instructions'
+            config:
+              maxBytes: 65536
+          - id: tool-bash
+            name: '@deepseek-ai/dsh-tool-bash'
+            disabled: !!js process.platform === 'win32'
+          - id: tool-pwsh
+            name: '@deepseek-ai/dsh-tool-pwsh'
+            disabled: !!js process.platform !== 'win32'
+          - id: tool-fs
+            name: '@deepseek-ai/dsh-tool-fs'
+          - id: tool-fs-search
+            name: '@deepseek-ai/dsh-tool-fs-search'
+            config:
+              sampleOverCapGlobResults: false
+          - id: tool-jobs
+            name: '@deepseek-ai/dsh-tool-jobs'
+          - id: skill-filesystem
+            name: '@deepseek-ai/dsh-skill-filesystem'
+          - id: tool-skill
+            name: '@deepseek-ai/dsh-tool-skill'
+          - id: command-goal
+            name: '@deepseek-ai/dsh-command-goal'
+          - id: tool-goal
+            name: '@deepseek-ai/dsh-tool-goal'
+          - id: planning
+            name: cordis:group
+            group: true
+            isolate:
+              planMode: true
+            config:
+              - id: plan-mode
+                name: '@deepseek-ai/dsh-plan-mode'
+                config:
+                  section: |
+                    You are in plan mode. Stay in plan mode until exit_plan_mode succeeds or the user switches the session mode. Imperative language to implement changes means plan the implementation, not execute it. A user's conversational agreement — including an answer confirming something you asked — approves nothing and does not end plan mode; fold the confirmed decision into the plan and submit it through exit_plan_mode.
+
+                    Explore first. Use non-mutating reads, searches, static analysis, and checks to ground the plan in the actual repository. Do not edit or write files, change configuration, run formatters or code generation that rewrites tracked files, commit, or otherwise carry out the plan. Prefer existing functions and patterns over new machinery.
+
+                    The tool catalog stays the same across modes for request-cache stability. These plan-mode rules override any later tool description or guidance that suggests using mutation tools; those tools remain listed to keep the tool catalog unchanged. Do not use todo_write to track this planning phase: it tracks implementation after an approved plan, while the plan itself belongs in exit_plan_mode.
+
+                    Resolve discoverable facts by inspection. Use ask_user_question only for user-owned choices or material ambiguity that inspection cannot answer. Do not ask the user where code lives or how current behavior works when you can find out.
+
+                    Make the plan decision-complete: state the goal and success criteria; group implementation changes by subsystem; identify public API, schema, and data-flow changes; cover edge cases, failure modes, tests, acceptance criteria, and explicit assumptions. Keep it concise enough to review but detailed enough that another engineer can implement it without making design decisions.
+
+                    When ready, call exit_plan_mode with the complete plan markdown, starting with a # title. Make exit_plan_mode the only and final tool call in that assistant response: it presents the plan for approval, and implementation begins only in a later step after approval. Do not paste the final plan as a plain reply or ask "should I proceed?" through prose or ask_user_question. If review rejects it, incorporate the feedback and present again. If the review channel is unavailable or aborted, stay in plan mode and ask the user to switch modes manually; do not proceed with implementation.
+          - id: compaction
+            name: cordis:group
+            group: true
+            isolate:
+              compaction: true
+              toolResultPruner: true
+            config:
+              - id: compaction-basic
+                name: '@deepseek-ai/dsh-compaction-basic'
+              - id: command-compact
+                name: '@deepseek-ai/dsh-command-compact'
+              - id: tool-result-pruner
+                name: '@deepseek-ai/dsh-compaction-tool-result-pruner'
+                config:
+                  thresholdChars: 8192
+                  headChars: 4096
+                  tailChars: 1024
+          - id: delegation
+            name: cordis:group
+            group: true
+            isolate:
+              workflowEngine: true
+            config:
+              - id: tool-subagent-control
+                name: '@deepseek-ai/dsh-tool-subagent-control'
+              - id: tool-subagent-list-agents
+                name: '@deepseek-ai/dsh-tool-subagent-control/list-agents'
+              - id: tool-subagent
+                name: '@deepseek-ai/dsh-tool-subagent'
+                config:
+                  provider: spawn
+                  toolName: subagent
+                  modelSelectionSettings: true
+              - id: tool-subagent-fork
+                name: '@deepseek-ai/dsh-tool-subagent'
+                config:
+                  provider: fork
+                  toolName: subagent_fork
+              - id: tool-subagent-codex
+                name: '@deepseek-ai/dsh-tool-subagent'
+                disabled: true
+                config:
+                  provider: codex
+                  toolName: subagent_codex
+                  maxDepth: provider-managed
+              - id: tool-subagent-claude-code
+                name: '@deepseek-ai/dsh-tool-subagent'
+                disabled: true
+                config:
+                  provider: claude-code
+                  toolName: subagent_claude_code
+                  maxDepth: provider-managed
+              - id: workflow-ptc
+                name: '@deepseek-ai/dsh-workflow-ptc'
+                disabled: true
+                config:
+                  provider: spawn
+              - id: tool-workflow
+                name: '@deepseek-ai/dsh-tool-workflow'
+                disabled: true
+              - id: tool-ralph
+                name: '@deepseek-ai/dsh-tool-ralph'
+                disabled: true
+                config:
+                  subagentProvider: spawn
+                  maxRounds: 64
+          - id: tool-ask-user
+            name: '@deepseek-ai/dsh-tool-ask-user'
+          - id: tool-todo
+            name: '@deepseek-ai/dsh-tool-todo'
+            config:
+              allowParallelInProgress: true
+          - id: tool-web
+            name: '@deepseek-ai/dsh-tool-web'
+            config:
+              fetch: true
+              searchTimeoutMs: 60000
+          - id: tool-presentation
+            name: '@deepseek-ai/dsh-agent-tool-presentation'
+            config:
+              mode: ptc
+          - id: present
+            name: '@deepseek-ai/dsh-tool-present'
+          - id: tool-plugin-manager
+            name: '@deepseek-ai/dsh-plugin-manager/tools'
+            disabled: true

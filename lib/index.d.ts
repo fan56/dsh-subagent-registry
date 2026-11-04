@@ -42,18 +42,31 @@ export declare function stripFrontmatter(raw: string): string;
  */
 export declare const inject: string[];
 /**
- * Plugin config. `agentsDir` defaults to the dsh-home agents dir
- * (`$DSH_HOME/agents`, i.e. `~/.dsh/agents`), `provider` reuses
- * dsh-base's already-assembled `spawn` provider, `toolName` names the
+ * Plugin config. The seven registry keys first: `agentsDir` defaults to the
+ * dsh-home agents dir (`$DSH_HOME/agents`, i.e. `~/.dsh/agents`), `provider`
+ * reuses dsh-base's already-assembled `spawn` provider, `toolName` names the
  * dispatch tool, `askToolName` names the follow-up tool, `leafDenyTools`
  * overrides the tool list removed from `deep: 0` (leaf) agents' children
  * (default: all agent-spawning tools in the dsh base distribution plus
  * `toolName` itself), `resume` selects when `use_agent` continues a
  * prior interrupted run of the same agent (default `auto`), and
  * `language` selects the UI/skill/seed language (`zh` Chinese default,
- * `en`, `ru`): the bundled skill body and its model-facing routing
- * description, the web panel texts and the agent templates seeded on
- * first install all follow it. Seven keys in total.
+ * `en`, `ru`).
+ *
+ * The roster toggle: `disabledAgents` (volatile, default `[]`) lists agent
+ * names excluded from the roster — the `/subagents` command and a direct
+ * settings edit both write it. Volatile, so a write hot-swaps the value and
+ * the next roster refresh applies it without remounting; agent files are
+ * never touched.
+ *
+ * The opt-in PTC toolchain (migrated from `@aiwayds/dsh-ptc-subagent`):
+ * `ptcEnabled` (default `false`) gates the `codemode` tool registration —
+ * false means the tool never registers; true registers it at standing scope
+ * like the standalone plugin did. It is deliberately NOT volatile: flipping
+ * it remounts the plugin, which is exactly the register/unregister act. The
+ * six `jev*`/`storageDir` keys are volatile and hot-reload per call; defaults
+ * are the standalone plugin's (jev OFF, zen backend, 3000 ms, usage sink
+ * `<dsh home>/storages/ptc-subagent`). Fifteen keys in total.
  */
 export declare const Config: z<Schemastery.ObjectS<NoInfer<{
     agentsDir: z<string, string, "defined">;
@@ -63,6 +76,14 @@ export declare const Config: z<Schemastery.ObjectS<NoInfer<{
     leafDenyTools: z<string[], string[], "defined">;
     resume: z<"off" | "auto" | "opt-in", "off" | "auto" | "opt-in", "defined">;
     language: z<"zh" | "en" | "ru", "zh" | "en" | "ru", "defined">;
+    disabledAgents: z<NoInfer<string[]>, NoInfer<string[]>, "volatile-defined">;
+    ptcEnabled: z<boolean, boolean, "defined">;
+    jevEnabled: z<boolean, boolean, "volatile-defined">;
+    jevBackend: z<"zen" | "native" | "openrouter", "zen" | "native" | "openrouter", "volatile-defined">;
+    jevModel: z<string, string, "volatile-defined">;
+    jevTimeoutMs: z<number, number, "volatile-defined">;
+    jevSecretFile: z<string, string, "volatile-defined">;
+    storageDir: z<string, string, "volatile-defined">;
 }>>, Schemastery.ObjectT<NoInfer<{
     agentsDir: z<string, string, "defined">;
     provider: z<string, string, "defined">;
@@ -71,5 +92,13 @@ export declare const Config: z<Schemastery.ObjectS<NoInfer<{
     leafDenyTools: z<string[], string[], "defined">;
     resume: z<"off" | "auto" | "opt-in", "off" | "auto" | "opt-in", "defined">;
     language: z<"zh" | "en" | "ru", "zh" | "en" | "ru", "defined">;
+    disabledAgents: z<NoInfer<string[]>, NoInfer<string[]>, "volatile-defined">;
+    ptcEnabled: z<boolean, boolean, "defined">;
+    jevEnabled: z<boolean, boolean, "volatile-defined">;
+    jevBackend: z<"zen" | "native" | "openrouter", "zen" | "native" | "openrouter", "volatile-defined">;
+    jevModel: z<string, string, "volatile-defined">;
+    jevTimeoutMs: z<number, number, "volatile-defined">;
+    jevSecretFile: z<string, string, "volatile-defined">;
+    storageDir: z<string, string, "volatile-defined">;
 }>>, "plain">;
 export declare function apply(ctx: Context, config: RunAgentConfig): void;
