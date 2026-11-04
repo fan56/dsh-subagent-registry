@@ -1,6 +1,6 @@
 ---
 name: dsh-subagent-registry-config
-description: "Руководство по плагину @aiwayds/dsh-subagent-registry: суб-агенты, use_agent/ask_agent, /subagents, каталог agents, agent .md, resume, настройка: frontmatter ~/.dsh/agents/*.md, ключи entry config (disabledAgents/ptcEnabled/jev*), opt-in агенты (ptc-subagent/minimal-subagent; экспериментальные, по умолчанию выключены), ask_user_question, диагностика. Триггеры: суб-агент, agent, use_agent, ask_agent, /subagents, отключить, disabledAgents, ptc, codemode, resume, отладка, не вызывается, язык."
+description: "Руководство по плагину @aiwayds/dsh-subagent-registry: суб-агенты, use_agent/ask_agent, /registry-config, каталог agents, agent .md, resume, настройка: frontmatter ~/.dsh/agents/*.md, ключи entry config (disabledAgents/ptcEnabled/jev*), opt-in агенты (ptc-subagent/minimal-subagent; экспериментальные, по умолчанию выключены), ask_user_question, диагностика. Триггеры: суб-агент, agent, /registry-config, отключить, disabledAgents, ptc, codemode, resume, отладка, не вызывается, язык."
 ---
 
 # Руководство по dsh-subagent-registry (пользовательские суб-агенты / use_agent)
@@ -120,12 +120,12 @@ persona system prompt по описанию пользователя, **испо
 | `leafDenyTools`  | `[]`           | Пусто = статический умолчание (`subagent`/`subagent_fork`/`workflow`/`ralph` + `toolName`) ∩ инструменты, зарегистрированные на хосте сейчас (защита от устаревших имён, вызывающих fail-fast хоста); непустое передаётся **как есть**, без пересечения, устаревшие записи отклоняет валидация хоста. |
 | `resume`         | `auto`         | Режим продолжения, см. следующий раздел.                                                                                               |
 | `language`       | `zh`           | Язык интерфейса/гида/предустановленных шаблонов агентов: `zh` / `en` / `ru`; после изменения перезапустите dsh, см. следующий раздел. |
-| `disabledAgents` | `[]` (volatile) | Переключатель ростера: перечисленные имена исчезают из ростеров `use_agent`/`ask_agent`; путь выполнения перечитывает живое значение и отклоняет жёстко названного агента. **Семантика отключения живёт в этом ключе конфигурации, а не во frontmatter** — файлы агентов не изменяются. Volatile-запись применяется на лету (вместе с обновлением ростера); команда `/subagents` пишет её за вас. |
+| `disabledAgents` | `[]` (volatile) | Переключатель ростера: перечисленные имена исчезают из ростеров `use_agent`/`ask_agent`; путь выполнения перечитывает живое значение и отклоняет жёстко названного агента. **Семантика отключения живёт в этом ключе конфигурации, а не во frontmatter** — файлы агентов не изменяются. Volatile-запись применяется на лету (вместе с обновлением ростера); команда `/registry-config` пишет её за вас. |
 | `ptcEnabled`     | `false`        | Воротало цепочки codemode: false не регистрирует ничего дополнительного; true регистрирует инструмент `codemode` в standing scope при следующем монтировании плагина (перезапуск dsh). Шесть jev-ключей volatile и читаются на каждый вызов. |
 
-## Команда /subagents (переключатель ростера + opt-in установка)
+## Команда /registry-config (переключатель ростера + opt-in установка)
 
-Введите `/subagents` в сессии, чтобы открыть мастер управления (два мультивыбора
+Введите `/registry-config` в сессии, чтобы открыть мастер управления (два мультивыбора
 через ask_user_question):
 
 1. **Переключатель отключения**: отметьте агентов для отключения (отмеченное
@@ -309,9 +309,9 @@ grep dsh-subagent-registry ~/.dsh/profiles/<profile>/cordis.patch.yml
    workhorse / oldfox / rubber-duck внедряются только если каталог пуст («посев
    тройки»); ptc-subagent / minimal-subagent — это **два opt-in**
    (экспериментальные, по умолчанию выключены), устанавливаются
-   только командой `/subagents` или ручным копированием, никогда не засеваются
+   только командой `/registry-config` или ручным копированием, никогда не засеваются
    автоматически. Существующие файлы никогда не перезаписываются, удалил —
    значит удалил. Удаление плагина тоже не трогает файлы в `~/.dsh/agents/`.
    Если агента нет в ростере — сначала проверьте, не отключён ли он
-   переключателем `/subagents` (`disabledAgents`): отключение лишь скрывает,
+   переключателем `/registry-config` (`disabledAgents`): отключение лишь скрывает,
    файлы не трогает.

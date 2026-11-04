@@ -21,7 +21,7 @@ partial work. No host patching, no code — a markdown file per agent.
   `ask_agent` sends a follow-up and waits for the reply.
 - **Three personas out of the box** — `workhorse` / `oldfox` / `rubber-duck`
   are seeded on first start (see below).
-- **The /subagents management command** — wizard-based enable/disable for any
+- **The /registry-config management command** — wizard-based enable/disable for any
   roster agent (a `disabledAgents` config-key filter that never touches md
   files), opt-in agent installs, and the codemode toolchain switch (below).
 - **Opt-in PTC capability** — 0.18.0 merges the entire `@aiwayds/dsh-ptc-subagent`:
@@ -30,7 +30,7 @@ partial work. No host patching, no code — a markdown file per agent.
 - **⚠️ Experimental — disabled by default** — the two opt-in agents
   (`ptc-subagent` / `minimal-subagent`) and the whole codemode (PTC) toolchain
   are an experimental product surface: the capability has migrated and merged,
-  but everything ships off and only an explicit `/subagents` check or the
+  but everything ships off and only an explicit `/registry-config` check or the
   `ptcEnabled` config keys turn it on (below).
 - **Built on the official subagent machinery** — no reimplementation: every
   custom agent starts through dsh's stock `spawn` provider, so each child is a
@@ -60,7 +60,7 @@ decision-work specialist; linked to the codemode toolchain) and
 `minimal-subagent` (the terminal-only executor, a leaf) — the capability has
 migrated and merged, but the product surface stays experimental until it
 graduates: nothing is installed or enabled until you explicitly check them in
-the `/subagents` command (or copy
+the `/registry-config` command (or copy
 `templates/opt-in-agents/<language>/<name>.md` from the package by hand and
 write the config keys); existing files are never overwritten, unchecking never
 deletes. The seed is the trio only — opt-ins are never installed automatically.
@@ -141,13 +141,13 @@ section of the cordis.patch.yml `insert` entry):
 | `leafDenyTools` | `[]`            | Tool deny list for `deep: 0` leaf children; empty = static default intersected with the host's registered tools. |
 | `resume`        | `auto`          | Resume mode: `auto` / `opt-in` / `off`.                                                           |
 | `language`      | `zh`            | UI language: `zh` (Chinese, the default) / `en` (English) / `ru` (Русский). Affects the web management panel texts, the bundled skill body and its model-facing routing description, and the agent templates seeded on first install (`templates/agents/<language>/`); restart dsh after changing. Existing agent files are never rewritten. |
-| `disabledAgents` | `[]` (volatile) | **The roster toggle**: listed agent names vanish from the `use_agent`/`ask_agent` rosters and calls by name are refused; **a pure roster filter that never touches agent files**. Volatile writes hot-apply; the `/subagents` command writes it for you, and the execute path re-checks the live value (a model hard-naming a disabled agent is refused). |
+| `disabledAgents` | `[]` (volatile) | **The roster toggle**: listed agent names vanish from the `use_agent`/`ask_agent` rosters and calls by name are refused; **a pure roster filter that never touches agent files**. Volatile writes hot-apply; the `/registry-config` command writes it for you, and the execute path re-checks the live value (a model hard-naming a disabled agent is refused). |
 | `ptcEnabled`    | `false`         | **The opt-in gate**: false (default) registers nothing extra; true registers the `codemode` tool at standing scope (visible to the main agent and every dispatched subagent) on the next plugin mount (dsh restart). Experimental — disabled by default. |
 | six jev keys    | see the ptc section | The volatile jev configuration: `jevEnabled` (default false = zero jev calls) / `jevBackend` (zen) / `jevModel` ('' = backend default) / `jevTimeoutMs` (3000) / `jevSecretFile` ('') / `storageDir` ('' = `<dsh home>/storages/ptc-subagent`). |
 
-## The /subagents command
+## The /registry-config command
 
-Type `/subagents` in the session to open the management wizard (two
+Type `/registry-config` in the session to open the management wizard (two
 multi-select questions through ask_user_question):
 
 1. **The disable toggle**: check the agents to disable (the checked set

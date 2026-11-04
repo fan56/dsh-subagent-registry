@@ -1,6 +1,6 @@
 ---
 name: dsh-subagent-registry-config
-description: "dsh 子代理注册表插件（@aiwayds/dsh-subagent-registry）使用与配置指南。凡涉及自定义子代理、use_agent/ask_agent、/subagents 命令、agents 目录、agent .md 编写、子代理续跑，或要调整本插件配置时先读本指南：~/.dsh/agents/*.md frontmatter 全键、entry config 全键（agentsDir…language/disabledAgents/ptcEnabled/jev*）、opt-in agent 安装（ptc-subagent/minimal-subagent，试验性，默认关闭）、ask_user_question 代写向导、中断续跑、接入与使用体检。触发词：子代理、agent、use_agent、ask_agent、/subagents、停用、disabledAgents、ptc、codemode、续跑、resume、体检、调试、没调用、语言。"
+description: "dsh 子代理注册表插件（@aiwayds/dsh-subagent-registry）使用与配置指南。凡涉及自定义子代理、use_agent/ask_agent、/registry-config 命令、agents 目录、agent .md 编写、子代理续跑，或要调整本插件配置时先读本指南：~/.dsh/agents/*.md frontmatter 全键、entry config 全键（agentsDir…language/disabledAgents/ptcEnabled/jev*）、opt-in agent 安装（ptc-subagent/minimal-subagent，试验性，默认关闭）、ask_user_question 代写向导、中断续跑、接入与使用体检。触发词：子代理、agent、use_agent、ask_agent、/registry-config、停用、disabledAgents、ptc、codemode、续跑、resume、体检、调试、没调用、语言。"
 ---
 
 # dsh-subagent-registry 使用指南（自定义子代理 / use_agent）
@@ -104,12 +104,12 @@ cordis.patch.yml `insert` 项的 `config:` 段，即 entry config）。九个注
 | `leafDenyTools` | `[]`           | 空 = 静态默认（`subagent`/`subagent_fork`/`workflow`/`ralph` + `toolName`）∩ 宿主当前注册的工具（防陈旧名触发宿主 fail-fast）；非空**原样透传**、不交集，陈旧条目由宿主校验拒绝。 |
 | `resume`        | `auto`         | 续跑档位，见下节。                                                                                |
 | `language`      | `zh`           | 界面/指南/预置 agent 模板语言：`zh` / `en` / `ru`，改后重启 dsh 生效，见下节。                      |
-| `disabledAgents` | `[]`（volatile） | 名册开关：名单里的 agent 从 `use_agent`/`ask_agent` 名册隐藏，执行期按活值再查、硬调被拒。**停用语义在配置键，不在 frontmatter**——agent 文件永不改动。volatile 写热生效（配合名册刷新）；`/subagents` 命令可代写。 |
+| `disabledAgents` | `[]`（volatile） | 名册开关：名单里的 agent 从 `use_agent`/`ask_agent` 名册隐藏，执行期按活值再查、硬调被拒。**停用语义在配置键，不在 frontmatter**——agent 文件永不改动。volatile 写热生效（配合名册刷新）；`/registry-config` 命令可代写。 |
 | `ptcEnabled`    | `false`        | codemode 工具链门控：false 完全不注册额外工具；true 在插件下次挂载（重启 dsh）时按原 ptc 仓的 standing scope 注册 `codemode` 工具。六个 jev 键均为 volatile、逐调用热读。 |
 
-## /subagents 命令（名册开关 + opt-in 安装）
+## /registry-config 命令（名册开关 + opt-in 安装）
 
-会话里输入 `/subagents` 打开管理向导（经 ask_user_question 两道多选题）：
+会话里输入 `/registry-config` 打开管理向导（经 ask_user_question 两道多选题）：
 
 1. **停用开关**：勾选要停用的 agent（勾选集合 = 新的 `disabledAgents` 清单，
    不勾 = 全部启用；当前已停用的名字必须**保持勾选**才会继续停用，选项描述
@@ -240,8 +240,8 @@ grep dsh-subagent-registry ~/.dsh/profiles/<profile>/cordis.patch.yml
    frontmatter 是否合法且 name 与文件名一致（见上一条）。Web 管理页打开或刷新会同步名册；纯 CLI/TUI 下次挂载更新名册，新文件均可立即按名调用。
 3. **预置 agent 丢了/被改** → 首次启动只在目录为空时植入 workhorse / oldfox /
    rubber-duck 三个预置 agent（"三件套种子"）；ptc-subagent / minimal-subagent
-   是**两个 opt-in**（Experimental 试验性功能，默认关闭），只经 `/subagents`
+   是**两个 opt-in**（Experimental 试验性功能，默认关闭），只经 `/registry-config`
    命令或手工拷贝安装，绝不自动播种。已有
    文件永远不会被覆盖，删掉就是删掉。卸载插件也不会动 `~/.dsh/agents/` 里的
-   文件。名册里少人先查是不是被 `/subagents`（`disabledAgents`）停用了——停用
+   文件。名册里少人先查是不是被 `/registry-config`（`disabledAgents`）停用了——停用
    只隐藏不改文件。

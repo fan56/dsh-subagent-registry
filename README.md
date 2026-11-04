@@ -18,7 +18,7 @@
   `ask_agent` 发追问并等它的回复。
 - **开箱即用三个人物** — 装好即自动植入 `workhorse` / `oldfox` / `rubber-duck`
   三个预置 agent（见下）。
-- **/subagents 管理命令** — 向导式停用/启用任意名册 agent（`disabledAgents`
+- **/registry-config 管理命令** — 向导式停用/启用任意名册 agent（`disabledAgents`
   配置键过滤，永不碰 md 文件）、安装两个 opt-in agent、联动 codemode 工具链
   开关（见下）。
 - **opt-in PTC 能力** — 0.18.0 并入 `@aiwayds/dsh-ptc-subagent` 全部代码：
@@ -26,7 +26,7 @@
   完全关闭（见下）。
 - **⚠️ Experimental（试验性功能，默认关闭）** — `ptc-subagent` /
   `minimal-subagent` 两个 opt-in agent 与整条 codemode（PTC）工具链都属试验性
-  产品面：能力已迁移合并，但默认一律关闭，仅经 `/subagents` 显式勾选或
+  产品面：能力已迁移合并，但默认一律关闭，仅经 `/registry-config` 显式勾选或
   `ptcEnabled` 等配置键显式开启后才生效（见下）。
 - **站在官方 subagent 机制之上** — 不自建执行器：每个自定义 agent 都通过 dsh
   官方的 `spawn` provider 启动，子代理就是货真价实的 dsh subagent（完整会话、
@@ -51,7 +51,7 @@
 ⚠️ **Experimental — disabled by default（试验性功能，默认关闭）**。
 `ptc-subagent`（批量判定专员，联动 codemode 工具链）与 `minimal-subagent`
 （极简终端执行器，叶子）——能力已迁移合并，但产品面仍属试验阶段，默认关闭，
-仅经 `/subagents` 命令显式勾选（或手工拷贝包内
+仅经 `/registry-config` 命令显式勾选（或手工拷贝包内
 `templates/opt-in-agents/<语言>/<名字>.md` 并写配置键）后启用；已有文件不
 覆盖，取消勾选不删除。种子只撒三件套——opt-in 永不自动安装。
 
@@ -122,13 +122,13 @@ Frontmatter 字段：`name`（必填）、`description`、`display_name`、`mode
 | `leafDenyTools` | `[]`            | `deep: 0` 叶子子的禁用工具表；空 = 静态默认再与宿主已注册工具取交集。                              |
 | `resume`        | `auto`          | 续跑档位：`auto` / `opt-in` / `off`。                                                             |
 | `language`      | `zh`            | 界面语言：`zh`（中文，默认）/ `en`（English）/ `ru`（Русский）。作用于 web 管理面板文案、内置技能正文与模型路由描述、首次播种的预置 agent 模板（`templates/agents/<language>/`）；改后重启 dsh 生效，已存在的 agent 文件不会被改写。 |
-| `disabledAgents` | `[]`（volatile） | **名册开关**：名单里的 agent 从 `use_agent`/`ask_agent` 名册隐藏、按名调用被拒；**只过滤名册，永不改动 agent 文件**。volatile 写热生效；`/subagents` 命令可代写，执行期还会按活值再查（模型硬调停用名会被拒绝）。 |
+| `disabledAgents` | `[]`（volatile） | **名册开关**：名单里的 agent 从 `use_agent`/`ask_agent` 名册隐藏、按名调用被拒；**只过滤名册，永不改动 agent 文件**。volatile 写热生效；`/registry-config` 命令可代写，执行期还会按活值再查（模型硬调停用名会被拒绝）。 |
 | `ptcEnabled`    | `false`         | **opt-in 门控**：false（默认）不注册任何额外工具；true 在插件下次挂载（重启 dsh）时按 standing scope 注册 `codemode` 工具（主代理与派发子代理都可见）。Experimental（试验性功能，默认关闭）。 |
 | `jevEnabled` 等 六键 | 见 ptc 章节 | jev 能力的 volatile 配置：`jevEnabled`（默认 false = 零 jev 调用）/`jevBackend`（zen）/`jevModel`（'' = 后端默认）/`jevTimeoutMs`（3000）/`jevSecretFile`（''）/`storageDir`（'' = `<dsh home>/storages/ptc-subagent`）。 |
 
-## /subagents 命令
+## /registry-config 命令
 
-会话里输入 `/subagents` 打开管理向导（ask_user_question 两道多选题）：
+会话里输入 `/registry-config` 打开管理向导（ask_user_question 两道多选题）：
 
 1. **停用开关**：勾选要停用的 agent（勾选集合 = 新的 `disabledAgents`；不勾 =
    全部启用；已停用的名字要**保持勾选**才继续停用，选项描述标注当前状态）。

@@ -371,7 +371,7 @@ export function askAgentTool(ctx: Context, cfg: AskAgentConfig) {
         if (isAgentDisabled(args.agent as string, cfg.disabledAgents)) {
           throw new Error(
             `${cfg.toolName}: agent "${args.agent}" is disabled by the disabledAgents plugin config ` +
-            `(roster toggle) — enable it via the /subagents command or the plugin entry config`,
+            `(roster toggle) — enable it via the /registry-config command or the plugin entry config`,
           )
         }
         const labels = [...new Set([agent.meta.displayName ?? agent.meta.name, agent.meta.name])]

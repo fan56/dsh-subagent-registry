@@ -4,7 +4,7 @@
  * `templates/agents/` which only the first-install seeding scans).
  *
  * These are never seeded automatically — a fresh install still starts with
- * exactly workhorse / oldfox / rubber-duck. The `/subagents` command (or a
+ * exactly workhorse / oldfox / rubber-duck. The `/registry-config` command (or a
  * manual copy) installs one into the configured agents dir:
  *
  * - `ptc-subagent` — the batch decision-work specialist; selecting it in the

@@ -99,7 +99,7 @@ export interface RunAgentConfig {
   askToolName?: string
   /**
    * Agent names excluded from the roster (`disabledAgents` config key, the
-   * `/subagents` command's toggle). A pure configuration filter: a disabled
+   * `/registry-config` command's toggle). A pure configuration filter: a disabled
    * agent's `<name>.md` stays on disk untouched — it just disappears from the
    * tool description roster, and an execute-time re-check refuses to run it
    * even when the model names it directly.
@@ -602,7 +602,7 @@ export function runAgentTool(ctx: Context, cfg: RunAgentConfig) {
       if (isAgentDisabled(args.agent, cfg.disabledAgents)) {
         throw new Error(
           `agent "${args.agent}" is disabled by the disabledAgents plugin config ` +
-          `(roster toggle; the ${args.agent}.md file is untouched) — enable it via the /subagents command ` +
+          `(roster toggle; the ${args.agent}.md file is untouched) — enable it via the /registry-config command ` +
           `or remove it from the disabledAgents list in the plugin entry config`,
         )
       }

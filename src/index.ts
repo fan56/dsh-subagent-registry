@@ -83,9 +83,9 @@ const SKILL_INVOCATION = { modelInvocable: true, userInvocable: true } as const
  * within the 500-char routing budget.
  */
 const SKILL_DESCRIPTIONS: Record<Language, string> = {
-  zh: 'dsh 子代理注册表插件（@aiwayds/dsh-subagent-registry）使用与配置指南。凡涉及自定义子代理、use_agent/ask_agent、/subagents 命令、agents 目录、agent .md 编写、子代理续跑，或要调整本插件配置时先读本指南：~/.dsh/agents/*.md frontmatter 全键、entry config 全键（agentsDir…language/disabledAgents/ptcEnabled/jev*）、opt-in agent 安装（ptc-subagent/minimal-subagent，试验性，默认关闭）、ask_user_question 代写向导、中断续跑、接入与使用体检。触发词：子代理、agent、use_agent、ask_agent、/subagents、停用、disabledAgents、ptc、codemode、续跑、resume、体检、调试、没调用、语言。',
-  en: 'Guide to the dsh subagent registry plugin. Covers custom subagents, use_agent/ask_agent, /subagents, the agents dir, agent .md, resume, plugin config: ~/.dsh/agents/*.md frontmatter keys, entry config keys (agentsDir…/language/disabledAgents/ptcEnabled/jev*), opt-in installs (ptc-subagent/minimal-subagent; experimental, default off), ask_user_question wizard, diagnostics. Triggers: subagent, agent, use_agent, ask_agent, /subagents, disable, disabledAgents, ptc, codemode, resume, debug, язык.',
-  ru: 'Руководство по плагину @aiwayds/dsh-subagent-registry: суб-агенты, use_agent/ask_agent, /subagents, каталог agents, agent .md, resume, настройка: frontmatter ~/.dsh/agents/*.md, ключи entry config (disabledAgents/ptcEnabled/jev*), opt-in агенты (ptc-subagent/minimal-subagent; экспериментальные, по умолчанию выключены), ask_user_question, диагностика. Триггеры: суб-агент, agent, use_agent, ask_agent, /subagents, отключить, disabledAgents, ptc, codemode, resume, отладка, не вызывается, язык.',
+  zh: 'dsh 子代理注册表插件（@aiwayds/dsh-subagent-registry）使用与配置指南。凡涉及自定义子代理、use_agent/ask_agent、/registry-config 命令、agents 目录、agent .md 编写、子代理续跑，或要调整本插件配置时先读本指南：~/.dsh/agents/*.md frontmatter 全键、entry config 全键（agentsDir…language/disabledAgents/ptcEnabled/jev*）、opt-in agent 安装（ptc-subagent/minimal-subagent，试验性，默认关闭）、ask_user_question 代写向导、中断续跑、接入与使用体检。触发词：子代理、agent、use_agent、ask_agent、/registry-config、停用、disabledAgents、ptc、codemode、续跑、resume、体检、调试、没调用、语言。',
+  en: 'Guide to the dsh subagent registry plugin. Covers custom subagents, use_agent/ask_agent, /registry-config, the agents dir, agent .md, resume, plugin config: ~/.dsh/agents/*.md frontmatter keys, entry config keys (agentsDir…/language/disabledAgents/ptcEnabled/jev*), opt-in installs (ptc-subagent/minimal-subagent; experimental, default off), ask_user_question wizard, diagnostics. Triggers: subagent, agent, /registry-config, disable, disabledAgents, ptc, codemode, resume, debug, язык.',
+  ru: 'Руководство по плагину @aiwayds/dsh-subagent-registry: суб-агенты, use_agent/ask_agent, /registry-config, каталог agents, agent .md, resume, настройка: frontmatter ~/.dsh/agents/*.md, ключи entry config (disabledAgents/ptcEnabled/jev*), opt-in агенты (ptc-subagent/minimal-subagent; экспериментальные, по умолчанию выключены), ask_user_question, диагностика. Триггеры: суб-агент, agent, /registry-config, отключить, disabledAgents, ptc, codemode, resume, отладка, не вызывается, язык.',
 }
 
 /**
@@ -169,7 +169,7 @@ export const inject = ['tools', 'subagents', 'agents', 'skills', 'systemPrompt']
  * `en`, `ru`).
  *
  * The roster toggle: `disabledAgents` (volatile, default `[]`) lists agent
- * names excluded from the roster — the `/subagents` command and a direct
+ * names excluded from the roster — the `/registry-config` command and a direct
  * settings edit both write it. Volatile, so a write hot-swaps the value and
  * the next roster refresh applies it without remounting; agent files are
  * never touched.
@@ -267,7 +267,7 @@ export function apply(ctx: Context, config: RunAgentConfig): void {
   let refreshRoster = async (): Promise<void> => {}
   // Web is optional: CLI/TUI mounts must keep their dispatch tools without Connection.
   ctx.inject?.(['connection', 'webServer'], web => registerPresetsRpc(web, dir, () => refreshRoster(), () => runConfig.language))
-  // The /subagents management command (roster toggle + opt-in installs + the
+  // The /registry-config management command (roster toggle + opt-in installs + the
   // codemode switch). Guarded on the host's commands service: a host without
   // it keeps the manual config recipe as the only surface. The command shares
   // the roster refresh seam with the web panel — the trailing refresh applies

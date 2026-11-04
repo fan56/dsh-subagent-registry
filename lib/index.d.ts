@@ -54,7 +54,7 @@ export declare const inject: string[];
  * `en`, `ru`).
  *
  * The roster toggle: `disabledAgents` (volatile, default `[]`) lists agent
- * names excluded from the roster — the `/subagents` command and a direct
+ * names excluded from the roster — the `/registry-config` command and a direct
  * settings edit both write it. Volatile, so a write hot-swaps the value and
  * the next roster refresh applies it without remounting; agent files are
  * never touched.

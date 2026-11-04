@@ -65,7 +65,7 @@ export interface RunAgentConfig {
     askToolName?: string;
     /**
      * Agent names excluded from the roster (`disabledAgents` config key, the
-     * `/subagents` command's toggle). A pure configuration filter: a disabled
+     * `/registry-config` command's toggle). A pure configuration filter: a disabled
      * agent's `<name>.md` stays on disk untouched — it just disappears from the
      * tool description roster, and an execute-time re-check refuses to run it
      * even when the model names it directly.

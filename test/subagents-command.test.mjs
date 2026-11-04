@@ -1,4 +1,4 @@
-// The /subagents command: the fake-ctx wizard flow (disable toggle + opt-in
+// The /registry-config command: the fake-ctx wizard flow (disable toggle + opt-in
 // installs + the ptcEnabled linkage), the NO_PROVIDER / no-ask-surface
 // degradation to the manual recipe, the declined-panel no-op, the
 // settings-conflict retry, and the host-command registration guard.
@@ -104,15 +104,61 @@ const INVOCATION = { agent: { id: 'root-1' }, rawInput: '', signal: new AbortCon
   try {
     const ctx = fakeCtx()
     registerSubagentsCommand(makeDeps(ctx, dir))
-    assert.deepEqual(ctx.recorded.effects, ['dsh-subagent-registry:/subagents'], 'the effect carries the stable label')
+    assert.deepEqual(ctx.recorded.effects, ['dsh-subagent-registry:/registry-config'], 'the effect carries the stable label')
     assert.equal(ctx.recorded.commands.length, 1)
-    assert.equal(ctx.recorded.commands[0].name, 'subagents')
+    assert.equal(ctx.recorded.commands[0].name, 'registry-config')
     assert.equal(ctx.recorded.commands[0].description, EN.commandDescription)
+    assert.match(ctx.recorded.commands[0].name, /^[a-z][a-z0-9-]*$/, 'the command name follows the host naming rule')
     // A host without the commands service: registration is a silent no-op.
     const bare = fakeCtx({ services: { commands: undefined } })
     registerSubagentsCommand(makeDeps(bare, dir))
     assert.equal(bare.recorded.effects.length, 0, 'no effect without the commands service')
     console.log('PASS registration: effect + definition; guarded on missing commands service')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
+// --- collision guard: a host refusing the name warns and keeps mounting ---
+
+{
+  const dir = agentsDir()
+  try {
+    // The exact duplicate-name error the host's NamedEntries insert throws
+    // (global scope wording) — e.g. when a host/tui twin already registered
+    // the same command name.
+    const hostDuplicate = new Error(
+      'command "registry-config" is already registered (for a per-agent variant, mount a command-injected plugin under that agent\'s `agent.ctx`)',
+    )
+    const ctx = fakeCtx({ services: { commands: { register() { throw hostDuplicate } } } })
+    const warnings = []
+    const originalWarn = console.warn
+    console.warn = (...parts) => { warnings.push(parts.map(String).join(' ')) }
+    let returned
+    try {
+      returned = registerSubagentsCommand(makeDeps(ctx, dir))
+    } finally {
+      console.warn = originalWarn
+    }
+    assert.doesNotThrow(() => { void returned }, 'the duplicate-name throw must not escape registration')
+    assert.deepEqual(ctx.recorded.effects, ['dsh-subagent-registry:/registry-config'], 'the effect still carries the label')
+    assert.equal(warnings.length, 1, 'exactly one console.warn for the refusal')
+    assert.match(warnings[0], /'\/registry-config' command not registered/)
+    assert.match(warnings[0], /already registered/, 'the host refusal detail rides the warning')
+    // A non-duplicate registration failure degrades the same way (warn + skip,
+    // never a startup crash).
+    const boom = fakeCtx({ services: { commands: { register() { throw new TypeError('boom') } } } })
+    const boomWarnings = []
+    const originalWarn2 = console.warn
+    console.warn = (...parts) => { boomWarnings.push(parts.map(String).join(' ')) }
+    try {
+      registerSubagentsCommand(makeDeps(boom, dir))
+    } finally {
+      console.warn = originalWarn2
+    }
+    assert.equal(boomWarnings.length, 1)
+    assert.match(boomWarnings[0], /boom/)
+    console.log('PASS collision guard: host duplicate-name throw degrades to warn, startup unaffected')
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }

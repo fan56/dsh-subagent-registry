@@ -1,7 +1,7 @@
 # dsh-subagent-registry
 
 The shared language for the merged subagent registry: locally-defined agent
-files become callable subagents, the `/subagents` command manages them, and
+files become callable subagents, the `/registry-config` command manages them, and
 the opt-in codemode toolchain runs batch decision programs. Created in 0.18.0
 when `@aiwayds/dsh-ptc-subagent` and `@aiwayds/dsh-mini-subagent` merged into
 this package.
@@ -33,14 +33,14 @@ a one-time verbatim copy: an existing file is never overwritten, and nothing
 ever deletes one. Both are **Experimental — disabled by default**: the
 capability has migrated and merged, but the product surface stays
 experimental until it graduates; enabling is always an explicit act through
-`/subagents` or the config keys, never a default.
+`/registry-config` or the config keys, never a default.
 _Avoid_: preset agent, default agent, bundled agent (the trio is the bundled set)
 
 **disabledAgents**:
 The volatile config key holding the roster toggle: agent names excluded from
 both tool rosters, with an execute-time re-check refusing hard-named calls.
 A pure roster filter — disable semantics live in this config key, never in
-frontmatter, and the files stay untouched. The `/subagents` wizard writes it;
+frontmatter, and the files stay untouched. The `/registry-config` wizard writes it;
 a volatile write hot-applies through the roster refresh.
 _Avoid_: blocklist (implies more than roster visibility), enable flag (the list IS the toggle)
 

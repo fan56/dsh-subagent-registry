@@ -76,7 +76,7 @@ function fakeExec() {
     () => tool.execute({ agent: 'beta', prompt: 'do things' }, fakeExec()),
     (error) => {
       assert.match(error.message, /disabled by the disabledAgents plugin config/)
-      assert.match(error.message, /\/subagents/, 'the error points at the management command')
+      assert.match(error.message, /\/registry-config/, 'the error points at the management command')
       assert.match(error.message, /beta\.md file is untouched/, 'the error promises the file stays')
       return true
     },

@@ -1,6 +1,6 @@
 /**
- * The `/subagents` slash command — the plugin's management wizard over the
- * two configuration surfaces it owns:
+ * The `/registry-config` slash command — the plugin's management wizard over
+ * the two configuration surfaces it owns:
  *
  * 1. **The roster toggle** (`disabledAgents`, volatile): a multi-select
  *    question listing every roster agent; the checked set BECOMES the new
@@ -145,10 +145,20 @@ export interface SubagentsCommandDeps {
 export declare const DISABLE_QUESTION_ID = "disable-agents";
 /** Question id of the opt-in install (the answer echoes it back). */
 export declare const OPT_IN_QUESTION_ID = "opt-in-agents";
+/** The host command name (satisfies the host's `/^[a-z][a-z0-9_-]*$/` rule). */
+export declare const REGISTRY_CONFIG_COMMAND_NAME = "registry-config";
 /**
- * Register the `/subagents` command on the host command registry. A no-op on
- * a host without the commands service (the dispatch surfaces degrade to the
- * manual config recipe documented in the README).
+ * Register the `/registry-config` command on the host command registry. A
+ * no-op on a host without the commands service (the dispatch surfaces degrade
+ * to the manual config recipe documented in the README).
+ *
+ * Collision guard: the host keeps commands in per-scope `NamedEntries` tables
+ * that THROW on a duplicate name (`command "X" is already registered …`), and
+ * its listing API (`list` / `find`) is agent-scoped — it needs a receiving
+ * agent this plugin does not have at mount time, so a pre-check is impossible.
+ * The registration therefore runs inside a try/catch: a name already taken
+ * (e.g. a host/tui twin registration) degrades to a `console.warn` and the
+ * plugin keeps mounting — startup never explodes over a command name.
  */
 export declare function registerSubagentsCommand(deps: SubagentsCommandDeps): void;
 /** Build the disable-toggle question (roster snapshot + current state marks). */
