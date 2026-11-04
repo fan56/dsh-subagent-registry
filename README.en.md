@@ -27,6 +27,11 @@ partial work. No host patching, no code — a markdown file per agent.
 - **Opt-in PTC capability** — 0.18.0 merges the entire `@aiwayds/dsh-ptc-subagent`:
   the `codemode` tool (jev decisions + session-scoped store) registers behind
   the `ptcEnabled` gate, fully off by default (below).
+- **⚠️ Experimental — disabled by default** — the two opt-in agents
+  (`ptc-subagent` / `minimal-subagent`) and the whole codemode (PTC) toolchain
+  are an experimental product surface: the capability has migrated and merged,
+  but everything ships off and only an explicit `/subagents` check or the
+  `ptcEnabled` config keys turn it on (below).
 - **Built on the official subagent machinery** — no reimplementation: every
   custom agent starts through dsh's stock `spawn` provider, so each child is a
   real dsh subagent (full session, persistence, continuable). New capabilities
@@ -49,13 +54,16 @@ markdown files: edit them freely.
 | **oldfox** (老法师) | The advisor who doesn't build: analysis, trouble shooting, review, audits — checks, never implements; `glm-5.3` | "Have oldfox review this design" |
 | **rubber-duck** (小黄鸭) | Multimodal visual agent: reads screenshots / charts / handwriting, draws plotext / mermaid / matplotlib figures; runs on an image-capable model | "Use rubber-duck on this screenshot, extract the page text" |
 
-Two **opt-in agents** ship alongside (not installed by default): `ptc-subagent`
-(the batch decision-work specialist; linked to the codemode toolchain) and
-`minimal-subagent` (the terminal-only executor, a leaf). Install them through
-the `/subagents` command or by copying
-`templates/opt-in-agents/<language>/<name>.md` from the package by hand;
-existing files are never overwritten, unchecking never deletes. The seed is
-the trio only — opt-ins are never installed automatically.
+Two **opt-in agents** ship alongside (not installed by default):
+⚠️ **Experimental — disabled by default**. `ptc-subagent` (the batch
+decision-work specialist; linked to the codemode toolchain) and
+`minimal-subagent` (the terminal-only executor, a leaf) — the capability has
+migrated and merged, but the product surface stays experimental until it
+graduates: nothing is installed or enabled until you explicitly check them in
+the `/subagents` command (or copy
+`templates/opt-in-agents/<language>/<name>.md` from the package by hand and
+write the config keys); existing files are never overwritten, unchecking never
+deletes. The seed is the trio only — opt-ins are never installed automatically.
 
 ## Usage
 
@@ -134,7 +142,7 @@ section of the cordis.patch.yml `insert` entry):
 | `resume`        | `auto`          | Resume mode: `auto` / `opt-in` / `off`.                                                           |
 | `language`      | `zh`            | UI language: `zh` (Chinese, the default) / `en` (English) / `ru` (Русский). Affects the web management panel texts, the bundled skill body and its model-facing routing description, and the agent templates seeded on first install (`templates/agents/<language>/`); restart dsh after changing. Existing agent files are never rewritten. |
 | `disabledAgents` | `[]` (volatile) | **The roster toggle**: listed agent names vanish from the `use_agent`/`ask_agent` rosters and calls by name are refused; **a pure roster filter that never touches agent files**. Volatile writes hot-apply; the `/subagents` command writes it for you, and the execute path re-checks the live value (a model hard-naming a disabled agent is refused). |
-| `ptcEnabled`    | `false`         | **The opt-in gate**: false (default) registers nothing extra; true registers the `codemode` tool at standing scope (visible to the main agent and every dispatched subagent) on the next plugin mount (dsh restart). |
+| `ptcEnabled`    | `false`         | **The opt-in gate**: false (default) registers nothing extra; true registers the `codemode` tool at standing scope (visible to the main agent and every dispatched subagent) on the next plugin mount (dsh restart). Experimental — disabled by default. |
 | six jev keys    | see the ptc section | The volatile jev configuration: `jevEnabled` (default false = zero jev calls) / `jevBackend` (zen) / `jevModel` ('' = backend default) / `jevTimeoutMs` (3000) / `jevSecretFile` ('') / `storageDir` ('' = `<dsh home>/storages/ptc-subagent`). |
 
 ## The /subagents command
@@ -148,8 +156,9 @@ multi-select questions through ask_user_question):
    mark the current state). The scope covers every roster agent (including
    your own), and **no md file is ever touched**.
 2. **Opt-in installs**: check `ptc-subagent` / `minimal-subagent` to install
-   (template copy; existing files never overwritten; unchecking never
-   deletes). Selecting ptc links `ptcEnabled: true` and copies the md;
+   (⚠️ Experimental — disabled by default). Template copy; existing files
+   never overwritten; unchecking never deletes. Selecting ptc links
+   `ptcEnabled: true` and copies the md;
    unselecting links the reverse (writes false and parks ptc-subagent in
    `disabledAgents`, the copied md is kept).
 
@@ -161,6 +170,10 @@ manual recipe (the `disabledAgents` / `ptcEnabled` keys plus copying
 `templates/opt-in-agents/<language>/<name>.md` by hand).
 
 ## The ptc capability (opt-in: the codemode tool)
+
+> ⚠️ **Experimental — disabled by default**: the capability has migrated and
+> merged, the product surface stays experimental; `ptcEnabled: false` (the
+> default) registers no tool.
 
 Since 0.18.0 this package carries the entire former `@aiwayds/dsh-ptc-subagent`:
 the `codemode` tool is a plugin-owned PTC runner — async TypeScript program

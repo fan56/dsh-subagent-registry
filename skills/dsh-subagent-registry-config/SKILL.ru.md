@@ -1,6 +1,6 @@
 ---
 name: dsh-subagent-registry-config
-description: "Руководство по плагину реестра суб-агентов dsh (@aiwayds/dsh-subagent-registry): суб-агенты, use_agent/ask_agent, команда /subagents, каталог agents, agent .md, resume, настройка: frontmatter ~/.dsh/agents/*.md, ключи entry config (включая disabledAgents/ptcEnabled/jev*), opt-in агенты (ptc-subagent/minimal-subagent), мастер ask_user_question, диагностика. Триггеры: суб-агент, agent, use_agent, ask_agent, /subagents, отключить, disabledAgents, ptc, codemode, resume, отладка, не вызывается, язык."
+description: "Руководство по плагину @aiwayds/dsh-subagent-registry: суб-агенты, use_agent/ask_agent, /subagents, каталог agents, agent .md, resume, настройка: frontmatter ~/.dsh/agents/*.md, ключи entry config (disabledAgents/ptcEnabled/jev*), opt-in агенты (ptc-subagent/minimal-subagent; экспериментальные, по умолчанию выключены), ask_user_question, диагностика. Триггеры: суб-агент, agent, use_agent, ask_agent, /subagents, отключить, disabledAgents, ptc, codemode, resume, отладка, не вызывается, язык."
 ---
 
 # Руководство по dsh-subagent-registry (пользовательские суб-агенты / use_agent)
@@ -137,6 +137,9 @@ persona system prompt по описанию пользователя, **испо
 2. **Opt-in установка**: отметьте опциональных агентов для установки —
    `ptc-subagent` (специалист по пакетным решениям; связан с `ptcEnabled`) и
    `minimal-subagent` (терминальный исполнитель; без связи с конфигурацией).
+   ⚠️ Оба — **экспериментальные (Experimental), по умолчанию выключены**:
+   возможности перенесены и объединены, но продуктовая поверхность остаётся
+   экспериментальной; включение — только явной отметкой или ключом конфигурации.
    Установка копирует `templates/opt-in-agents/<язык>/<имя>.md` из пакета в
    каталог агентов (существующий файл не перезаписывается; снятие отметки
    никогда не удаляет скопированный файл). Выбор `ptc-subagent` переводит
@@ -304,7 +307,8 @@ grep dsh-subagent-registry ~/.dsh/profiles/<profile>/cordis.patch.yml
    файлы можно вызывать по имени сразу.
 3. **Предустановленные агенты пропали/изменены** → при первом запуске три агента
    workhorse / oldfox / rubber-duck внедряются только если каталог пуст («посев
-   тройки»); ptc-subagent / minimal-subagent — это **два opt-in**, устанавливаются
+   тройки»); ptc-subagent / minimal-subagent — это **два opt-in**
+   (экспериментальные, по умолчанию выключены), устанавливаются
    только командой `/subagents` или ручным копированием, никогда не засеваются
    автоматически. Существующие файлы никогда не перезаписываются, удалил —
    значит удалил. Удаление плагина тоже не трогает файлы в `~/.dsh/agents/`.

@@ -10,7 +10,8 @@
  *    `refreshRoster()` applies it to the tool descriptions immediately.
  * 2. **The opt-in agents** (`ptc-subagent` / `minimal-subagent`): a
  *    multi-select over the templates shipped under
- *    `templates/opt-in-agents/`. Checking one installs its template into the
+ *    `templates/opt-in-agents/`. Both are Experimental — disabled by default;
+ *    the wizard texts mark it. Checking one installs its template into the
  *    agents dir (an existing file is NEVER overwritten; unchecking never
  *    deletes one). Selecting `ptc-subagent` additionally flips
  *    `ptcEnabled: true` (the codemode tool registers on the next plugin

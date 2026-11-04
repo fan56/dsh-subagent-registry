@@ -30,7 +30,10 @@ One of the two agent definitions shipped under `templates/opt-in-agents/`
 (`ptc-subagent`, `minimal-subagent`) that are NEVER seeded — the first-install
 seed plants only the trio (workhorse / oldfox / rubber-duck). Installation is
 a one-time verbatim copy: an existing file is never overwritten, and nothing
-ever deletes one.
+ever deletes one. Both are **Experimental — disabled by default**: the
+capability has migrated and merged, but the product surface stays
+experimental until it graduates; enabling is always an explicit act through
+`/subagents` or the config keys, never a default.
 _Avoid_: preset agent, default agent, bundled agent (the trio is the bundled set)
 
 **disabledAgents**:

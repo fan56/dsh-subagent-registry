@@ -1,6 +1,6 @@
 ---
 name: dsh-subagent-registry-config
-description: "dsh 子代理注册表插件（@aiwayds/dsh-subagent-registry）使用与配置指南。凡涉及自定义子代理、use_agent/ask_agent、/subagents 命令、agents 目录、agent .md 编写、子代理续跑，或要调整本插件配置时先读本指南：~/.dsh/agents/*.md frontmatter 全键、entry config 全键（agentsDir…language/disabledAgents/ptcEnabled/jev*）、opt-in agent 安装（ptc-subagent/minimal-subagent）、ask_user_question 代写向导、中断续跑、接入与使用体检。触发词：子代理、agent、use_agent、ask_agent、/subagents、停用、disabledAgents、ptc、codemode、续跑、resume、体检、调试、没调用、语言。"
+description: "dsh 子代理注册表插件（@aiwayds/dsh-subagent-registry）使用与配置指南。凡涉及自定义子代理、use_agent/ask_agent、/subagents 命令、agents 目录、agent .md 编写、子代理续跑，或要调整本插件配置时先读本指南：~/.dsh/agents/*.md frontmatter 全键、entry config 全键（agentsDir…language/disabledAgents/ptcEnabled/jev*）、opt-in agent 安装（ptc-subagent/minimal-subagent，试验性，默认关闭）、ask_user_question 代写向导、中断续跑、接入与使用体检。触发词：子代理、agent、use_agent、ask_agent、/subagents、停用、disabledAgents、ptc、codemode、续跑、resume、体检、调试、没调用、语言。"
 ---
 
 # dsh-subagent-registry 使用指南（自定义子代理 / use_agent）
@@ -117,7 +117,9 @@ cordis.patch.yml `insert` 项的 `config:` 段，即 entry config）。九个注
    agent 文件**。
 2. **opt-in 安装**：勾选要安装的可选 agent——`ptc-subagent`（批量判定专员，
    联动 `ptcEnabled`）与 `minimal-subagent`（极简终端执行器，无配置联动）。
-   安装 = 把包内 `templates/opt-in-agents/<语言>/<名字>.md` 拷入 agents 目录
+   ⚠️ 两者均为 **Experimental（试验性功能），默认关闭**——能力已并入但产品面
+   仍处试验阶段，只在显式勾选或写配置键后才启用。安装 = 把包内
+   `templates/opt-in-agents/<语言>/<名字>.md` 拷入 agents 目录
    （已存在不覆盖；取消勾选**不删除**已拷文件）。选 `ptc-subagent` 联动
    `ptcEnabled: true`；取消选联动反向（写 false + 把 ptc-subagent 停用进
    `disabledAgents`，文件保留）。
@@ -238,7 +240,8 @@ grep dsh-subagent-registry ~/.dsh/profiles/<profile>/cordis.patch.yml
    frontmatter 是否合法且 name 与文件名一致（见上一条）。Web 管理页打开或刷新会同步名册；纯 CLI/TUI 下次挂载更新名册，新文件均可立即按名调用。
 3. **预置 agent 丢了/被改** → 首次启动只在目录为空时植入 workhorse / oldfox /
    rubber-duck 三个预置 agent（"三件套种子"）；ptc-subagent / minimal-subagent
-   是**两个 opt-in**，只经 `/subagents` 命令或手工拷贝安装，绝不自动播种。已有
+   是**两个 opt-in**（Experimental 试验性功能，默认关闭），只经 `/subagents`
+   命令或手工拷贝安装，绝不自动播种。已有
    文件永远不会被覆盖，删掉就是删掉。卸载插件也不会动 `~/.dsh/agents/` 里的
    文件。名册里少人先查是不是被 `/subagents`（`disabledAgents`）停用了——停用
    只隐藏不改文件。

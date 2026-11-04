@@ -10,7 +10,8 @@
  *    `refreshRoster()` applies it to the tool descriptions immediately.
  * 2. **The opt-in agents** (`ptc-subagent` / `minimal-subagent`): a
  *    multi-select over the templates shipped under
- *    `templates/opt-in-agents/`. Checking one installs its template into the
+ *    `templates/opt-in-agents/`. Both are Experimental — disabled by default;
+ *    the wizard texts mark it. Checking one installs its template into the
  *    agents dir (an existing file is NEVER overwritten; unchecking never
  *    deletes one). Selecting `ptc-subagent` additionally flips
  *    `ptcEnabled: true` (the codemode tool registers on the next plugin
@@ -160,10 +161,10 @@ const EN_STRINGS: SubagentsStrings = {
   markDisabled: 'currently disabled — keep checked to stay disabled, uncheck to re-enable',
   markEnabled: 'currently enabled — check to disable',
   qOptInHeader: 'Opt-in agents',
-  qOptInQuestion: 'Check the opt-in agents to install / keep enabled.',
-  qOptInDetail: 'Installing copies the template into the agents dir (an existing file is never overwritten; unchecking never deletes a copied file).',
-  ptcBlurb: 'Batch decision-work specialist; links ptcEnabled (the codemode toolchain).',
-  minimalBlurb: 'Minimal terminal-only executor (leaf); no config linkage.',
+  qOptInQuestion: 'Check the opt-in agents to install / keep enabled (both Experimental — disabled by default).',
+  qOptInDetail: 'Experimental — disabled by default. Installing copies the template into the agents dir (an existing file is never overwritten; unchecking never deletes a copied file).',
+  ptcBlurb: 'Experimental. Batch decision-work specialist; links ptcEnabled (the codemode toolchain).',
+  minimalBlurb: 'Experimental. Minimal terminal-only executor (leaf); no config linkage.',
   stateInstalled: 'installed',
   stateMissing: 'not installed',
   ptcOnNow: 'codemode enabled',

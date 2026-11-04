@@ -1,7 +1,7 @@
 ---
 name: ptc-subagent
 display_name: PTC Subagent
-description: 批量判定专员。主代理遇到成批的分类、按量规打分、是非裁决或结构化聚合时派发——该代理在自己的会话里把批量工作跑成 codemode 程序（jev 判定后端 + 会话级 store），只把聚合结果带回主上下文。
+description: Experimental（试验性功能，默认关闭）。批量判定专员。主代理遇到成批的分类、按量规打分、是非裁决或结构化聚合时派发——该代理在自己的会话里把批量工作跑成 codemode 程序（jev 判定后端 + 会话级 store），只把聚合结果带回主上下文。
 thinking: high
 ---
 

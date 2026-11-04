@@ -1,7 +1,7 @@
 ---
 name: ptc-subagent
 display_name: PTC Subagent
-description: Batch decision-work specialist. Dispatch when the main agent hits a batch of classification, rubric scoring, yes/no adjudication, or structured aggregation over an item set — this agent runs the batch as codemode programs (jev decision backend + session-scoped store) in its own session and returns only the aggregate.
+description: Experimental (disabled by default). Batch decision-work specialist. Dispatch when the main agent hits a batch of classification, rubric scoring, yes/no adjudication, or structured aggregation over an item set — this agent runs the batch as codemode programs (jev decision backend + session-scoped store) in its own session and returns only the aggregate.
 thinking: high
 ---
 
