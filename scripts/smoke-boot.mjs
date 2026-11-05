@@ -75,7 +75,9 @@ writeFileSync(path.join(profile, 'package.json'), JSON.stringify({
   },
 }, null, 2) + '\n')
 
-const install = spawnSync(npm, [...npmArgs, 'install', '--no-audit', '--no-fund', '--loglevel=error'], { cwd: profile, encoding: 'utf8' })
+// The profile install pins the official registry explicitly: a dev machine
+// .npmrc pointing at a mirror must not decide what this gate resolves.
+const install = spawnSync(npm, [...npmArgs, 'install', '--registry=https://registry.npmjs.org', '--no-audit', '--no-fund', '--loglevel=error'], { cwd: profile, encoding: 'utf8' })
 if (install.status !== 0 || install.error) fail('npm install in the scratch profile failed (lifecycle scripts on — the consumer path)', `${install.stdout}\n${install.stderr}`)
 
 // Consumer stand-down: the linker must not materialize a @deepseek-ai scope

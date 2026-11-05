@@ -30,6 +30,7 @@
 import type { ToolDefinition, ToolRunContext } from '@deepseek-ai/dsh-tools';
 import type { Context } from '@deepseek-ai/cordis';
 import type { PtcBindingNamespace, PtcRunFailure } from '@deepseek-ai/dsh-ptc-runtime';
+import { HarnessError } from '@deepseek-ai/dsh-llm';
 import type { JsonValue } from '@deepseek-ai/dsh-util-values';
 import { type JevBindingDeps, type JevCollector } from './bindings/jev.ts';
 import { createStoreBinding, type StoreCollector } from './bindings/store.ts';
@@ -37,6 +38,22 @@ import { createStoreBinding, type StoreCollector } from './bindings/store.ts';
 export declare const CODEMODE_TOOL_NAME = "codemode";
 /** Default elapsed budget for one program when the model omits `timeoutMs`. */
 export declare const DEFAULT_RUN_TIMEOUT_MS = 60000;
+/**
+ * The host-canonical failed-program error (`code: 'CODE_RUN_FAILED'`). The
+ * class moved with the PTC transport: dsh-tools shipped it through 0.2.1-rc.5,
+ * 0.2.2-rc.1 moved it to @deepseek-ai/dsh-tool-executor-ptc — a package that
+ * does not exist on the floors this plugin's peers promise (>=0.2.0-rc.2), so
+ * importing it statically would kill the plugin at load on pre-0.2.2 hosts.
+ * The execution pipeline's contract recognizes the *base* class: any
+ * `HarnessError` (dsh-llm) becomes the structured `{ name, code }` isError
+ * payload (dsh-tools pipeline errorInfo), and both generations' canonical
+ * class is exactly `HarnessError('CODE_RUN_FAILED')` with this name. This
+ * local subclass reproduces that shape on every host generation without
+ * reaching for a package the floors cannot see.
+ */
+export declare class CodeRunFailedError extends HarnessError {
+    constructor(message: string);
+}
 /** Everything the tool closes over; built once in `apply`. */
 export interface CodemodeDeps {
     /** Plugin context — read for `ctx.ptcRuntime` at use time. */

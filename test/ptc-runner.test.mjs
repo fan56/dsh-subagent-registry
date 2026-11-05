@@ -8,9 +8,12 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
-const { createCodemodeTool, runProgram, formatRunFailure, CODEMODE_TOOL_NAME, DEFAULT_RUN_TIMEOUT_MS } =
+const { createCodemodeTool, runProgram, formatRunFailure, CODEMODE_TOOL_NAME, DEFAULT_RUN_TIMEOUT_MS, CodeRunFailedError: Crf } =
   await import('../lib/ptc/runner.js')
-const { CodeRunFailedError: Crf, RUN_CODE_NAME } = await import('@deepseek-ai/dsh-tools')
+// RUN_CODE_NAME stays a host import; CodeRunFailedError moved out of dsh-tools
+// in 0.2.2-rc.1 (now dsh-tool-executor-ptc) and the lib exports its own
+// canonical-shape subclass, so the instanceof target comes from lib.
+const { RUN_CODE_NAME } = await import('@deepseek-ai/dsh-tools')
 
 /** The plugin's Config shape as plain refs (what apply receives). */
 function makeConfig(overrides = {}) {
