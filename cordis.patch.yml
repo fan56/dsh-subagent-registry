@@ -115,7 +115,16 @@
                 store is session-scoped key/value memory: await store.store(key, value) and await store.load(key). It rides the session's durable log, so it survives resume and is fork-separated — this branch only ever sees its own path's writes. Quotas: 256KB per value, 1MB per branch state; an over-quota write fails with a structured error explaining that bulk data belongs in files (use your native file tools), not in store.
 
                 A failed codemode run comes back as CODE_RUN_FAILED carrying the failure kind and your captured logs: read them, fix the program, and rerun — failures are self-correction fuel, not dead ends.
-              suffix: Your working directory is {{cwd}}.
+              # No persona suffix: the old `Your working directory is {{cwd}}.`
+              # referenced a prompt variable no host generation registers (the
+              # agent loop registers only provider/model, on 0.2.1-rc.x and
+              # 0.2.2+ alike), and strict prompt interpolation rejects unknown
+              # variables at assembly — the suffix killed the first turn of
+              # every codemode session (issue #8, second finding). The working
+              # directory still reaches the model through the
+              # working-directory:current runtime context
+              # (dsh-working-directory, interpolate: false) that the persona
+              # includes by default (includeRuntimeContext: true).
           - id: agent-instructions
             name: '@deepseek-ai/dsh-agent-instructions'
             config:
@@ -188,8 +197,17 @@
             config:
               - id: tool-subagent-control
                 name: '@deepseek-ai/dsh-tool-subagent-control'
+              # list_agents mount rides a per-host bridge (fixes #8): upstream
+              # removed the ./list-agents subpath from the control package's
+              # exports map in 0.2.2 (its main entry now registers discovery
+              # itself), so importing that subpath directly fails the whole
+              # preset with ERR_PACKAGE_PATH_NOT_EXPORTED / never started on
+              # 0.2.2+ hosts. The bridge inspects the installed control
+              # package's exports map and imports the legacy sub-entry only
+              # where it still exists (0.2.0-rc.2 … 0.2.1-rc.x), keeping
+              # exactly one registration on every generation.
               - id: tool-subagent-list-agents
-                name: '@deepseek-ai/dsh-tool-subagent-control/list-agents'
+                name: '@aiwayds/dsh-subagent-registry/legacy-subagent-list-agents'
               - id: tool-subagent
                 name: '@deepseek-ai/dsh-tool-subagent'
                 config:

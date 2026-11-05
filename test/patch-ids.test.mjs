@@ -46,6 +46,29 @@ const topLevelIds = [...patch.matchAll(/^ {4}- id: (\S+)$/gm)].map((match) => ma
 }
 
 {
+  // Issue #8 regression guard: the delegation group's list_agents row must
+  // ride this package's per-host bridge subpath — never the upstream
+  // `./list-agents` subpath, which the 0.2.2 control package dropped from its
+  // exports map (importing it there fails the whole codemode preset with
+  // ERR_PACKAGE_PATH_NOT_EXPORTED / never started).
+  assert.ok(!patch.includes("'@deepseek-ai/dsh-tool-subagent-control/list-agents'"), 'no direct upstream ./list-agents mount row (issue #8)')
+  assert.match(patch, /- id: tool-subagent-list-agents\n {16}name: '@aiwayds\/dsh-subagent-registry\/legacy-subagent-list-agents'/, 'the list_agents row mounts the per-host bridge subpath')
+  console.log('PASS list_agents mount rides the per-host bridge (issue #8)')
+}
+
+{
+  // Issue #8, second finding: the codemode persona must not reference the
+  // {{cwd}} prompt variable — no host generation registers it and strict
+  // prompt interpolation throws at assembly, killing the first turn of every
+  // codemode session. The working directory reaches the model through the
+  // working-directory:current runtime context instead. Comment lines are
+  // stripped first: the guard checks configuration values, not prose.
+  const patchValues = patch.split('\n').filter((line) => !/^\s*#/.test(line)).join('\n')
+  assert.ok(!patchValues.includes('{{cwd}}'), 'no {{cwd}} prompt-variable reference in patch values (issue #8)')
+  console.log('PASS persona carries no {{cwd}} reference (issue #8)')
+}
+
+{
   // The four guard rows keep their migrated composition: the preset registry
   // defaults to native, the model-selection host service rides along, the
   // native preset shadows nothing, and the codemode preset keeps the PTC
