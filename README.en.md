@@ -192,11 +192,13 @@ contract (failure kind + captured logs); the result reports
   appends one row to `<dsh home>/storages/ptc-subagent/usage.jsonl` (metadata
   and token counts only, never state text).
 - **What comes with it**: the `ptc-subagent` opt-in template is the dedicated
-  dispatch role; the bundle patch carries the four agent-preset guard rows
-  (`agent-preset-registry` / `subagent-model-selection-settings` /
-  `preset-native` / `preset-codemode`) — a profile that already mounts an
-  agent-preset layer must remove duplicate id rows before installing, or the
-  loader rejects the duplicated id.
+  dispatch role; since 0.19.1 the bundle patch carries only the two guarded
+  preset rows (`preset-native` / `preset-codemode`, disabled on profiles that
+  select `@deepseek-ai/dsh-web-app`) — the two service rows
+  (`agent-preset-registry` / `subagent-model-selection-settings`) mount at
+  runtime on the include tree instead, only where no same-id entry exists, so
+  a profile that already mounts an agent-preset layer needs no manual
+  de-duplication (issue #9, see docs/TROUBLESHOOTING-PRESET-ROWS.md).
 - **Upgrading from the standalone ptc repo**: usage and config keys keep their
   names and meanings (the entry id becomes `dsh-subagent-registry`), the
   usage.jsonl path is unchanged, and existing records carry over.

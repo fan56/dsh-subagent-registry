@@ -8,21 +8,31 @@
 # toolchain: the `codemode` tool (jev decision binding + session-scoped store
 # binding over the public ctx.ptcRuntime seam) registers ONLY when the entry
 # config `ptcEnabled: true` is set (default false — the rows below stay inert
-# for everyone who never opts in). The agent-preset rows migrated from the
-# ptc patch (agent-preset-registry / subagent-model-selection-settings /
-# preset-native / preset-codemode) provide the layer the official preset's
-# `modelSelectionSettings: true` rows require and the `Codemode` preset users
-# can pick once the tool is enabled.
+# for everyone who never opts in).
 #
 # Mounting convention: every @aiwayds bundle inserts its own main plugin here
 # (dsh-tui mounts as `dsh-tui`, dsh-model-sync as `dsh-model-sync`, …) — a
 # bundle main is NOT auto-mounted by the host, and without this row the
 # `use_agent` tool never reaches the tool registry.
 #
-# NOTE for profiles that already mount an agent-preset layer: entry ids must
-# stay unique across patch layers — remove duplicate
-# `agent-preset-registry` / `preset-*` rows from your own cordis.patch.yml
-# before installing, or the loader rejects the duplicated id.
+# Agent-preset support, since 0.19.1 (issue #9): the two SERVICE rows this
+# patch used to carry (`agent-preset-registry` with `default: native` and
+# `subagent-model-selection-settings`) are gone from the static patch. On a
+# profile that also selects @deepseek-ai/dsh-web-app the web-app inserts rows
+# with the same ids, and a same-id insert from a later patch layer silently
+# REPLACES the earlier row wholesale (the loader does not reject duplicated
+# ids — it merges by id, last writer wins) — that both flipped the web
+# profile's default preset from `standard` to our `native` and made
+# `dsh plugin remove` refuse forever with `bundle-in-use` (the manager
+# matches its bundle-in-use check against any live entry whose id and name
+# appear in this patch file). The plugin now mounts both rows at runtime on
+# the include tree, only when no same-id entry exists (src/preset-mount.ts) —
+# so tui/headless profiles get exactly the layer they always had, and
+# web/desktop profiles keep the web-app's own rows untouched. The two PRESET
+# rows below stay static but carry a `disabled` guard: they only mount where
+# no @deepseek-ai/dsh-web-app bundle supplies its own preset roster, because
+# unlike the service rows they would ADD a `Native`/`Codemode` entry to the
+# web preset picker rather than collide with it.
 #
 # Known 0.2.0-rc.2 limitation (carried over from the ptc patch, verified on a
 # real TUI): preset-level `tool-presentation mode: ptc` does not reach the
@@ -51,21 +61,27 @@
       #   jevSecretFile: ''            # outbound secret-gate literal list (one per line)
       #   storageDir: ''               # usage-sink dir; '' = <dsh home>/storages/ptc-subagent
     # The tui profile stack (and any profile without dsh-web-app) ships no
-    # agent-preset layer, so the package mounts the registry itself (rows
-    # migrated from the @aiwayds/dsh-ptc-subagent patch). Proven on a real
-    # TUI (2026-10-14): without these support rows the preset silently fails
-    # to mount — `preset-native` (empty plugins, `default: native`) shadows no
+    # agent-preset layer, so the package mounts the registry itself. The two
+    # service rows migrated from the @aiwayds/dsh-ptc-subagent patch are
+    # mounted at runtime by src/preset-mount.ts (issue #9 — see the header);
+    # this file deliberately does NOT declare them. Proven on a real TUI
+    # (2026-10-14): without the support layer the preset silently fails to
+    # mount — `preset-native` (empty plugins, `default: native`) shadows no
     # ambient row, so sessions that never pick a preset compose exactly as
     # before; `model-selection-settings` is the host-scope service the
-    # official preset's `modelSelectionSettings: true` rows require.
-    - id: agent-preset-registry
-      name: '@deepseek-ai/dsh-agent-preset-registry'
-      config:
-        default: native
-    - id: subagent-model-selection-settings
-      name: '@deepseek-ai/dsh-tool-subagent/model-selection-settings'
+    # official preset's `modelSelection: true` rows require.
+    #
+    # The two preset rows below stay patch-level, guarded: the `disabled`
+    # expression evaluates per-entry at mount time against the loader context
+    # (same seam the web-app's own patch uses for its desktop-only rows) and
+    # disables both rows on any profile whose selected bundles include
+    # @deepseek-ai/dsh-web-app — that bundle ships its own preset roster
+    # (standard/ptc/minimal), and a second, colliding roster would only add
+    # noise to the web preset picker. On every other profile the expression
+    # is false and the rows mount exactly as before the guard.
     - id: preset-native
       name: '@deepseek-ai/dsh-agent-preset'
+      disabled: !!js "ctx.get('profileContext')?.startedBundles?.includes('@deepseek-ai/dsh-web-app') ?? false"
       config:
         id: native
         name: Native
@@ -84,6 +100,7 @@
     # identically.
     - id: preset-codemode
       name: '@deepseek-ai/dsh-agent-preset'
+      disabled: !!js "ctx.get('profileContext')?.startedBundles?.includes('@deepseek-ai/dsh-web-app') ?? false"
       config:
         id: codemode
         name: Codemode
@@ -213,7 +230,7 @@
                 config:
                   provider: spawn
                   toolName: subagent
-                  modelSelectionSettings: true
+                  modelSelection: true
               - id: tool-subagent-fork
                 name: '@deepseek-ai/dsh-tool-subagent'
                 config:

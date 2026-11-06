@@ -44,6 +44,7 @@ import { runAgentTool, type RunAgentConfig } from './tool-run-agent.ts'
 import { askAgentTool } from './interactive.ts'
 import { registerDelegationGuidance } from './delegation-guidance.ts'
 import { registerPresetsRpc } from './presets-rpc.ts'
+import { mountPresetSupportRows } from './preset-mount.ts'
 import { installChildCompositionListener } from './host-compat.ts'
 
 // Profile-aware runtime synthesis (the read side of the model-profile
@@ -52,6 +53,14 @@ export { agentsDir, dshHome } from './agents-dir.ts'
 export { readAgentMaxRounds } from './agent-caps.ts'
 export { foregroundLabel, stripForegroundLabel } from './resume.ts'
 export { composeAgentRuntime, readModelProfilesDoc, workspaceProfileName } from './profile-resolution.ts'
+// Issue #9 seam: the runtime-mounted agent-preset support rows and the
+// mount/unmount function, exported for the preset-mount regression test.
+export {
+  AGENT_PRESET_REGISTRY_ROW,
+  SUBAGENT_MODEL_SELECTION_ROW,
+  PRESET_SUPPORT_ROWS,
+  mountPresetSupportRows,
+} from './preset-mount.ts'
 
 export const name = 'dsh-subagent-registry'
 
@@ -202,6 +211,15 @@ export const Config = z.object({
 })
 
 export function apply(ctx: Context, config: RunAgentConfig): void {
+  // Agent-preset support rows (issue #9): mount `agent-preset-registry`
+  // (default: native) and `subagent-model-selection-settings` on the include
+  // tree, ONLY where no same-id entry exists — a profile that also selects
+  // @deepseek-ai/dsh-web-app already mounts both, and a static same-id
+  // insert from this patch would flip the web default preset and wedge
+  // `dsh plugin remove` into `bundle-in-use` forever. See src/preset-mount.ts
+  // for why the static-patch and ctx.plugin-subtree alternatives cannot
+  // express this. No-op when the tree is unreachable (bare ctx.plugin).
+  mountPresetSupportRows(ctx)
   // The UI/skill/seed language: read once at apply time (the schema default
   // keeps `zh` when the key is absent). The runConfig-wide type keeps working
   // whether or not the shared RunAgentConfig interface already carries the

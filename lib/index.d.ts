@@ -22,6 +22,7 @@ export { agentsDir, dshHome } from './agents-dir.ts';
 export { readAgentMaxRounds } from './agent-caps.ts';
 export { foregroundLabel, stripForegroundLabel } from './resume.ts';
 export { composeAgentRuntime, readModelProfilesDoc, workspaceProfileName } from './profile-resolution.ts';
+export { AGENT_PRESET_REGISTRY_ROW, SUBAGENT_MODEL_SELECTION_ROW, PRESET_SUPPORT_ROWS, mountPresetSupportRows, } from './preset-mount.ts';
 export declare const name = "dsh-subagent-registry";
 /**
  * Strip a leading YAML frontmatter block (`---` / body / `---`) from a skill

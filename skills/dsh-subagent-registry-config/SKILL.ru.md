@@ -166,10 +166,13 @@ codemode. На headless-развёртывании (нет поверхност�
 сессии на прочном журнале сессии (256KB на значение / 1MB на ветку). Каждый
 jev-вызов (включая сбои) дописывает строку в
 `<dsh home>/storages/ptc-subagent/usage.jsonl` (только метаданные и счётчики
-токенов). Bundle patch также несёт четыре строки-страховки agent-preset
-(agent-preset-registry / subagent-model-selection-settings / preset-native /
-preset-codemode) — профиль, уже монтирующий слой agent-preset, должен сперва
-убрать дублирующие строки id, иначе loader отклонит дублирующийся id.
+токенов). С 0.19.1 bundle patch несёт только две защищённые строки пресетов
+(preset-native / preset-codemode, автоматически отключаемые в профилях с
+@deepseek-ai/dsh-web-app); две сервисные строки (agent-preset-registry /
+subagent-model-selection-settings) монтируются во время запуска на
+include-дерево и только при отсутствии записи с тем же id, поэтому профилю с
+уже подключённым слоем agent-preset ручная дедупликация не нужна (issue #9,
+см. docs/TROUBLESHOOTING-PRESET-ROWS.md).
 
 ### Лимиты параллелизма и глубины (с dsh 0.1.7 — официально управляются)
 

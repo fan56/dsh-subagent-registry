@@ -162,10 +162,12 @@ NO_PROVIDER）时，命令降级为错误文案，指引用手改配置键（`di
   jev 调用。每次 jev 调用（含失败）在
   `<dsh home>/storages/ptc-subagent/usage.jsonl` 落一行（只记元数据与 token
   数，永记状态文本）。
-- **配套**：`ptc-subagent` opt-in 模板是专职派发角色；bundle patch 迁入了
-  agent-preset 四守卫行（`agent-preset-registry` / `subagent-model-selection-settings` /
-  `preset-native` / `preset-codemode`）——profile 已挂 agent-preset 层的，先
-  去掉重复 id 行再装，否则 loader 拒绝重复 id。
+- **配套**：`ptc-subagent` opt-in 模板是专职派发角色；自 0.19.1 起 bundle patch
+  只保留两条带守卫的 preset 行（`preset-native` / `preset-codemode`，在选择
+  `@deepseek-ai/dsh-web-app` 的 profile 上自动禁用），两条服务行
+  （`agent-preset-registry` / `subagent-model-selection-settings`）改为插件启动时
+  在 include 树上运行时挂载、仅在树上没有同 id 条目时创建——已挂 agent-preset
+  层的 profile 无需手动去重（issue #9，见 docs/TROUBLESHOOTING-PRESET-ROWS.md）。
 - **升级自独立 ptc 仓**：用法与配置键同名同义（entry id 换成
   `dsh-subagent-registry`），usage.jsonl 落盘路径不变，历史记录直接延续。
 

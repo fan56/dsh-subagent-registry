@@ -139,9 +139,11 @@ scope，同原仓）。默认完全关闭（`jevEnabled: false` = 零 jev 调用
 `{error}` 结果返回、绝不 reject；`store` 是会话级键值记忆（挂在会话持久日志
 上，配额 256KB/值、1MB/分支）。每次 jev 调用（含失败）记一行到
 `<dsh home>/storages/ptc-subagent/usage.jsonl`（只记元数据与 token 数）。
-bundle patch 同时迁入了 agent-preset 四守卫行（agent-preset-registry /
-subagent-model-selection-settings / preset-native / preset-codemode）——若
-profile 已挂 agent-preset 层，须先去掉重复 id 行，否则 loader 拒绝重复 id。
+自 0.19.1 起 bundle patch 只保留两条带守卫的 preset 行（preset-native /
+preset-codemode，选择 @deepseek-ai/dsh-web-app 的 profile 自动禁用）；两条服务行
+（agent-preset-registry / subagent-model-selection-settings）改为插件启动时在
+include 树上运行时挂载、仅在树上没有同 id 条目时创建——已挂 agent-preset 层的
+profile 无需手动去重（issue #9，见 docs/TROUBLESHOOTING-PRESET-ROWS.md）。
 
 ### 并发与深度上限（dsh 0.1.7 起，官方托管）
 
