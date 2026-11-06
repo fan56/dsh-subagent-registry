@@ -98,15 +98,23 @@ methods (zero LLM traffic — these are plain host RPCs):
 ```sh
 curl -sS -c /tmp/dsh-cookies.txt "http://127.0.0.1:8799/connect?token=<launch-token>&interactions=none" -o /dev/null
 curl -sS -b /tmp/dsh-cookies.txt -H 'content-type: application/json' \
-  -d '{"type":"client-request","rpcId":"probe-1","method":"agentPresets/list","payload":{"args":[]}}' \
+  -d '{"type":"client-request","rpcId":"probe-1","method":"agentPresets/list","payload":{"args":{}}}' \
   http://127.0.0.1:8799/api/agentPresets/list
 ```
+
+The envelope's `payload` must carry exactly one plain-object `args` field —
+`{"args":[]}` (or any non-object) is rejected by the gateway with
+`gateway/arguments-invalid`. Method arguments go inside that object:
+`pluginManager/removeBundle` takes `{"args":{"name":"<package>"}}`, and
+`pluginManager/installBundle` takes a single `spec` field
+(`{"args":{"spec":"<name>@file:/path/to.tgz"}}`).
 
 Expected on a web profile (guard active):
 
 - `agentPresets/list` returns the web-app's own roster
-  (`standard` / `ptc` / `minimal`, default `standard`) with **no**
-  `native` / `codemode` entries;
+  (`standard` / `ptc` / `minimal` / `cordis`, default `standard`, as
+  observed on the 0.2.2-rc.1 web-app — use the live list as the source of
+  truth) with **no** `native` / `codemode` entries;
 - `settings/describe` carries exactly one `agent-preset-registry` entry,
   owned by the web-app's row.
 
