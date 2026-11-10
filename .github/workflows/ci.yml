@@ -1,5 +1,5 @@
 # CI: build, typecheck, unit suite on Node 22/24, plus a real-host boot smoke
-# — on every push to main, every pull request, and a daily schedule.
+# — on every push to main and every pull request.
 #
 # The @deepseek-ai/* devDeps are pinned to the current wave line (0.2.2-rc.1)
 # so installs resolve a real published surface, but typecheck/tests run against
@@ -16,19 +16,12 @@
 # (PromptPresentation.tools and dsh-tools' CodeRunFailedError are adapted
 # now) and the 0.2.2 wave is complete on the registry
 # (dsh-plan-mode@0.2.2-rc.1 included).
-#
-# The daily schedule is the rolling early-warning: an rc/stable-line drift
-# that breaks this plugin turns the scheduled run red without anyone
-# re-pinning.
 name: CI
 
 on:
   push:
     branches: [main]
   pull_request:
-  schedule:
-    # Daily 02:37 UTC — catches upstream dsh rc/stable drift without hand-chasing.
-    - cron: '37 2 * * *'
 
 permissions:
   contents: read
