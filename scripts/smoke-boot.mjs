@@ -75,6 +75,13 @@ writeFileSync(path.join(profile, 'package.json'), JSON.stringify({
   },
 }, null, 2) + '\n')
 
+// Peers must not auto-install into the scratch profile: npm 7+ would resolve
+// peer floors to the old tower and shadow the host closure under it — the
+// failure mode the optional-peer contract exists for (the dsh-llm-proxy
+// smoke precedent). Lifecycle scripts stay ON below (the consumer-path
+// regression this install is here for).
+writeFileSync(path.join(profile, '.npmrc'), 'legacy-peer-deps=true\n')
+
 // The profile install pins the official registry explicitly: a dev machine
 // .npmrc pointing at a mirror must not decide what this gate resolves.
 const install = spawnSync(npm, [...npmArgs, 'install', '--registry=https://registry.npmjs.org', '--no-audit', '--no-fund', '--loglevel=error'], { cwd: profile, encoding: 'utf8' })
