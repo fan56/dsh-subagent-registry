@@ -32,9 +32,90 @@ export interface LegacySubagents {
   }): Promise<{ childId: SessionId }>
   listDescendants(id: SessionId, signal?: AbortSignal): Promise<readonly LegacyDescendant[]>
   drainContinuableDescendants(parents: readonly Agent[]): Promise<void>
+  /** The pre-rc.2 child catalog read (removed from the rc.2 runtime). */
+  listChildren?(parentSessionId: SessionId, signal?: AbortSignal): Promise<readonly DirectChildEntry[]>
+  /** The pre-rc.2 descendant join (replaced by waitForTreeWork on rc.2). */
+  waitForChildren?(parent: Agent): Promise<boolean>
 }
 
 export const legacySubagents = (ctx: Context): LegacySubagents => ctx.subagents as unknown as LegacySubagents
+
+// ---------------------------------------------------------------------------
+// The 0.2.2-rc.2 child surface
+// ---------------------------------------------------------------------------
+//
+// The 0.2.2-rc.2 wave reshaped four child seams at once; every reshape keeps a
+// cross-generation reading here:
+//   1. `SubagentRuntime.waitForChildren(parent)` became
+//      `waitForTreeWork(root)` — same join contract under tree-rooted naming
+//      (the rc.2 headless driver runs the identical idle/seq loop against it).
+//   2. `SubagentRuntime.listChildren(parentId)` is gone. The direct-child read
+//      becomes `listDescendants(parentId)` cut to the `depth === 1` rows: the
+//      stable pre-order keeps the parent catalog's event order at depth 1, so
+//      the pickers' "last match wins" semantics survive unchanged.
+//   3. `ResumeAgentOptions.parentAgent` was removed — agent ownership now
+//      follows the calling context (the rc.2 resume path destructures only
+//      `{ resumeSessionId, agentOptions, signal, setup }` and hangs the agent
+//      off the context the call went through). A carried `parentAgent` key is
+//      inert there while pre-rc.2 lines REQUIRE it, so one call form through
+//      `parent.ctx` with the key covers every generation.
+//   4. `SubagentActivationSpec` flattened: the nested `request` object now
+//      rides the spec itself (the spec extends
+//      `Omit<SubagentStartRequest, 'label' | 'signal'>`).
+//
+// `waitForTreeWork` is the runtime probe for the whole wave: it first exists
+// in 0.2.2-rc.2 (rc.1 still carried waitForChildren/listChildren and the
+// nested spec), and the four reshapes shipped together in that release.
+
+/** Whether the host's subagents service speaks the 0.2.2-rc.2 child surface. */
+export function rc2ChildSurface(ctx: Context): boolean {
+  return typeof (ctx.subagents as unknown as { waitForTreeWork?: unknown }).waitForTreeWork === 'function'
+}
+
+/** Structural minimum of a direct-child catalog row the pickers read. */
+export interface DirectChildEntry {
+  readonly id: unknown
+  readonly mode?: 'one-shot' | 'continuable' | 'external' | 'unknown'
+  readonly label?: string
+}
+
+/**
+ * Read the parent's durable direct-child catalog in catalog event order.
+ * Pre-rc.2 hosts answer through `SubagentRuntime.listChildren`; rc.2 hosts
+ * through `listDescendants(parentId)` cut to the depth-1 rows (every row
+ * carries its `depth`; the pre-order keeps the parent catalog's order).
+ */
+export async function listDirectChildren(ctx: Context, parentId: SessionId, signal?: AbortSignal): Promise<DirectChildEntry[]> {
+  if (!rc2ChildSurface(ctx)) {
+    const legacy = legacySubagents(ctx)
+    if (typeof legacy.listChildren !== 'function') throw new Error('the subagents service exposes no child catalog read')
+    return [...(await legacy.listChildren(parentId, signal))]
+  }
+  const rows = await ctx.subagents.listDescendants(parentId, signal)
+  return rows.filter((row): row is typeof row & { kind: 'child'; depth: 1 } => row.kind === 'child' && row.depth === 1)
+}
+
+/**
+ * Join progressing descendant work below `parent` without cancelling it.
+ * rc.2 hosts join through `waitForTreeWork`; pre-rc.2 lines through
+ * `waitForChildren`. Resolves `false` when the host exposes neither (the
+ * caller falls back to {@link createLegacyDescendantJoin}).
+ */
+export async function waitForChildWork(ctx: Context, parent: Agent): Promise<boolean> {
+  const runtime = ctx.subagents as unknown as {
+    waitForTreeWork?: (root: Agent) => Promise<boolean>
+    waitForChildren?: (parent: Agent) => Promise<boolean>
+  }
+  if (typeof runtime.waitForTreeWork === 'function') return runtime.waitForTreeWork(parent)
+  if (typeof runtime.waitForChildren === 'function') return runtime.waitForChildren(parent)
+  return false
+}
+
+/** Whether {@link waitForChildWork} has a native join to ride on this host. */
+export function hasNativeChildWorkJoin(ctx: Context): boolean {
+  const runtime = ctx.subagents as unknown as { waitForTreeWork?: unknown; waitForChildren?: unknown }
+  return typeof runtime.waitForTreeWork === 'function' || typeof runtime.waitForChildren === 'function'
+}
 
 // ---------------------------------------------------------------------------
 // Out-of-band child composition (activation hosts)

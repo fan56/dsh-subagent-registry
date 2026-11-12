@@ -221,14 +221,24 @@ const NOOP_TRAILING_LOG = [
 // ---------------------------------------------------------------------------
 
 /** Minimal fake satisfying what findResumableRun reads from ctx. */
-function fakeCtx({ children, stored, throwOnList = false, live } = {}) {
+function fakeCtx({ children, descendants, stored, throwOnList = false, live } = {}) {
   return {
-    subagents: {
-      async listChildren() {
-        if (throwOnList) throw new Error('projection registry not mounted')
-        return children ?? []
-      },
-    },
+    subagents: descendants !== undefined
+      ? {
+          // The 0.2.2-rc.2 surface: no listChildren/waitForChildren — the
+          // direct-child read is listDescendants cut to depth 1.
+          waitForTreeWork: async () => false,
+          async listDescendants() {
+            if (throwOnList) throw new Error('projection registry not mounted')
+            return descendants ?? []
+          },
+        }
+      : {
+          async listChildren() {
+            if (throwOnList) throw new Error('projection registry not mounted')
+            return children ?? []
+          },
+        },
     get(name) {
       if (name === 'agents') {
         // Live agent registry double: `live` is the set of resident child ids.
@@ -308,6 +318,40 @@ const PARENT = { id: 'session-parent' }
   console.log('PASS findResumableRun liveness filter (replaces the dropped activity flag)')
 }
 
+{
+  // The 0.2.2-rc.2 read: no listChildren on the runtime — the same catalog
+  // arrives as listDescendants rows cut to depth 1 (pre-order keeps catalog
+  // order, so the last match still wins). Grandchildren and diagnostics must
+  // never reach the picker.
+  const descendants = [
+    { kind: 'child', id: 'child-completed', createdAt: undefined, mode: 'one-shot', label: 'workhorse', parentId: PARENT.id, depth: 1, hasChildren: false },
+    { kind: 'child', id: 'grandchild', mode: 'one-shot', label: 'oldfox', parentId: 'child-completed', depth: 2, hasChildren: false },
+    { kind: 'child', id: 'child-failed', mode: 'one-shot', label: 'oldfox', parentId: PARENT.id, depth: 1, hasChildren: false },
+    { kind: 'diagnostic', id: 'broken', parentId: PARENT.id, depth: 1, reason: 'unavailable' },
+  ]
+  const events = { 'child-failed': ERROR_LOG, 'child-completed': COMPLETED_LOG }
+  const run = await findResumableRun(
+    fakeCtx({ descendants, stored: (id) => events[id] ?? [] }),
+    PARENT,
+    'oldfox',
+  )
+  assert.equal(run?.childId, 'child-failed', 'rc.2 read finds the same failed-run candidate')
+  assert.equal(run?.mode, 'one-shot', 'rc.2 read preserves the mode')
+  assert.equal(run?.classification.status, 'resumable', 'rc.2 read classifies identically')
+  const none = await findResumableRun(
+    fakeCtx({ descendants, stored: (id) => events[id] ?? [] }),
+    PARENT,
+    'missing-agent',
+  )
+  assert.equal(none, undefined, 'rc.2 read yields no candidate without a label match')
+  await assert.rejects(
+    findResumableRun(fakeCtx({ descendants, throwOnList: true }), PARENT, 'oldfox'),
+    /projection registry not mounted/,
+    'rc.2 list failure must not silently start fresh',
+  )
+  console.log('PASS findResumableRun on the 0.2.2-rc.2 surface (listDescendants depth-1 rows)')
+}
+
 // ---------------------------------------------------------------------------
 // driveResumedRun — fake agents.resume / child / handle doubles
 // ---------------------------------------------------------------------------
@@ -334,9 +378,9 @@ function fakeChildScope() {
  * A fake resumed child: replayed `prior` events plus a scripted continuation
  * turn. `followup` records the message and runs the fake loop turn.
  */
-function fakeResumeBackend(prior, scriptTurn, { whenIdle = async () => {}, parent = DRIVE_PARENT } = {}) {
+function fakeResumeBackend(prior, scriptTurn, { whenIdle = async () => {}, parent = DRIVE_PARENT, rc2 = false } = {}) {
   const scope = fakeChildScope()
-  const captured = { resumeOptions: undefined, followup: undefined, disposed: false, scope: scope.applied, drained: 0 }
+  const captured = { resumeOptions: undefined, followup: undefined, disposed: false, scope: scope.applied, drained: 0, joins: [] }
   const childLog = [...prior]
   const child = {
     status: 'idle',
@@ -350,7 +394,9 @@ function fakeResumeBackend(prior, scriptTurn, { whenIdle = async () => {}, paren
   }
   const ctx = {
     subagents: {
-      async waitForChildren() {},
+      ...(rc2
+        ? { waitForTreeWork: async (rootAgent) => { captured.joins.push(rootAgent); return false } }
+        : { waitForChildren: async () => {} }),
       async drainDescendants() { captured.drained += 1 },
     },
     agents: {
@@ -411,6 +457,36 @@ const signal = new AbortController().signal
   assert.deepEqual(captured.scope.restrict, { deny: ['subagent', 'use_agent'] }, 'leaf tool restriction re-applied on resume')
   assert.ok(captured.scope.contexts.some((c) => c.name === 'subagent:delegation'), 'delegation context installed')
   console.log('PASS driveResumedRun happy path (composition asserted + followup + result + disposal)')
+}
+
+{
+  // The 0.2.2-rc.2 runtime: waitForChildren is gone, waitForTreeWork carries
+  // the join. The drive loop must ride it (rooted at the resumed child, same
+  // idle/seq re-check), and the unified resume form must still carry the
+  // parentAgent key — inert on rc.2, required on pre-rc.2 lines.
+  const prior = [...ERROR_LOG]
+  const script = (events) => {
+    events.push(ev('turn/start', { turn: 2 }), ev('step/start', { turn: 2, step: 0 }), ev('user/message'))
+    events.push({ type: 'assistant/message', data: { message: { role: 'assistant', content: [{ type: 'text', text: 'rc.2 turn done' }] }, stream: [] } })
+    events.push(ev('turn/end', { turn: 2, reason: { kind: 'completed' } }))
+  }
+  const { ctx, captured, child } = fakeResumeBackend(prior, script, { rc2: true })
+  const result = await driveResumedRun({
+    ctx,
+    parent: DRIVE_PARENT,
+    childId: 'child-rc2',
+    persona: 'You are the workhorse.',
+    continuationPrompt: buildContinuationPrompt('continue on rc.2'),
+    noticeSummary: 'resume interrupted "workhorse" subagent run',
+    signal,
+  })
+  assert.equal(result.stopReason, 'completed', 'rc.2-shaped drive completes')
+  assert.deepEqual(result.output, [{ type: 'text', text: 'rc.2 turn done' }], 'rc.2 drive reads the continuation output')
+  assert.ok(captured.joins.length >= 1, 'the join rode waitForTreeWork at least once')
+  assert.ok(captured.joins.every((joined) => joined === child), 'waitForTreeWork is called with the resumed child (the runtime resolves its tree root)')
+  assert.equal(captured.resumeOptions.parentAgent, DRIVE_PARENT, 'unified resume form still carries parentAgent (required pre-rc.2, inert on rc.2)')
+  assert.equal(captured.drained, 1, 'descendants drained after the rc.2 drive')
+  console.log('PASS driveResumedRun on the 0.2.2-rc.2 surface (waitForTreeWork join, unified resume form)')
 }
 
 {

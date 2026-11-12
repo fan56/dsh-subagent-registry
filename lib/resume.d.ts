@@ -4,6 +4,7 @@ import type { ContentBlock } from '@deepseek-ai/dsh-llm';
 import type { Agent, AgentOptions } from '@deepseek-ai/dsh-agent';
 import type { SessionId } from '@deepseek-ai/dsh-session';
 import type { ToolRestriction } from '@deepseek-ai/dsh-tools';
+import { type DirectChildEntry } from './host-compat.ts';
 import { type SubagentStopReason } from '@deepseek-ai/dsh-subagent';
 /**
  * Durable attribution for the continuation notice this plugin injects into a
@@ -63,21 +64,18 @@ export interface PriorRunClassification {
  */
 export declare function classifyPriorRun(events: readonly MinimalSessionEvent[]): PriorRunClassification;
 /**
- * Structural minimum of a `listChildren` entry the pickers read. 0.1.7
- * reshaped the read: `listChildren` returns `SubagentCatalogEntry[]` — the
- * durable direct-child catalog rows `{ id, createdAt, mode, label? }` — so
- * the old `SubagentListEntry` fields are gone: every row IS a child (no
- * `kind` discriminator), and liveness is no longer carried (`activity` was
- * dropped; the catalog holds durable parent facts only, and `mode: 'unknown'`
- * marks a row whose descriptor could not be folded). Liveness for the
- * one-shot picker is instead resolved against the live agent registry — see
- * {@link findResumableRun}.
+ * Structural minimum of a direct-child catalog row the pickers read. 0.1.7
+ * reshaped the read (`SubagentCatalogEntry[]` — the durable direct-child
+ * catalog rows `{ id, createdAt, mode, label? }`: every row IS a child, no
+ * liveness — the catalog holds durable parent facts only, and
+ * `mode: 'unknown'` marks a row whose descriptor could not be folded).
+ * 0.2.2-rc.2 removed `SubagentRuntime.listChildren`; the read now routes
+ * through {@link listDirectChildren} (pre-rc.2 keeps `listChildren`, rc.2
+ * cuts `listDescendants` to its depth-1 rows — same rows, same order).
+ * Liveness for the one-shot picker is resolved against the live agent
+ * registry — see {@link findResumableRun}.
  */
-export interface ChildListEntry {
-    readonly id: unknown;
-    readonly mode?: 'one-shot' | 'continuable' | 'external' | 'unknown';
-    readonly label?: string;
-}
+export type ChildListEntry = DirectChildEntry;
 /**
  * Durable namespace separates managed foreground children from background
  * conversations. Kept short: the label is painted verbatim on every

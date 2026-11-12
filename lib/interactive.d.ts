@@ -39,7 +39,10 @@ import { type DisabledAgentsInput } from './tool-run-agent.ts';
 export declare function decideBackgroundMode(explicit: boolean | undefined, frontmatter: boolean | undefined): boolean;
 /**
  * Pick the newest listable continuable child whose label matches one of
- * `labels`. `listChildren` orders entries by header `createdAt`, so the LAST
+ * `labels`. The direct-child read (see `listDirectChildren`) yields entries in
+ * parent-catalog event order on every host generation — pre-rc.2 through
+ * `SubagentRuntime.listChildren`, rc.2 through `listDescendants` cut to its
+ * depth-1 rows (the stable pre-order keeps the catalog order) — so the LAST
  * match wins. Both a resident (running) and a cold (inactive) continuable
  * child qualify — delivery steers the former and cold-resumes the latter
  * (0.1.7's durable catalog no longer carries a liveness flag, and none is

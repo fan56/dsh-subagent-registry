@@ -31,10 +31,10 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import type { ContentBlock, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import { resolveChildDepth, finalAssistantOutput, type SubagentResult, type SubagentStartRequest, type SubagentActivation } from '@deepseek-ai/dsh-subagent'
+import { resolveChildDepth, finalAssistantOutput, type SubagentResult, type SubagentStartRequest, type SubagentActivation, type SubagentActivationSpec } from '@deepseek-ai/dsh-subagent'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import { scopeOf, type ScopeKey } from '@deepseek-ai/dsh-scope'
-import { createLegacyDescendantJoin, drainRunDescendants, legacySubagents, reserveChildComposition, releaseChildComposition, type ChildComposition, type DispatchRequest } from './host-compat.ts'
+import { createLegacyDescendantJoin, drainRunDescendants, legacySubagents, rc2ChildSurface, reserveChildComposition, releaseChildComposition, type ChildComposition, type DispatchRequest } from './host-compat.ts'
 import { expandHome, listAgentFiles, parseAgentMarkdown, type AgentFile, type ThinkingLevel } from './agents-dir.ts'
 import { composeAgentRuntime } from './profile-resolution.ts'
 import { decideBackgroundMode } from './interactive.ts'
@@ -476,7 +476,16 @@ async function activateWithReservedComposition(
     ...(request.toolFilter !== undefined ? { toolFilter: request.toolFilter } : {}),
   })
   try {
-    return await ctx.subagents.startActivation({ provider, label, request, signal, delivery, childId })
+    // 0.2.2-rc.2 flattened `SubagentActivationSpec`: the start-request fields
+    // ride the spec itself; pre-rc.2 lines read the nested `request`. The
+    // dispatch object carries this plugin's `ChildComposition` extras either
+    // way — every host generation ignores what it does not know — and the
+    // reserved `childId` reaches the spec on both shapes. The cast is the
+    // cross-generation wire contract, not a narrowing dodge.
+    const spec = (rc2ChildSurface(ctx)
+      ? { provider, label, childId, signal, delivery, ...request }
+      : { provider, label, childId, signal, delivery, request }) as SubagentActivationSpec
+    return await ctx.subagents.startActivation(spec)
   } catch (error) {
     releaseChildComposition(childId)
     throw error

@@ -35,6 +35,7 @@ import { SubagentError, finalAssistantOutput } from '@deepseek-ai/dsh-subagent'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import { listAgentFiles } from './agents-dir.ts'
+import { listDirectChildren } from './host-compat.ts'
 import {
   accountingTurnEnd,
   readStoredEvents,
@@ -68,7 +69,10 @@ export function decideBackgroundMode(
 
 /**
  * Pick the newest listable continuable child whose label matches one of
- * `labels`. `listChildren` orders entries by header `createdAt`, so the LAST
+ * `labels`. The direct-child read (see `listDirectChildren`) yields entries in
+ * parent-catalog event order on every host generation — pre-rc.2 through
+ * `SubagentRuntime.listChildren`, rc.2 through `listDescendants` cut to its
+ * depth-1 rows (the stable pre-order keeps the catalog order) — so the LAST
  * match wins. Both a resident (running) and a cold (inactive) continuable
  * child qualify — delivery steers the former and cold-resumes the latter
  * (0.1.7's durable catalog no longer carries a liveness flag, and none is
@@ -377,7 +381,7 @@ export function askAgentTool(ctx: Context, cfg: AskAgentConfig) {
         const labels = [...new Set([agent.meta.displayName ?? agent.meta.name, agent.meta.name])]
         let entries: readonly ChildListEntry[]
         try {
-          entries = await ctx.subagents.listChildren(parent.id, exec.signal)
+          entries = await listDirectChildren(ctx, parent.id, exec.signal)
         } catch (error) {
           throw new Error(
             `${cfg.toolName}: cannot enumerate this conversation's subagent children (${String(error)}) — ` +
