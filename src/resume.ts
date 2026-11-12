@@ -7,7 +7,7 @@ import { foldConsumedWork } from '@deepseek-ai/dsh-agent'
 import type { Agent, AgentOptions, ResumeAgentOptions } from '@deepseek-ai/dsh-agent'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import type { ToolRestriction } from '@deepseek-ai/dsh-tools'
-import { createLegacyDescendantJoin, drainRunDescendants, hasNativeChildWorkJoin, listDirectChildren, waitForChildWork, type DirectChildEntry } from './host-compat.ts'
+import { createLegacyDescendantJoin, drainRunDescendants, listDirectChildren, nativeChildWorkJoinRoot, waitForChildWork, type DirectChildEntry } from './host-compat.ts'
 import {
   applyChildComposition,
   finalAssistantOutput,
@@ -449,10 +449,16 @@ async function driveLegacyResume(input: ResumeDriveInput): Promise<ResumedRunRes
     // the live child before disposal and fail identically in bare contexts
     // without persistence.
     const boundary = child.session.seq
-    // Native descendant join: `waitForTreeWork` (rc.2) or `waitForChildren`
-    // (pre-rc.2). Neither exists on the 0.2.0 line — the legacy event-driven
-    // join stands in there.
-    if (!hasNativeChildWorkJoin(ctx)) join = createLegacyDescendantJoin(ctx, signal)
+    // Native descendant join: `waitForTreeWork(root)` (rc.2) or
+    // `waitForChildren` (pre-rc.2). Neither exists on the 0.2.0 line — the
+    // legacy event-driven join stands in there. The rc.2 join takes the
+    // exact live tree root, resolved per child: this cold-resumed child
+    // materializes outside manager residency, so the runtime's `rootOf`
+    // throws for it (no active runtime owner) — no manager-owned tree can
+    // exist beneath it and the legacy join (durable-catalog based, present
+    // on every generation) keeps descendant events in the fold below.
+    const nativeRoot = nativeChildWorkJoinRoot(ctx, child)
+    if (nativeRoot === undefined) join = createLegacyDescendantJoin(ctx, signal)
     if (!flags.cancelled) {
       child.followup(createUserMessage({
         content: [{ type: 'text', text: input.continuationPrompt }],
@@ -473,7 +479,7 @@ async function driveLegacyResume(input: ResumeDriveInput): Promise<ResumedRunRes
         while (true) {
           await child.whenIdle()
           const seq = child.session.seq
-          await waitForChildWork(ctx, child)
+          await waitForChildWork(ctx, child, nativeRoot)
           if (child.status === 'idle' && child.session.seq === seq) break
         }
       }

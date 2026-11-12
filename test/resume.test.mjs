@@ -377,14 +377,23 @@ function fakeChildScope() {
 /**
  * A fake resumed child: replayed `prior` events plus a scripted continuation
  * turn. `followup` records the message and runs the fake loop turn.
+ *
+ * `rc2Tree` shapes the rc.2 runtime double after the real manager semantics
+ * (dsh-subagent lib/index.js `rootOf` / `waitForTreeWork`): `waitForTreeWork`
+ * takes the exact live tree root — `rootOf(root) !== root` resolves `false`,
+ * and `rootOf` throws UNAUTHORIZED for a subagent-origin session outside
+ * manager residency. `'cold'` is the cold-resume drive child (resumed through
+ * the agents service, not resident — the only shape a real host reaches),
+ * `'self'` a child that is its own live tree root, `'member'` a resident
+ * member of a larger tree rooted at the parent.
  */
-function fakeResumeBackend(prior, scriptTurn, { whenIdle = async () => {}, parent = DRIVE_PARENT, rc2 = false } = {}) {
+function fakeResumeBackend(prior, scriptTurn, { whenIdle = async () => {}, parent = DRIVE_PARENT, rc2 = false, rc2Tree = 'cold' } = {}) {
   const scope = fakeChildScope()
-  const captured = { resumeOptions: undefined, followup: undefined, disposed: false, scope: scope.applied, drained: 0, joins: [] }
+  const captured = { resumeOptions: undefined, followup: undefined, disposed: false, scope: scope.applied, drained: 0, joins: [], listeners: [] }
   const childLog = [...prior]
   const child = {
     status: 'idle',
-    session: { header: { parentSession: parent.id }, events: childLog, get seq() { return childLog.length }, snapshotEvents: (from = 0) => childLog.slice(from) },
+    session: { header: { parentSession: parent.id, origin: 'subagent' }, events: childLog, get seq() { return childLog.length }, snapshotEvents: (from = 0) => childLog.slice(from) },
     followup(message) {
       captured.followup = message
       scriptTurn?.(child.session.events)
@@ -393,9 +402,19 @@ function fakeResumeBackend(prior, scriptTurn, { whenIdle = async () => {}, paren
     cancel() {},
   }
   const ctx = {
+    // The legacy event-driven join registers its lifecycle listeners here.
+    on(name) { captured.listeners.push(name); return () => {} },
     subagents: {
       ...(rc2
-        ? { waitForTreeWork: async (rootAgent) => { captured.joins.push(rootAgent); return false } }
+        ? {
+            rootOf: (agent) => {
+              if (rc2Tree === 'cold') throw new Error('agent has no active runtime owner')
+              if (rc2Tree === 'member') return parent
+              return agent
+            },
+            waitForTreeWork: async (rootAgent) => { captured.joins.push(rootAgent); return false },
+            listDescendants: async () => [],
+          }
         : { waitForChildren: async () => {} }),
       async drainDescendants() { captured.drained += 1 },
     },
@@ -460,17 +479,21 @@ const signal = new AbortController().signal
 }
 
 {
-  // The 0.2.2-rc.2 runtime: waitForChildren is gone, waitForTreeWork carries
-  // the join. The drive loop must ride it (rooted at the resumed child, same
-  // idle/seq re-check), and the unified resume form must still carry the
-  // parentAgent key — inert on rc.2, required on pre-rc.2 lines.
+  // The 0.2.2-rc.2 runtime, cold resume (the only shape a real host reaches:
+  // findResumableRun rejects live children). The resumed child materializes
+  // through the agents service outside manager residency, so the runtime's
+  // `rootOf` throws UNAUTHORIZED for it ("agent has no active runtime
+  // owner") and `waitForTreeWork(child)` would throw on the real manager.
+  // The drive must resolve the join target through the runtime's `rootOf`,
+  // find none, and ride the legacy event-driven join instead. The unified
+  // resume form still carries parentAgent — inert on rc.2, required pre-rc.2.
   const prior = [...ERROR_LOG]
   const script = (events) => {
     events.push(ev('turn/start', { turn: 2 }), ev('step/start', { turn: 2, step: 0 }), ev('user/message'))
     events.push({ type: 'assistant/message', data: { message: { role: 'assistant', content: [{ type: 'text', text: 'rc.2 turn done' }] }, stream: [] } })
     events.push(ev('turn/end', { turn: 2, reason: { kind: 'completed' } }))
   }
-  const { ctx, captured, child } = fakeResumeBackend(prior, script, { rc2: true })
+  const { ctx, captured } = fakeResumeBackend(prior, script, { rc2: true, rc2Tree: 'cold' })
   const result = await driveResumedRun({
     ctx,
     parent: DRIVE_PARENT,
@@ -480,13 +503,70 @@ const signal = new AbortController().signal
     noticeSummary: 'resume interrupted "workhorse" subagent run',
     signal,
   })
-  assert.equal(result.stopReason, 'completed', 'rc.2-shaped drive completes')
-  assert.deepEqual(result.output, [{ type: 'text', text: 'rc.2 turn done' }], 'rc.2 drive reads the continuation output')
-  assert.ok(captured.joins.length >= 1, 'the join rode waitForTreeWork at least once')
-  assert.ok(captured.joins.every((joined) => joined === child), 'waitForTreeWork is called with the resumed child (the runtime resolves its tree root)')
+  assert.equal(result.stopReason, 'completed', 'rc.2 cold-resume drive completes')
+  assert.deepEqual(result.output, [{ type: 'text', text: 'rc.2 turn done' }], 'rc.2 cold-resume drive reads the continuation output')
+  assert.equal(captured.joins.length, 0, 'waitForTreeWork is never called with the cold-resumed child (the real runtime throws UNAUTHORIZED for it)')
+  assert.ok(captured.listeners.includes('subagent/start'), 'the legacy event-driven join is installed as the fallback')
   assert.equal(captured.resumeOptions.parentAgent, DRIVE_PARENT, 'unified resume form still carries parentAgent (required pre-rc.2, inert on rc.2)')
-  assert.equal(captured.drained, 1, 'descendants drained after the rc.2 drive')
-  console.log('PASS driveResumedRun on the 0.2.2-rc.2 surface (waitForTreeWork join, unified resume form)')
+  assert.equal(captured.drained, 0, 'a cold-resumed child owns no manager-tracked descendants — the manager drain (rootOf throws for it) is skipped')
+  assert.equal(captured.disposed, true, 'handle still disposed after the rc.2 cold-resume drive')
+  console.log('PASS driveResumedRun on rc.2 cold resume (rootOf throws → legacy join fallback, drain skipped)')
+}
+
+{
+  // rc.2 with the resumed child resolvable as its own live tree root:
+  // `waitForTreeWork` must receive that root (the audit's fix form), and the
+  // manager drain runs on it.
+  const prior = [...ERROR_LOG]
+  const script = (events) => {
+    events.push(ev('turn/start', { turn: 2 }), ev('step/start', { turn: 2, step: 0 }), ev('user/message'))
+    events.push({ type: 'assistant/message', data: { message: { role: 'assistant', content: [{ type: 'text', text: 'rc.2 root turn done' }] }, stream: [] } })
+    events.push(ev('turn/end', { turn: 2, reason: { kind: 'completed' } }))
+  }
+  const { ctx, captured, child } = fakeResumeBackend(prior, script, { rc2: true, rc2Tree: 'self' })
+  const result = await driveResumedRun({
+    ctx,
+    parent: DRIVE_PARENT,
+    childId: 'child-rc2-root',
+    persona: 'You are the workhorse.',
+    continuationPrompt: buildContinuationPrompt('continue on rc.2 as a tree root'),
+    noticeSummary: 'resume interrupted "workhorse" subagent run',
+    signal,
+  })
+  assert.equal(result.stopReason, 'completed', 'rc.2 tree-root drive completes')
+  assert.ok(captured.joins.length >= 1, 'the join rode waitForTreeWork at least once')
+  assert.ok(captured.joins.every((joined) => joined === child), 'waitForTreeWork is called with the resolved tree root (the child itself), never bypassing rootOf')
+  assert.equal(captured.drained, 1, 'the manager drain runs when the driven agent is its own tree root')
+  console.log('PASS driveResumedRun on rc.2 with a self-rooted child (waitForTreeWork(root) join)')
+}
+
+{
+  // rc.2 with the resumed child a resident member of a larger tree: the
+  // runtime's `rootOf(root) !== root` guard silently resolves `false` for a
+  // member, so passing the child would drop the descendant join entirely —
+  // the drive must hand waitForTreeWork the resolved tree root.
+  const prior = [...ERROR_LOG]
+  const script = (events) => {
+    events.push(ev('turn/start', { turn: 2 }), ev('step/start', { turn: 2, step: 0 }), ev('user/message'))
+    events.push({ type: 'assistant/message', data: { message: { role: 'assistant', content: [{ type: 'text', text: 'rc.2 member turn done' }] }, stream: [] } })
+    events.push(ev('turn/end', { turn: 2, reason: { kind: 'completed' } }))
+  }
+  const { ctx, captured, child } = fakeResumeBackend(prior, script, { rc2: true, rc2Tree: 'member' })
+  const result = await driveResumedRun({
+    ctx,
+    parent: DRIVE_PARENT,
+    childId: 'child-rc2-member',
+    persona: 'You are the workhorse.',
+    continuationPrompt: buildContinuationPrompt('continue on rc.2 as a tree member'),
+    noticeSummary: 'resume interrupted "workhorse" subagent run',
+    signal,
+  })
+  assert.equal(result.stopReason, 'completed', 'rc.2 tree-member drive completes')
+  assert.ok(captured.joins.length >= 1, 'the join rode waitForTreeWork at least once')
+  assert.ok(captured.joins.every((joined) => joined === DRIVE_PARENT), 'waitForTreeWork is called with the tree root resolved by rootOf, never with the member child')
+  assert.ok(!captured.joins.includes(child), 'the member child itself is never passed to waitForTreeWork')
+  assert.equal(captured.drained, 0, 'a resident member owns no tree — the manager drain skips it')
+  console.log('PASS driveResumedRun on rc.2 with a resident tree member (waitForTreeWork receives the tree root)')
 }
 
 {

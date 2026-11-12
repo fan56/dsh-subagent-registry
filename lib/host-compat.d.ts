@@ -52,14 +52,34 @@ export interface DirectChildEntry {
  */
 export declare function listDirectChildren(ctx: Context, parentId: SessionId, signal?: AbortSignal): Promise<DirectChildEntry[]>;
 /**
- * Join progressing descendant work below `parent` without cancelling it.
- * rc.2 hosts join through `waitForTreeWork`; pre-rc.2 lines through
- * `waitForChildren`. Resolves `false` when the host exposes neither (the
- * caller falls back to {@link createLegacyDescendantJoin}).
+ * Resolve the agent the native descendant join must be called with for
+ * `parent` on this host, or `undefined` when no native join can serve it
+ * (the caller rides {@link createLegacyDescendantJoin}).
+ *
+ * pre-rc.2 hosts join through `waitForChildren(parent)`, which filters by
+ * lineage below any parent — the parent itself is the join target. rc.2 hosts
+ * join through `waitForTreeWork(root)`, which takes the exact live subagent
+ * tree root: the runtime's first line is `if (this.rootOf(root) !== root)
+ * return false`, and `rootOf` throws `UNAUTHORIZED` ("agent has no active
+ * runtime owner") for a subagent-origin session outside manager residency.
+ * The cold-resume drive child is exactly such an agent — it materializes
+ * through the agents service, bypassing the manager — so calling
+ * `waitForTreeWork` with it would either throw or silently resolve `false`
+ * for a member, dropping the descendant join. Its root must therefore be
+ * resolved through the runtime's own `rootOf`; when that throws, no
+ * manager-owned tree exists beneath the child at all.
  */
-export declare function waitForChildWork(ctx: Context, parent: Agent): Promise<boolean>;
-/** Whether {@link waitForChildWork} has a native join to ride on this host. */
-export declare function hasNativeChildWorkJoin(ctx: Context): boolean;
+export declare function nativeChildWorkJoinRoot(ctx: Context, parent: Agent): Agent | undefined;
+/**
+ * Join progressing descendant work below `parent` without cancelling it.
+ * `root` is the native join target from {@link nativeChildWorkJoinRoot}:
+ * rc.2 hosts join through `waitForTreeWork(root)` — the exact live tree root,
+ * never the member itself (a member resolves `false` there and a non-resident
+ * agent makes the runtime throw); pre-rc.2 lines through `waitForChildren`.
+ * Resolves `false` when the host exposes no usable native join (the caller
+ * falls back to {@link createLegacyDescendantJoin}).
+ */
+export declare function waitForChildWork(ctx: Context, parent: Agent, root?: Agent): Promise<boolean>;
 /** A fresh custom-agent child's persona and optional leaf tool scoping. */
 export interface ChildComposition {
     readonly persona: string;

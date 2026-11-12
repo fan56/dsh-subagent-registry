@@ -4,8 +4,8 @@ import { scopeTarget } from '@deepseek-ai/dsh-scope'
 import {
   createLegacyDescendantJoin,
   drainRunDescendants,
-  hasNativeChildWorkJoin,
   listDirectChildren,
+  nativeChildWorkJoinRoot,
   rc2ChildSurface,
   waitForChildWork,
 } from '../lib/host-compat.js'
@@ -125,9 +125,18 @@ try {
 
   assert.equal(rc2ChildSurface(probeCtx({ waitForChildren: async () => false })), false, 'pre-rc.2 runtime (waitForChildren only) does not speak the rc.2 surface')
   assert.equal(rc2ChildSurface(probeCtx({ waitForTreeWork: async () => false })), true, 'waitForTreeWork presence marks the rc.2 surface')
-  assert.equal(hasNativeChildWorkJoin(probeCtx({ waitForChildren: async () => false })), true, 'pre-rc.2 line still has a native join')
-  assert.equal(hasNativeChildWorkJoin(probeCtx({ waitForTreeWork: async () => false })), true, 'rc.2 line has a native join')
-  assert.equal(hasNativeChildWorkJoin(probeCtx({})), false, '0.2.0 line has neither join — legacy fallback rides')
+
+  // nativeChildWorkJoinRoot — the agent the native join must be called with.
+  // pre-rc.2: waitForChildren joins by lineage below any parent — the parent
+  // itself. rc.2: the exact live tree root resolved through the runtime's
+  // rootOf; a rootOf that throws (the cold-resumed drive child has no active
+  // runtime owner) yields undefined — the legacy event join stands in.
+  assert.equal(nativeChildWorkJoinRoot(probeCtx({ waitForChildren: async () => false }), root), root, 'pre-rc.2 line joins below the parent itself (lineage filter, no root guard)')
+  assert.equal(nativeChildWorkJoinRoot(probeCtx({ waitForTreeWork: async () => false, rootOf: (agent) => agent }), root), root, 'rc.2 self-rooted agent joins through waitForTreeWork on itself')
+  const treeRoot = { id: 'tree-root' }
+  assert.equal(nativeChildWorkJoinRoot(probeCtx({ waitForTreeWork: async () => false, rootOf: () => treeRoot }), root), treeRoot, 'rc.2 resident member resolves its tree root')
+  assert.equal(nativeChildWorkJoinRoot(probeCtx({ waitForTreeWork: async () => false, rootOf: () => { throw new Error('agent has no active runtime owner') } }), root), undefined, 'rc.2 agent without a runtime owner (cold-resumed child) has no native join')
+  assert.equal(nativeChildWorkJoinRoot(probeCtx({}), root), undefined, '0.2.0 line has neither join — legacy fallback rides')
 
   // listDirectChildren — pre-rc.2: passthrough of SubagentRuntime.listChildren.
   {
@@ -168,16 +177,43 @@ try {
     console.log('PASS listDirectChildren loud failure when no read exists')
   }
 
-  // waitForChildWork — rc.2 prefers waitForTreeWork; pre-rc.2 rides
-  // waitForChildren; neither resolves false (caller falls back to the legacy join).
+  // waitForChildWork — rc.2 joins waitForTreeWork on the resolved tree root
+  // (never the member itself: the runtime's `rootOf(root) !== root` guard
+  // would silently resolve false, and a non-resident agent throws);
+  // pre-rc.2 rides waitForChildren; neither resolves false (caller falls
+  // back to the legacy join).
   {
     const calls = []
-    const rc2Ctx = probeCtx({ waitForTreeWork: async (root) => { calls.push('tree'); return true } })
-    assert.equal(await waitForChildWork(rc2Ctx, root), true, 'rc.2 join rides waitForTreeWork')
+    const rc2Ctx = probeCtx({ waitForTreeWork: async (joined) => { calls.push(joined); return true }, rootOf: (agent) => agent })
+    assert.equal(await waitForChildWork(rc2Ctx, root), true, 'rc.2 join rides waitForTreeWork on the rootOf-resolved root')
+    assert.deepEqual(calls, [root], 'self-rooted agent: waitForTreeWork receives the agent itself')
+    const memberCtx = probeCtx({ waitForTreeWork: async (joined) => { calls.push(joined); return false }, rootOf: () => treeRoot })
+    assert.equal(await waitForChildWork(memberCtx, root, treeRoot), false, 'explicit root is honored verbatim')
+    assert.deepEqual(calls, [root, treeRoot], 'a resident member joins its tree root, not itself')
+    const coldCtx = probeCtx({ waitForTreeWork: async () => { calls.push('cold'); return true }, rootOf: () => { throw new Error('agent has no active runtime owner') } })
+    assert.equal(await waitForChildWork(coldCtx, root), false, 'a cold-resumed child (rootOf throws) resolves false — no native tree to join')
     const legacyCtx = probeCtx({ waitForChildren: async () => { calls.push('children'); return false } })
     assert.equal(await waitForChildWork(legacyCtx, root), false, 'pre-rc.2 join rides waitForChildren')
-    assert.deepEqual(calls, ['tree', 'children'], 'exactly one native join runs per call')
+    assert.equal(calls.at(-1), 'children', 'exactly one native join runs per call')
     assert.equal(await waitForChildWork(probeCtx({}), root), false, 'no native join resolves false for the legacy fallback')
-    console.log('PASS waitForChildWork generation pick (treeWork > children > false)')
+    console.log('PASS waitForChildWork generation pick (rooted treeWork > children > false)')
+  }
+
+  // drainRunDescendants — rc.2 drains exact live tree roots. The manager's
+  // rootOf throws UNAUTHORIZED for an agent with no active runtime owner
+  // (the cold-resumed drive child), and a resident member owns no tree —
+  // both must skip the manager drain instead of throwing / no-op-ing.
+  {
+    let drainedWith
+    const drain = (roots) => { drainedWith = roots }
+    await drainRunDescendants(probeCtx({ waitForTreeWork: async () => false, rootOf: (agent) => agent, drainDescendants: drain }), root)
+    assert.deepEqual(drainedWith, [root], 'rc.2 self-rooted agent drains its tree through the manager')
+    drainedWith = undefined
+    await drainRunDescendants(probeCtx({ waitForTreeWork: async () => false, rootOf: () => treeRoot, drainDescendants: drain }), root)
+    assert.equal(drainedWith, undefined, 'rc.2 resident member owns no tree — drain skipped')
+    drainedWith = undefined
+    await drainRunDescendants(probeCtx({ waitForTreeWork: async () => false, rootOf: () => { throw new Error('agent has no active runtime owner') }, drainDescendants: drain }), root)
+    assert.equal(drainedWith, undefined, 'rc.2 cold-resumed child (rootOf throws) skips the manager drain instead of rejecting')
+    console.log('PASS drainRunDescendants rc.2 root guard (self root drains, member and cold child skip)')
   }
 }
