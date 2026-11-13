@@ -8,7 +8,7 @@
 // Run: node test/packaged-install.test.mjs  (after `npm run build`)
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdtempSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -23,16 +23,18 @@ if (!existsSync(join(repoRoot, 'lib', 'index.js'))) {
 
 const scratch = mkdtempSync(join(tmpdir(), 'registry packaged install-'))
 try {
-  // 1. Pack from the repo the way CI's release job does. --ignore-scripts
-  //    keeps the root `prepare` hook from writing to stdout and corrupting
-  //    the --json output (the build gate already produced lib/).
-  const packed = JSON.parse(
-    execFileSync(npm, [...npmArgs, 'pack', '--json', '--pack-destination', scratch, '--ignore-scripts'], {
-      cwd: repoRoot,
-      encoding: 'utf8',
-    }),
-  )[0]
-  const tarball = join(scratch, packed.filename)
+  // 1. Pack from the repo the way CI's release job does. Read the tarball
+  //    name off the filesystem instead of parsing stdout: npm 10 still runs
+  //    the root `prepare` hook under `--ignore-scripts`, so its log line
+  //    ("[link-dsh-closure] linked …") lands in `--json` output and breaks
+  //    JSON.parse. A dedicated empty directory makes the pack output
+  //    unambiguous on every npm version.
+  const packDir = join(scratch, 'pack')
+  mkdirSync(packDir)
+  execFileSync(npm, [...npmArgs, 'pack', '--pack-destination', packDir], { cwd: repoRoot, encoding: 'utf8' })
+  const tarballs = readdirSync(packDir).filter((f) => f.endsWith('.tgz'))
+  assert.equal(tarballs.length, 1, `pack emitted exactly one tarball, got ${tarballs.join(', ') || 'none'}`)
+  const tarball = join(packDir, tarballs[0])
 
   // 2. Tarball contents: the install-hook target ships; the guard markers do
   //    not; and the manifest carries no install hook at all (#10).

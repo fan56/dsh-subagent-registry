@@ -11,7 +11,7 @@
 // network access to registry.npmjs.org for the 0.20.0 baseline)
 import assert from 'node:assert/strict'
 import { execFileSync, spawnSync } from 'node:child_process'
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -49,16 +49,16 @@ try {
   assert.equal(base.version, '0.20.0', 'baseline fixture is 0.20.0')
   assert.equal(typeof base.scripts.postinstall, 'string', 'baseline 0.20.0 carries the postinstall hook (fixture)')
 
-  // 2. Pack the repo the way CI's release job does. --ignore-scripts keeps
-  //    the root `prepare` hook from writing to stdout and corrupting --json
-  //    (the build gate already produced lib/).
-  const packed = JSON.parse(
-    execFileSync(npm, [...npmArgs, 'pack', '--json', '--pack-destination', scratch, '--ignore-scripts'], {
-      cwd: repoRoot,
-      encoding: 'utf8',
-    }),
-  )[0]
-  const tarball = join(scratch, packed.filename)
+  // 2. Pack the repo the way CI's release job does. The tarball name comes
+  //    from the filesystem, not stdout: npm 10 still runs the root `prepare`
+  //    hook under `--ignore-scripts`, so its log line corrupts `--json`
+  //    output. A dedicated empty directory keeps the result unambiguous.
+  const packDir = join(scratch, 'pack')
+  mkdirSync(packDir)
+  execFileSync(npm, [...npmArgs, 'pack', '--pack-destination', packDir], { cwd: repoRoot, encoding: 'utf8' })
+  const tarballs = readdirSync(packDir).filter((f) => f.endsWith('.tgz'))
+  assert.equal(tarballs.length, 1, `pack emitted exactly one tarball, got ${tarballs.join(', ') || 'none'}`)
+  const tarball = join(packDir, tarballs[0])
 
   // 3. Tarball manifest: the install-hook gate set is empty. `prepare` is
   //    carried in package.json but npm/pnpm never run it for registry
