@@ -1,9 +1,10 @@
-// Regression for #2: the published tarball must be npm-installable. The
-// postinstall hook references scripts/link-dsh-closure.mjs, so scripts/ has
-// to ship — and the linker's repo guard must stand down inside a consumer
-// tree (the guard markers, tsconfig.json and .git, must therefore never
-// ship). Runs the reporter's exact failing step: `npm install` of the packed
-// tarball, lifecycle scripts included.
+// Regression for #2: the published tarball must be npm-installable. The dev
+// install hook (now `prepare`) references scripts/link-dsh-closure.mjs, so
+// scripts/ has to ship — and the linker's repo guard must stand down inside a
+// consumer tree (the guard markers, tsconfig.json and .git, must therefore
+// never ship). Runs the reporter's exact failing step: `npm install` of the
+// packed tarball, lifecycle scripts included. Since #10 the tarball carries no
+// install hook at all (pnpm 11 gates those), which is asserted below.
 // Run: node test/packaged-install.test.mjs  (after `npm run build`)
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
@@ -22,26 +23,33 @@ if (!existsSync(join(repoRoot, 'lib', 'index.js'))) {
 
 const scratch = mkdtempSync(join(tmpdir(), 'registry packaged install-'))
 try {
-  // 1. Pack from the repo the way CI's release job does.
+  // 1. Pack from the repo the way CI's release job does. --ignore-scripts
+  //    keeps the root `prepare` hook from writing to stdout and corrupting
+  //    the --json output (the build gate already produced lib/).
   const packed = JSON.parse(
-    execFileSync(npm, [...npmArgs, 'pack', '--json', '--pack-destination', scratch], {
+    execFileSync(npm, [...npmArgs, 'pack', '--json', '--pack-destination', scratch, '--ignore-scripts'], {
       cwd: repoRoot,
       encoding: 'utf8',
     }),
   )[0]
   const tarball = join(scratch, packed.filename)
 
-  // 2. Tarball contents: the postinstall target ships; the guard markers do not.
+  // 2. Tarball contents: the install-hook target ships; the guard markers do
+  //    not; and the manifest carries no install hook at all (#10).
   const contents = execFileSync('tar', ['-tzf', tarball], { encoding: 'utf8' }).split(/\r?\n/)
   assert.ok(
     contents.includes('package/scripts/link-dsh-closure.mjs'),
-    'postinstall target scripts/link-dsh-closure.mjs is in the tarball (#2)',
+    'install-hook target scripts/link-dsh-closure.mjs is in the tarball (#2)',
   )
   assert.ok(!contents.some((f) => f.startsWith('package/tsconfig.json')), 'tsconfig.json never ships (linker guard marker)')
   assert.ok(!contents.some((f) => f.includes('/.git')), '.git never ships (linker guard marker)')
+  const manifest = JSON.parse(execFileSync('tar', ['-xzOf', tarball, 'package/package.json'], { encoding: 'utf8' }))
+  for (const key of ['preinstall', 'install', 'postinstall']) {
+    assert.ok(!Object.hasOwn(manifest.scripts, key), `tarball manifest carries no ${key} script (#10)`)
+  }
 
   // 3. The reporter's exact failing step: a plain npm install of the tarball,
-  //    postinstall included. Must exit 0 — MODULE_NOT_FOUND here is #2 again.
+  //    lifecycle hooks enabled. Must exit 0 — MODULE_NOT_FOUND here is #2 again.
   const consumer = join(scratch, 'consumer')
   execFileSync(npm, [...npmArgs, 'install', tarball, '--prefix', consumer, '--no-audit', '--no-fund', '--loglevel=error'], {
     cwd: scratch,

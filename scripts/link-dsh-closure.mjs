@@ -1,5 +1,5 @@
 /**
- * Postinstall linker: point every `node_modules/@deepseek-ai/*` entry at the
+ * Install-hook linker: point every `node_modules/@deepseek-ai/*` entry at the
  * global dsh closure.
  *
  * Why this exists: dsh-subagent-registry is a plugin that runs *inside* the
@@ -29,7 +29,11 @@
  *
  * pnpm still treats the closure links as extraneous — and, as it prunes
  * entries it once managed, the links can disappear after an install. This
- * script re-creates them on every `pnpm install` (postinstall).
+ * script re-creates them on every root install (the `prepare` hook). It is
+ * deliberately NOT `postinstall`: pnpm 11 treats any dependency install hook
+ * as an unapproved build (strictDepBuilds) and fails the consumer's install,
+ * while `prepare` never runs for registry dependencies — so the published
+ * package carries no install hook at all.
  *
  * It is a no-op (exit 0) when no global dsh install is found — a dev machine
  * without dsh simply cannot typecheck against dsh types.
@@ -41,16 +45,28 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const repoRoot = dirname(dirname(fileURLToPath(import.meta.url)))
-// Guard: this postinstall is a dev-machine convenience for THIS repo. The
-// published tarball ships scripts/ (the hook must resolve), but the linker
-// must never touch a consumer's node_modules there — it would delete their
-// @deepseek-ai packages and replace them with symlinks into their global dsh
-// closure. pnpm ≥10 blocks dependency lifecycle scripts by default, but npm
-// would run this — exit silently outside the repo. The repo markers must be
-// things the files allow-list never ships (checked against the 0.13.0
-// tarball): tsconfig.json (dev typecheck input) and .git.
+// Guard: this hook is a dev-machine convenience for THIS repo. The published
+// tarball ships scripts/ and the `prepare` script (dev hook, carried but not
+// executed for registry dependencies), and the linker must never touch a
+// consumer's node_modules there — it would delete their @deepseek-ai packages
+// and replace them with symlinks into their global dsh closure. Exit silently
+// outside the repo. The repo markers must be things the files allow-list never
+// ships (checked against the 0.13.0 tarball): tsconfig.json (dev typecheck
+// input) and .git.
 if (!existsSync(join(repoRoot, 'tsconfig.json')) || !existsSync(join(repoRoot, '.git'))) {
   process.exit(0)
+}
+// Second guard: npm runs `prepare` inside a throwaway clone when installing a
+// git dependency, and a root project install in a subdirectory walks up to
+// this package with INIT_CWD elsewhere. Only a direct root install (INIT_CWD
+// = repoRoot, or unset for `node scripts/...`) may link.
+const initCwd = process.env.INIT_CWD
+if (initCwd !== undefined && initCwd !== '') {
+  try {
+    if (realpathSync(initCwd) !== realpathSync(repoRoot)) process.exit(0)
+  } catch {
+    process.exit(0)
+  }
 }
 const scopeDir = join(repoRoot, 'node_modules', '@deepseek-ai')
 

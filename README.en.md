@@ -273,7 +273,8 @@ This repo declares the `@deepseek-ai/*` packages (`cordis`, `dsh-subagent`,
   hosts is a hard dependency pinned to an old rc — that can render a 0.2.x
   host unbootable (a known community failure mode).
 - **Dev typecheck (for this repo)**: devDependencies pin the newer SDK;
-  `scripts/link-dsh-closure.mjs` (postinstall) symlinks
+  `scripts/link-dsh-closure.mjs` (the root `prepare` install hook; also
+  runnable as `npm run link-closure`) symlinks
   `node_modules/@deepseek-ai/*` to `DSH_CLOSURE_DIR` or the global dsh install's closure, keeping
   exactly one `@deepseek-ai/cordis` in the type graph — a second copy breaks
   the cordis `declare module` augmentation (`Property 'settings' does not

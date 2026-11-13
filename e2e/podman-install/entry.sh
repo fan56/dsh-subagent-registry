@@ -251,7 +251,7 @@ else
   fail "peer audit: $AUDIT_BAD of $AUDIT_TOTAL packages violate the optional-peer contract (see the FAIL lines above)"
 fi
 
-# --- the #2 packaging class: one probe per fixed plugin, versions live ------
+# --- the #2/#10 packaging class: one probe per fixed plugin, versions live ---
 # Floors = the versions that carried the fix; a resolved latest below its
 # floor means the registry answered with something stale — treat as an error,
 # not a pass.
@@ -272,6 +272,21 @@ for entry in "${PACKAGES[@]}"; do
   else
     fail "$pkg resolved $ver, below the fix floor $floor — registry answered stale"
     continue
+  fi
+
+  # #10: pnpm 11 (strictDepBuilds) fails an install whose dependency carries
+  # an unapproved preinstall/install/postinstall, and the host plugin manager
+  # rolls the update back (ERR_PNPM_IGNORED_BUILDS). The published manifest of
+  # this plugin must therefore carry none of the three keys. `prepare` is
+  # carried but never executed for a registry dependency, so it is not gated.
+  if [ "$pkg" = "@aiwayds/dsh-subagent-registry" ]; then
+    if ! scripts_json="$(npm view "$pkg@$ver" scripts --json --registry="$REGISTRY" 2>/dev/null)"; then
+      fail "cannot read $pkg@$ver scripts from $REGISTRY (network/registry problem — NOT classified as a packaging regression)"
+    elif echo "$scripts_json" | grep -Eq '^[[:space:]]*"(preinstall|install|postinstall)"[[:space:]]*:'; then
+      fail "$pkg@$ver published manifest carries an install lifecycle hook — pnpm 11 strictDepBuilds raises ERR_PNPM_IGNORED_BUILDS and the plugin manager rolls the update back (#10)"
+    else
+      ok "$pkg@$ver published manifest carries no preinstall/install/postinstall hook (#10)"
+    fi
   fi
 
   P="$WORK/$name"

@@ -9,7 +9,10 @@
 //      blocks dependency lifecycle scripts by default, which is exactly how
 //      the #2 tarball breakage (postinstall → unshipped file) stayed
 //      invisible to every pnpm-based install; npm-class clients (the desktop
-//      plugin manager) are the ones that run it.
+//      plugin manager) are the ones that run it. Since #10 the tarball has no
+//      install hook to run (the dev linker rides `prepare`, which npm/pnpm
+//      skip for registry dependencies), so this proves the hook-free package
+//      installs and boots clean.
 //   4. `dsh --profile smoke --dump-config` must compose the plugin into the
 //      tree (mount/patch-layer proof)
 //   5. a real boot under a timeout must load the plugin tree without a

@@ -234,7 +234,7 @@ npm install --prefix ../../.tmp/dsh-type-closure --ignore-scripts @deepseek-ai/d
   闭包。会出事的是硬 dependency 精确钉旧 rc 版——那会把宿主 0.2.x 弄到无法
   boot（已知社区事故模式）。
 - **开发 typecheck（给本仓）**：devDependencies 钉住新版 SDK，`scripts/link-dsh-closure.mjs`
-  （postinstall）把 `node_modules/@deepseek-ai/*` 软链到 `DSH_CLOSURE_DIR` 指定或全局 dsh 安装的闭包，
+  （根项目 `prepare` 安装钩子，也可手动 `npm run link-closure`）把 `node_modules/@deepseek-ai/*` 软链到 `DSH_CLOSURE_DIR` 指定或全局 dsh 安装的闭包，
   保证类型图里只有一份 `@deepseek-ai/cordis`——出现第二份会打断 cordis 的
   `declare module` 类型增强（`Property 'settings' does not exist on type
   'Context'`）。
