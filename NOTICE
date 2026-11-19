@@ -43,3 +43,9 @@ Third-party MIT contributions:
 This project as a whole is now licensed under the Apache License, Version 2.0.
 The third-party contributions listed above were received under the MIT License
 and remain subject to it.
+
+Apache-2.0 era contributions acknowledged:
+
+  Pedro Flores (GitHub: PedroFlores199)
+    - PR #11: "i18n: Spanish translation of UI, bundled skill and shipped
+      agents (language: es)" (commit d8ca089)
