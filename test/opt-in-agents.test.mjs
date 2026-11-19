@@ -16,7 +16,7 @@ import {
   OPT_IN_AGENT_IDS,
 } from '../lib/opt-in-agents.js'
 
-const LANGUAGES = ['en', 'zh', 'ru']
+const LANGUAGES = ['en', 'zh', 'ru', 'es']
 const IDS = [...OPT_IN_AGENT_IDS]
 
 // --- the template tree: every language × id exists, parses, name matches ---
@@ -47,7 +47,7 @@ const IDS = [...OPT_IN_AGENT_IDS]
     !bundledAgentsTemplatesDir().replaceAll('\\', '/').includes('opt-in-agents'),
     'seed-defaults scans templates/agents, never the opt-in tree',
   )
-  console.log('PASS template tree: 3 languages × 2 ids, all parse, names match')
+  console.log('PASS template tree: 4 languages × 2 ids, all parse, names match')
 }
 
 // --- install: one-time copy under the frontmatter name ---

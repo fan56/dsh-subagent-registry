@@ -1,6 +1,6 @@
 /** Shared JSON contract for the authenticated Connection RPC and client. */
 /** UI language the server delivers with the preset list; clients fall back to zh. */
-export type Language = 'zh' | 'en' | 'ru'
+export type Language = 'zh' | 'en' | 'ru' | 'es'
 export const PRESETS_CHANNEL = '/api'
 export const PRESETS_ENDPOINT_PREFIX = 'subagent-presets/'
 export const PRESET_KEYS = ['name', 'display_name', 'description', 'model', 'thinking', 'deep', 'background', 'maxRounds'] as const

@@ -84,7 +84,7 @@ cordis.patch.yml `insert` 项的 `config:` 段，即 entry config）。九个注
         askToolName: ask_agent     # 追问工具名
         # leafDenyTools: []        # deep:0 叶子子的禁用工具表；空 = 静态默认（dsh 自带派发工具 + toolName）再与宿主已注册工具取交集；非空原样透传（不交集）
         resume: auto               # auto | opt-in | off
-        language: zh               # zh | en | ru（默认 zh），见下方"切换插件语言"
+        language: zh               # zh | en | ru | es（默认 zh），见下方"切换插件语言"
         disabledAgents: []         # 名册开关：要停用的 agent 名单（停用 = 从名册隐藏并拒按名调用，不动文件）
         ptcEnabled: false          # opt-in：codemode（jev + store）工具链开关，false 不注册工具
         # jevEnabled: false        # jev 总开关（默认关：零 jev 调用）
@@ -103,7 +103,7 @@ cordis.patch.yml `insert` 项的 `config:` 段，即 entry config）。九个注
 | `askToolName`   | `ask_agent`    | 追问工具名。                                                                                      |
 | `leafDenyTools` | `[]`           | 空 = 静态默认（`subagent`/`subagent_fork`/`workflow`/`ralph` + `toolName`）∩ 宿主当前注册的工具（防陈旧名触发宿主 fail-fast）；非空**原样透传**、不交集，陈旧条目由宿主校验拒绝。 |
 | `resume`        | `auto`         | 续跑档位，见下节。                                                                                |
-| `language`      | `zh`           | 界面/指南/预置 agent 模板语言：`zh` / `en` / `ru`，改后重启 dsh 生效，见下节。                      |
+| `language`      | `zh`           | 界面/指南/预置 agent 模板语言：`zh` / `en` / `ru` / `es`，改后重启 dsh 生效，见下节。               |
 | `disabledAgents` | `[]`（volatile） | 名册开关：名单里的 agent 从 `use_agent`/`ask_agent` 名册隐藏，执行期按活值再查、硬调被拒。**停用语义在配置键，不在 frontmatter**——agent 文件永不改动。volatile 写热生效（配合名册刷新）；`/registry-config` 命令可代写。 |
 | `ptcEnabled`    | `false`        | codemode 工具链门控：false 完全不注册额外工具；true 在插件下次挂载（重启 dsh）时按原 ptc 仓的 standing scope 注册 `codemode` 工具。六个 jev 键均为 volatile、逐调用热读。 |
 
@@ -157,12 +157,12 @@ frontmatter 键，官方没有轮数预算能力，继续由宿主 TUI 硬停梯
 
 ## 切换插件语言（language）
 
-本插件支持三种语言：`zh`（中文，默认）、`en`（English）、`ru`（Русский），由 entry config 的 `language` 键控制。
+本插件支持四种语言：`zh`（中文，默认）、`en`（English）、`ru`（Русский）、`es`（Español），由 entry config 的 `language` 键控制。
 
-- 改法：在插件配置中把 `language` 设为 `zh` / `en` / `ru`（cordis.patch.yml 或 web 插件设置），保存后重启 dsh 生效。
+- 改法：在插件配置中把 `language` 设为 `zh` / `en` / `ru` / `es`（cordis.patch.yml 或 web 插件设置），保存后重启 dsh 生效。
 - 生效范围：web 管理面板文案、本指南（对应语言的正文与模型路由描述）、首次播种的预置 agent（`templates/agents/<language>/`）。
 - 不会改写已存在的 agent 文件：要更换既有 agent 的语言，直接编辑 `~/.dsh/agents/*.md`，或清空 agents 目录后由播种按新语言重建。
-- 当用户问"怎么换成英文/俄语界面"时：说明上面的改法，或代为修改配置并提示重启。触发词：语言、界面语言、换语言、language、язык。
+- 当用户问"怎么换成英文/俄语/西班牙语界面"时：说明上面的改法，或代为修改配置并提示重启。触发词：语言、界面语言、换语言、language、язык、idioma。
 
 ## 续跑与追问
 

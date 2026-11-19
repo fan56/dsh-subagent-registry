@@ -78,7 +78,7 @@ The plugin has no settings namespace; its configuration hangs on the **patch mou
         askToolName: ask_agent     # follow-up tool name
         # leafDenyTools: []        # tool deny list for deep:0 leaf children; empty = static default (dsh's built-in dispatch tools + toolName) intersected with the host's registered tools; non-empty passed through verbatim (no intersection)
         resume: auto               # auto | opt-in | off
-        language: zh               # zh | en | ru (default zh), see "Switching the plugin language" below
+        language: zh               # zh | en | ru | es (default zh), see "Switching the plugin language" below
         disabledAgents: []         # roster toggle: agent names to disable (hidden from the roster, calls refused; files untouched)
         ptcEnabled: false          # opt-in: the codemode (jev + store) toolchain switch; false registers no extra tool
         # jevEnabled: false        # jev master switch (default off: zero jev calls)
@@ -97,7 +97,7 @@ The plugin has no settings namespace; its configuration hangs on the **patch mou
 | `askToolName`   | `ask_agent`    | Follow-up tool name.                                                                                |
 | `leafDenyTools` | `[]`           | Empty = static default (`subagent`/`subagent_fork`/`workflow`/`ralph` + `toolName`) ∩ the host's currently registered tools (prevents stale names from tripping the host's fail-fast); non-empty is **passed through verbatim**, no intersection, stale entries are rejected by host validation. |
 | `resume`        | `auto`         | Resume mode, see the next section.                                                                  |
-| `language`      | `zh`           | UI/guide/shipped agent template language: `zh` / `en` / `ru`; restart dsh after changing, see the next section. |
+| `language`      | `zh`           | UI/guide/shipped agent template language: `zh` / `en` / `ru` / `es`; restart dsh after changing, see the next section. |
 | `disabledAgents` | `[]` (volatile) | The roster toggle: listed names vanish from the `use_agent`/`ask_agent` rosters; the execute path re-checks the live value and refuses hard-named calls. **Disable semantics live in this config key, not the frontmatter** — agent files are never modified. A volatile write hot-applies (with the roster refresh); the `/registry-config` command writes it for you. |
 | `ptcEnabled`    | `false`        | The codemode toolchain gate: false registers nothing extra; true registers the `codemode` tool at standing scope on the next plugin mount (dsh restart). The six jev keys are volatile and read per call. |
 
@@ -120,12 +120,12 @@ The number of concurrently active subagents and the nesting depth are managed by
 
 ## Switching the plugin language (language)
 
-The plugin ships three languages: `zh` (Chinese, the default), `en` (English) and `ru` (Russian), selected by the `language` key of the entry config.
+The plugin ships four languages: `zh` (Chinese, the default), `en` (English), `ru` (Russian) and `es` (Spanish), selected by the `language` key of the entry config.
 
-- How to change it: set `language` to `zh` / `en` / `ru` in the plugin config (cordis.patch.yml or the web plugin settings), then restart dsh for it to take effect.
+- How to change it: set `language` to `zh` / `en` / `ru` / `es` in the plugin config (cordis.patch.yml or the web plugin settings), then restart dsh for it to take effect.
 - Scope: the web management panel texts, this guide (the matching body and model-facing routing description), and the agent templates seeded on first install (`templates/agents/<language>/`).
 - Existing agent files are never rewritten: to change the language of existing agents, edit `~/.dsh/agents/*.md` directly, or empty the agents dir and let seeding rebuild it in the new language.
-- When the user asks how to switch to the English/Russian UI: explain the steps above, or edit the config for them and remind them to restart. Trigger words: language, UI language, switch language, язык.
+- When the user asks how to switch to the English/Russian/Spanish UI: explain the steps above, or edit the config for them and remind them to restart. Trigger words: language, UI language, switch language, язык, idioma.
 
 ## Resume and follow-ups
 

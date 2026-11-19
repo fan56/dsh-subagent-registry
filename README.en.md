@@ -140,7 +140,7 @@ section of the cordis.patch.yml `insert` entry):
 | `askToolName`   | `ask_agent`     | Follow-up tool name.                                                                              |
 | `leafDenyTools` | `[]`            | Tool deny list for `deep: 0` leaf children; empty = static default intersected with the host's registered tools. |
 | `resume`        | `auto`          | Resume mode: `auto` / `opt-in` / `off`.                                                           |
-| `language`      | `zh`            | UI language: `zh` (Chinese, the default) / `en` (English) / `ru` (Русский). Affects the web management panel texts, the bundled skill body and its model-facing routing description, and the agent templates seeded on first install (`templates/agents/<language>/`); restart dsh after changing. Existing agent files are never rewritten. |
+| `language`      | `zh`            | UI language: `zh` (Chinese, the default) / `en` (English) / `ru` (Русский) / `es` (Español). Affects the web management panel texts, the bundled skill body and its model-facing routing description, and the agent templates seeded on first install (`templates/agents/<language>/`); restart dsh after changing. Existing agent files are never rewritten. |
 | `disabledAgents` | `[]` (volatile) | **The roster toggle**: listed agent names vanish from the `use_agent`/`ask_agent` rosters and calls by name are refused; **a pure roster filter that never touches agent files**. Volatile writes hot-apply; the `/registry-config` command writes it for you, and the execute path re-checks the live value (a model hard-naming a disabled agent is refused). |
 | `ptcEnabled`    | `false`         | **The opt-in gate**: false (default) registers nothing extra; true registers the `codemode` tool at standing scope (visible to the main agent and every dispatched subagent) on the next plugin mount (dsh restart). Experimental — disabled by default. |
 | six jev keys    | see the ptc section | The volatile jev configuration: `jevEnabled` (default false = zero jev calls) / `jevBackend` (zen) / `jevModel` ('' = backend default) / `jevTimeoutMs` (3000) / `jevSecretFile` ('') / `storageDir` ('' = `<dsh home>/storages/ptc-subagent`). |
@@ -211,8 +211,9 @@ or this plugin's configuration, dsh loads the bundled usage & configuration
 guide, so the model can write agent files for you (collecting choices via
 `ask_user_question`) and adjust the plugin config without digging through the
 README. The skill is versioned and published with the package
-(`skills/dsh-subagent-registry-config/SKILL.md`, plus an English `SKILL.en.md`
-and a Russian `SKILL.ru.md` selected by the `language` key — see the table above).
+(`skills/dsh-subagent-registry-config/SKILL.md`, plus an English `SKILL.en.md`,
+a Russian `SKILL.ru.md` and a Spanish `SKILL.es.md` selected by the `language`
+key — see the table above).
 
 ## Installation
 

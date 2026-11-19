@@ -12,8 +12,9 @@
  *
  * The templates are language-specific: `templates/agents/<language>/`
  * (zh is the Chinese default set, en the English translation, ru the
- * Russian one). The language is fixed at first seeding time only — the
- * seeded files are never rewritten by a later language change.
+ * Russian one, es the Spanish one). The language is fixed at first
+ * seeding time only — the seeded files are never rewritten by a later
+ * language change.
  *
  * @module seed-defaults
  */

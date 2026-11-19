@@ -52,7 +52,7 @@ export declare const inject: string[];
  * `toolName` itself), `resume` selects when `use_agent` continues a
  * prior interrupted run of the same agent (default `auto`), and
  * `language` selects the UI/skill/seed language (`zh` Chinese default,
- * `en`, `ru`).
+ * `en`, `ru`, `es`).
  *
  * The roster toggle: `disabledAgents` (volatile, default `[]`) lists agent
  * names excluded from the roster — the `/registry-config` command and a direct
@@ -76,7 +76,7 @@ export declare const Config: z<Schemastery.ObjectS<NoInfer<{
     askToolName: z<string, string, "defined">;
     leafDenyTools: z<string[], string[], "defined">;
     resume: z<"off" | "auto" | "opt-in", "off" | "auto" | "opt-in", "defined">;
-    language: z<"zh" | "en" | "ru", "zh" | "en" | "ru", "defined">;
+    language: z<"zh" | "en" | "ru" | "es", "zh" | "en" | "ru" | "es", "defined">;
     disabledAgents: z<NoInfer<string[]>, NoInfer<string[]>, "volatile-defined">;
     ptcEnabled: z<boolean, boolean, "defined">;
     jevEnabled: z<boolean, boolean, "volatile-defined">;
@@ -92,7 +92,7 @@ export declare const Config: z<Schemastery.ObjectS<NoInfer<{
     askToolName: z<string, string, "defined">;
     leafDenyTools: z<string[], string[], "defined">;
     resume: z<"off" | "auto" | "opt-in", "off" | "auto" | "opt-in", "defined">;
-    language: z<"zh" | "en" | "ru", "zh" | "en" | "ru", "defined">;
+    language: z<"zh" | "en" | "ru" | "es", "zh" | "en" | "ru" | "es", "defined">;
     disabledAgents: z<NoInfer<string[]>, NoInfer<string[]>, "volatile-defined">;
     ptcEnabled: z<boolean, boolean, "defined">;
     jevEnabled: z<boolean, boolean, "volatile-defined">;

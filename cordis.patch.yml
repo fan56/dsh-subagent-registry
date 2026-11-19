@@ -51,7 +51,7 @@
       #   askToolName: ask_agent       # follow-up tool name
       #   leafDenyTools: []            # deep:0 leaf deny list override
       #   resume: auto                 # auto | opt-in | off
-      #   language: zh                 # zh | en | ru
+      #   language: zh                 # zh | en | ru | es
       #   disabledAgents: []           # roster toggle — agent names excluded from the roster
       #   ptcEnabled: false            # opt-in: register the codemode (jev + store) tool
       #   jevEnabled: false            # jev master switch (default off: zero jev calls)
