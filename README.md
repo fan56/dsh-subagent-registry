@@ -121,7 +121,7 @@ Frontmatter 字段：`name`（必填）、`description`、`display_name`、`mode
 | `askToolName`   | `ask_agent`     | 追问工具名。                                                                                      |
 | `leafDenyTools` | `[]`            | `deep: 0` 叶子子的禁用工具表；空 = 静态默认再与宿主已注册工具取交集。                              |
 | `resume`        | `auto`          | 续跑档位：`auto` / `opt-in` / `off`。                                                             |
-| `language`      | `zh`            | 界面语言：`zh`（中文，默认）/ `en`（English）/ `ru`（Русский）。作用于 web 管理面板文案、内置技能正文与模型路由描述、首次播种的预置 agent 模板（`templates/agents/<language>/`）；改后重启 dsh 生效，已存在的 agent 文件不会被改写。 |
+| `language`      | `zh`            | 界面语言：`zh`（中文，默认）/ `en`（English）/ `ru`（Русский）/ `es`（Español）。作用于 web 管理面板文案、内置技能正文与模型路由描述、首次播种的预置 agent 模板（`templates/agents/<language>/`）；改后重启 dsh 生效，已存在的 agent 文件不会被改写。 |
 | `disabledAgents` | `[]`（volatile） | **名册开关**：名单里的 agent 从 `use_agent`/`ask_agent` 名册隐藏、按名调用被拒；**只过滤名册，永不改动 agent 文件**。volatile 写热生效；`/registry-config` 命令可代写，执行期还会按活值再查（模型硬调停用名会被拒绝）。 |
 | `ptcEnabled`    | `false`         | **opt-in 门控**：false（默认）不注册任何额外工具；true 在插件下次挂载（重启 dsh）时按 standing scope 注册 `codemode` 工具（主代理与派发子代理都可见）。Experimental（试验性功能，默认关闭）。 |
 | `jevEnabled` 等 六键 | 见 ptc 章节 | jev 能力的 volatile 配置：`jevEnabled`（默认 false = 零 jev 调用）/`jevBackend`（zen）/`jevModel`（'' = 后端默认）/`jevTimeoutMs`（3000）/`jevSecretFile`（''）/`storageDir`（'' = `<dsh home>/storages/ptc-subagent`）。 |
@@ -177,7 +177,7 @@ NO_PROVIDER）时，命令降级为错误文案，指引用手改配置键（`di
 子代理、agent `.md` 编写、子代理续跑或本插件配置时，dsh 会自动加载这份使用与配置指南，
 主模型可以据此用 `ask_user_question` 代写 agent 文件、调整插件配置，无需翻 README。
 技能与插件同版本发布，随 npm 包携带（`skills/dsh-subagent-registry-config/SKILL.md`，
-另有英文版 `SKILL.en.md` 与俄文版 `SKILL.ru.md`，由 `language` 键选择，见上表）。
+另有英文版 `SKILL.en.md`、俄文版 `SKILL.ru.md` 与西班牙文版 `SKILL.es.md`，由 `language` 键选择，见上表）。
 
 ## 安装
 

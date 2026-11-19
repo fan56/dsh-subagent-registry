@@ -1,0 +1,39 @@
+{
+  "meta": {
+    "title": "dsh-subagent-registry",
+    "description": "Registra ~/.dsh/agents/*.md como subagentes invocables (use_agent), con lanzamiento continuo en segundo plano y preguntas de seguimiento con ask_agent."
+  },
+  "subagents": {
+    "commandDescription": "Gestiona los subagentes: activa o desactiva agentes de la lista, instala agentes opcionales (ptc-subagent / minimal-subagent) y cambia el interruptor de la cadena de herramientas codemode (PTC).",
+    "askUnavailable": "No hay ningún panel de preguntas disponible (el servicio userQuestions no está montado). Edita a mano la entry config de dsh-subagent-registry (cordis.patch.yml del perfil o la página de ajustes).",
+    "askFailed": "El asistente no ha podido terminar ({error}). Configúralo a mano; consulta las instrucciones de abajo.",
+    "manualHint": "Configuración manual: define disabledAgents (array con los nombres de los agentes que se ocultan de la lista; los archivos de agente nunca se modifican) y ptcEnabled (true/false: el interruptor de la cadena de herramientas codemode, que se aplica en el siguiente montaje del plugin) en la entry config de dsh-subagent-registry (cordis.patch.yml del perfil o la página de ajustes). Los agentes opcionales se instalan copiando templates/opt-in-agents/<language>/<name>.md del paquete en ~/.dsh/agents/ (los archivos existentes nunca se sobrescriben).",
+    "qDisableHeader": "Desactivar agentes",
+    "qDisableQuestion": "Marca los agentes que quieras desactivar (sin marcar = activado).",
+    "qDisableDetail": "Desactivar un agente solo lo oculta de la lista de use_agent y rechaza las llamadas por nombre; el archivo del agente nunca se modifica. Los nombres que ya están desactivados deben SEGUIR marcados para continuar desactivados.",
+    "markDisabled": "desactivado ahora: déjalo marcado para mantenerlo desactivado o desmárcalo para volver a activarlo",
+    "markEnabled": "activado ahora: márcalo para desactivarlo",
+    "qOptInHeader": "Agentes opcionales",
+    "qOptInQuestion": "Marca los agentes opcionales que quieras instalar o mantener activados (los dos son experimentales y están desactivados por defecto).",
+    "qOptInDetail": "Experimental: desactivado por defecto. Al instalarlo se copia la plantilla en el directorio de agentes (un archivo existente nunca se sobrescribe; desmarcarlo nunca borra un archivo ya copiado).",
+    "ptcBlurb": "Experimental. Especialista en trabajo de decisión por lotes; vinculado a ptcEnabled (la cadena de herramientas codemode).",
+    "minimalBlurb": "Experimental. Ejecutor mínimo solo de terminal (hoja); sin vínculo con la configuración.",
+    "stateInstalled": "instalado",
+    "stateMissing": "no instalado",
+    "ptcOnNow": "codemode activado",
+    "ptcOffNow": "codemode desactivado",
+    "noChanges": "No ha cambiado nada.",
+    "savedHeader": "Se han guardado los ajustes de los subagentes.",
+    "disabledLine": "Desactivados: {names}",
+    "enabledLine": "Activados: {names}",
+    "installedLine": "Instalados: {ids}",
+    "presentLine": "Ya existían (no se han sobrescrito): {ids}",
+    "installFailedLine": "Error al instalar: {id} ({error})",
+    "ptcEnabledLine": "ptcEnabled → true: la herramienta codemode se registrará en el siguiente montaje del plugin (al reiniciar dsh).",
+    "ptcDisabledLine": "ptcEnabled → false: la herramienta codemode dejará de registrarse (se aplica en el siguiente montaje); el ptc-subagent.md instalado se conserva, pero queda fuera de la lista.",
+    "rosterRefreshed": "Se ha actualizado la lista de herramientas.",
+    "rosterRefreshFailed": "No se ha podido actualizar la lista: {error}. Se aplicará al volver a abrir la página de gestión o en el siguiente lanzamiento.",
+    "persistFailed": "Error al escribir la configuración: {error}",
+    "settingsUnavailable": "El servicio de ajustes no está disponible; no se ha escrito ninguna configuración."
+  }
+}

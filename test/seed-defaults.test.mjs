@@ -111,9 +111,9 @@ const makeTempDir = (label) => mkdtempSync(join(tmpdir(), `seed-defaults-${label
   }
 }
 
-// --- language selection: 'ru' seeds templates/agents/ru, 'en' templates/agents/en ---
+// --- language selection: 'ru' seeds templates/agents/ru, 'en' templates/agents/en, 'es' templates/agents/es ---
 
-for (const language of ['en', 'ru']) {
+for (const language of ['en', 'ru', 'es']) {
   {
     const dir = makeTempDir(language)
     try {
@@ -133,7 +133,7 @@ for (const language of ['en', 'ru']) {
       }
       // The seeded content is the translated set, not the zh default.
       const workhorse = readFileSync(join(dir, 'workhorse.md'), 'utf8')
-      const displayNames = { en: 'Workhorse', ru: 'Трудяга' }
+      const displayNames = { en: 'Workhorse', ru: 'Трудяга', es: 'Currante' }
       assert.ok(
         workhorse.includes(`display_name: ${displayNames[language]}`),
         `${language} seeding picked templates/agents/${language}`,

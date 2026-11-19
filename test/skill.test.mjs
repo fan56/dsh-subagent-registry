@@ -1,6 +1,6 @@
 // Anti-drift tests for the bundled usage/config skill: the packaged
 // skills/dsh-subagent-registry-config/SKILL.md (plus its per-language
-// SKILL.en.md / SKILL.ru.md bodies) must be served through
+// SKILL.en.md / SKILL.ru.md / SKILL.es.md bodies) must be served through
 // ctx.skills.registerProvider with a routing description that matches the
 // matching frontmatter byte for byte (the description is the model's routing
 // surface — drift between it and the packaged body misroutes skill discovery),
@@ -78,6 +78,7 @@ const BODY_MARKERS = {
   zh: '# dsh-subagent-registry 使用指南',
   en: '# dsh-subagent-registry guide',
   ru: '# Руководство по dsh-subagent-registry',
+  es: '# Guía de dsh-subagent-registry',
 }
 
 /** Register the provider for one language and return { provider, candidate }. */
@@ -169,7 +170,7 @@ test('provider.get loads the packaged SKILL.md with matching metadata (zh defaul
 // the provider built for that language) equals the frontmatter description of
 // the matching SKILL.<lang>.md byte for byte, stays within the 500-char
 // budget, and the served body is the matching file.
-for (const language of ['zh', 'en', 'ru']) {
+for (const language of ['zh', 'en', 'ru', 'es']) {
   test(`language "${language}": description matches frontmatter, within budget, body follows language`, async () => {
     const { provider, candidate } = await providerFor(language)
 
@@ -196,18 +197,20 @@ for (const language of ['zh', 'en', 'ru']) {
 
 // Distinct languages must serve distinct descriptions and bodies (guards
 // against the map collapsing back to a single-language constant).
-test('languages zh/en/ru serve distinct descriptions and bodies', async () => {
+test('languages zh/en/ru/es serve distinct descriptions and bodies', async () => {
   const zh = await providerFor('zh')
   const en = await providerFor('en')
   const ru = await providerFor('ru')
-  const descriptions = new Set([zh.candidate.description, en.candidate.description, ru.candidate.description])
-  assert.equal(descriptions.size, 3, 'each language has its own routing description')
+  const es = await providerFor('es')
+  const descriptions = new Set([zh.candidate.description, en.candidate.description, ru.candidate.description, es.candidate.description])
+  assert.equal(descriptions.size, 4, 'each language has its own routing description')
   const bodies = new Set([
     (await zh.provider.get(zh.candidate, {})).content,
     (await en.provider.get(en.candidate, {})).content,
     (await ru.provider.get(ru.candidate, {})).content,
+    (await es.provider.get(es.candidate, {})).content,
   ])
-  assert.equal(bodies.size, 3, 'each language serves its own body')
+  assert.equal(bodies.size, 4, 'each language serves its own body')
 })
 
 test('stripFrontmatter tolerates missing or unclosed frontmatter', () => {
