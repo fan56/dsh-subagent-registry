@@ -16,6 +16,10 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 const repoRoot = join(import.meta.dirname, '..')
+// The packed tarball must carry the repo's own version — read it instead of
+// pinning a literal, so a release bump does not stale this assertion (the
+// 0.21.0 tag run failed exactly there: packed 0.21.0 vs a hardcoded 0.20.1).
+const repoVersion = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf8')).version
 // Windows needs cmd.exe to launch npm's .cmd shim; keep paths as separate arguments.
 const npm = process.platform === 'win32' ? process.env.ComSpec || 'cmd.exe' : 'npm'
 const npmArgs = process.platform === 'win32' ? ['/d', '/s', '/c', 'npm.cmd'] : []
@@ -64,7 +68,7 @@ try {
   //    carried in package.json but npm/pnpm never run it for registry
   //    dependencies — the published package has no lifecycle step to gate.
   const tarManifest = JSON.parse(execFileSync('tar', ['-xzOf', tarball, 'package/package.json'], { encoding: 'utf8' }))
-  assert.equal(tarManifest.version, '0.20.1', 'packed version is 0.20.1')
+  assert.equal(tarManifest.version, repoVersion, `packed version is ${repoVersion}`)
   for (const key of installHooks) {
     assert.ok(!Object.hasOwn(tarManifest.scripts, key), `tarball manifest carries no ${key} script (#10)`)
   }
@@ -80,14 +84,14 @@ try {
     { cwd: scratch, encoding: 'utf8', env },
   )
   const output = `${upgrade.stdout ?? ''}\n${upgrade.stderr ?? ''}`
-  assert.equal(upgrade.status, 0, `upgrade to the packed 0.20.1 failed:\n${output}`)
+  assert.equal(upgrade.status, 0, `upgrade to the packed ${repoVersion} failed:\n${output}`)
   assert.ok(
     !/ERR_PNPM_IGNORED_BUILDS|Ignored build scripts/i.test(output),
     `upgrade output carries a pnpm-11 unapproved-build report:\n${output}`,
   )
 
   const upgraded = installedManifest()
-  assert.equal(upgraded.version, '0.20.1', 'upgrade landed 0.20.1')
+  assert.equal(upgraded.version, repoVersion, `upgrade landed ${repoVersion}`)
   for (const key of installHooks) {
     assert.ok(!Object.hasOwn(upgraded.scripts, key), `installed manifest carries no ${key} script (#10)`)
   }
@@ -104,7 +108,7 @@ try {
     !existsSync(join(consumer, 'node_modules', '@deepseek-ai')),
     'optional host SDK peers did not install a consumer-side copy',
   )
-  console.log('packaged-upgrade: 0.20.0 → packed 0.20.1 upgrades cleanly with no install hook')
+  console.log(`packaged-upgrade: 0.20.0 → packed ${repoVersion} upgrades cleanly with no install hook`)
 } finally {
   rmSync(scratch, { recursive: true, force: true })
 }
