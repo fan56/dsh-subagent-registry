@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.21.0] - 2026-11-19
+
+### Added
+- **Spanish (`es`) is a fourth bundled language on every surface — panel strings, the bundled skill, and the shipped agent templates (#11, by Pedro Flores / @PedroFlores199; acknowledged in NOTICE).** `language: es` in the plugin config seeds `templates/agents/es/` (workhorse/oldfox/rubber-duck, display names localized — Currante, Zorro Viejo, Patito de Goma) and the opt-in `templates/opt-in-agents/es/` (minimal-subagent/ptc-subagent), serves `SKILL.es.md` with its own routing description (487 chars, inside the 500 budget), and switches the panel string table — mirroring the ru rollout (0.15.0–0.17.0) surface for surface. The es locale keeps full key parity with `en` (33/33 locale keys with all placeholders intact, 104 top-level string keys), pinned by the language loops in `test/skill.test.mjs`, `test/seed-defaults.test.mjs` and `test/opt-in-agents.test.mjs`. The seed language remains fixed at first seeding time and the default remains `zh`; existing installs are untouched.
+
 ## [0.20.1] - 2026-11-13
 
 ### Fixed
