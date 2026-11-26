@@ -3,7 +3,7 @@ import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 
 // Match only the host's generated delegation section, not arbitrary persona text.
-const HOST_GUIDANCE = /^Start independent (?:delegations with (`[^`\r\n]+`(?: or `[^`\r\n]+`)*)|([^`\s]+) delegations) together in one assistant message and continue useful work while they run\.$/
+const HOST_GUIDANCE = /^Start independent (?:delegations with (`[^`\r\n]+`(?: or `[^`\r\n]+`)*)|([^`\s]+) delegations) together in one assistant message and continue useful work while they run\./
 
 function hostDelegationNames(text: string): string[] {
   const match = HOST_GUIDANCE.exec(text)

@@ -1,9 +1,20 @@
-// Unit verification for the `deep` field semantics — no LLM, no cordis context.
+// `deep` is inert; every child loses all spawn tools; plain foreground returns
+// A's own output verbatim (no join, no aggregation). No LLM, no real host.
 // Run: node test/deep-semantics.test.mjs  (after `npm run build`)
 import assert from 'node:assert/strict'
+import { mkdtempSync, writeFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { parseAgentMarkdown } from '../lib/agents-dir.js'
-import { buildStartRequest, SPAWN_TOOL_NAMES } from '../lib/tool-run-agent.js'
+import {
+  buildStartRequest,
+  leafDenyList,
+  runAgentTool,
+  SPAWN_TOOL_NAMES,
+} from '../lib/tool-run-agent.js'
+import { installChildCompositionListener, reserveChildComposition } from '../lib/host-compat.js'
 
+const MANDATORY = ['subagent', 'subagent_fork', 'subagent_codex', 'subagent_claude_code', 'workflow', 'ralph']
 const MD = (extra) => `---
 name: workhorse
 description: "demo agent"
@@ -12,104 +23,209 @@ ${extra}---
 You are the body of the agent.
 Line two.`
 
-const CASES = [
-  { label: 'deep=0 (leaf)', md: MD('deep: 0\n'), expectedDeep: 0 },
-  { label: 'deep=1 (explicit)', md: MD('deep: 1\n'), expectedDeep: 1 },
-  { label: 'no deep key (default 1)', md: MD(''), expectedDeep: 1 },
-]
-
 /** A fake delegating parent whose session header carries the delegation depth. */
-const parentAtDepth = (depth) => ({ options: {}, session: { header: { delegationDepth: depth }, requestHeader: () => undefined } })
+const parentAtDepth = (depth) => ({ id: 'parent', options: {}, session: { header: { delegationDepth: depth }, requestHeader: () => undefined } })
 
-for (const { label, md, expectedDeep } of CASES) {
-  const parsed = parseAgentMarkdown(md, '/fake/workhorse.md')
+// ---------------------------------------------------------------------------
+// 1. `deep` parses (for compatibility) but produces no maxDepth / no nesting.
+// ---------------------------------------------------------------------------
+for (const [label, extra, expectedDeep] of [
+  ['deep=0', 'deep: 0\n', 0],
+  ['deep=1', 'deep: 1\n', 1],
+  ['deep=2', 'deep: 2\n', 2],
+  ['no deep key', '', 1],
+]) {
+  const parsed = parseAgentMarkdown(MD(extra), '/fake/workhorse.md')
   assert.equal(parsed.ok, true, `${label}: parse ok`)
-  const { meta, body } = parsed.agent
-  assert.equal(meta.deep, expectedDeep, `${label}: parsed deep`)
-  assert.ok(body.startsWith('You are the body'), `${label}: body kept`)
-
-  const parent = parentAtDepth(1) // child absolute depth = 1 + 1 = 2
-  const childDepth = 2
-  const request = buildStartRequest({
-    agentName: 'workhorse',
-    prompt: 'do the thing',
-    parent,
-    persona: body,
-    deep: meta.deep,
-    toolName: 'use_agent',
-    model: meta.model,
+  assert.equal(parsed.agent.meta.deep, expectedDeep, `${label}: deep still parsed as a compatibility field`)
+  const req = buildStartRequest({
+    agentName: 'workhorse', prompt: 'do the thing', parent: parentAtDepth(1),
+    persona: parsed.agent.body, deep: parsed.agent.meta.deep, toolName: 'use_agent',
+    model: parsed.agent.meta.model,
   })
-
-  if (meta.deep === 0) {
-    // Leaf: toolFilter present and includes the three mandated spawn tools;
-    // maxDepth is NOT passed (never 0), so the start can never be depth-blocked.
-    assert.ok(request.toolFilter, `${label}: toolFilter present`)
-    const deny = [...request.toolFilter.deny]
-    for (const name of ['subagent', 'subagent_fork', 'use_agent']) {
-      assert.ok(deny.includes(name), `${label}: deny includes ${name}`)
-    }
-    assert.equal(request.maxDepth, undefined, `${label}: maxDepth omitted`)
-    console.log(`PASS ${label}: deny=${JSON.stringify(deny)} maxDepth=${request.maxDepth}`)
-  } else {
-    // deep >= 1: no toolFilter; maxDepth is a relative budget >= child depth,
-    // so the child's own start can never be rejected by the depth check.
-    assert.equal(request.toolFilter, undefined, `${label}: no toolFilter`)
-    assert.ok(
-      request.maxDepth >= childDepth,
-      `${label}: maxDepth ${request.maxDepth} >= child depth ${childDepth}`,
-    )
-    console.log(`PASS ${label}: maxDepth=${request.maxDepth} (child depth ${childDepth}) toolFilter=${request.toolFilter}`)
+  assert.equal(req.maxDepth, undefined, `${label}: no maxDepth — no nested spawn budget`)
+  assert.ok(req.toolFilter, `${label}: every child gets a toolFilter`)
+  for (const name of [...MANDATORY, 'use_agent']) {
+    assert.ok(req.toolFilter.deny.includes(name), `${label}: deny includes ${name}`)
   }
-
-  // persona is always the md body verbatim, whatever the deep value.
-  assert.equal(request.persona, body, `${label}: persona === body`)
+  assert.equal(req.persona, parsed.agent.body, `${label}: persona is the body verbatim`)
+  console.log(`PASS ${label}: deep parsed as ${expectedDeep}, no maxDepth, spawn tools denied`)
 }
 
-// A customized plugin tool name must be denied on leaves (the restrict()
-// validation in the in-process driver throws on unknown names, so the deny
-// list must match the name actually registered).
+// ---------------------------------------------------------------------------
+// 2. Deny list: mandatory ∪ config, deduped, intersected with host-known names.
+// ---------------------------------------------------------------------------
 {
-  const md = MD('deep: 0\n')
+  assert.deepEqual([...SPAWN_TOOL_NAMES], MANDATORY, 'mandatory spawn-tool names cover every spawner')
+  const plain = leafDenyList('use_agent')
+  assert.deepEqual(plain, [...MANDATORY, 'use_agent'], 'default = mandatory names + this tool')
+
+  const custom = leafDenyList('my_agent', ['extra_spawner', 'subagent', 'use_agent'])
+  assert.deepEqual(custom, [...MANDATORY, 'my_agent', 'extra_spawner', 'use_agent'],
+    'extra names are unioned, not substituted; duplicates collapse')
+  assert.ok(custom.includes('my_agent'), 'customized registry tool name is always denied')
+
+  const onlyKnown = leafDenyList('use_agent', ['unknown_spawner'], new Set(['subagent', 'use_agent', 'read']))
+  assert.deepEqual(onlyKnown, ['subagent', 'use_agent'],
+    'host-known intersection avoids tools.restrict() fail-fast on unknown names')
+
   const req = buildStartRequest({
-    agentName: 'leaf', prompt: 'p', parent: parentAtDepth(0),
-    persona: 'b', deep: 0, toolName: 'my_agent',
+    agentName: 'x', prompt: 'p', parent: parentAtDepth(3), persona: 'b', deep: 2,
+    toolName: 'use_agent', leafDenyTools: ['extra_spawner'],
+    hostKnownTools: new Set(['subagent', 'use_agent', 'extra_spawner']),
   })
-  assert.ok(req.toolFilter.deny.includes('my_agent'), 'custom toolName denied')
-  assert.ok(!req.toolFilter.deny.includes('use_agent'), 'default name absent once customized')
-  console.log('PASS custom toolName swapped into deny:', JSON.stringify(req.toolFilter.deny))
+  assert.deepEqual([...req.toolFilter.deny], ['subagent', 'use_agent', 'extra_spawner'])
+  assert.equal(req.maxDepth, undefined)
+  console.log('PASS deny list = mandatory ∪ config, intersected with host-known names')
 }
 
-// deep=2 raises the relative budget by two generations.
+// ---------------------------------------------------------------------------
+// 3. The installed child schema has no spawn tool; a direct execute is refused.
+// ---------------------------------------------------------------------------
 {
-  const md = MD('deep: 2\n')
-  const req = buildStartRequest({
-    agentName: 'x', prompt: 'p', parent: parentAtDepth(3), // child depth 4
-    persona: 'b', deep: 2, toolName: 'use_agent',
-  })
-  assert.equal(req.maxDepth, 6, 'deep=2 at parent depth 3 -> maxDepth 4 + 2 = 6')
-  console.log('PASS deep=2 budget: maxDepth=', req.maxDepth)
+  const deny = leafDenyList('use_agent')
+  const known = new Set([...MANDATORY, 'use_agent', 'read', 'write'])
+  const child = {
+    id: 'child-1',
+    ctx: {
+      systemPrompt: { getSectionOrder: () => 0, section() {} },
+      tools: {
+        view: () => ({ restrictableNames: known }),
+        restrict(filter) { for (const name of filter.deny ?? []) known.delete(name) },
+        get(name) { return known.has(name) ? { execute: async () => 'SHOULD_NOT_RUN' } : undefined },
+      },
+    },
+  }
+  const listeners = new Map()
+  const ctx = {
+    subagents: { startActivation: async () => ({}) },
+    agents: { get: (id) => id === child.id ? child : undefined },
+    on(name, cb) {
+      const set = listeners.get(name) ?? new Set()
+      listeners.set(name, set); set.add(cb)
+      return () => set.delete(cb)
+    },
+  }
+  const release = installChildCompositionListener(ctx)
+  reserveChildComposition(child.id, 'parent', { persona: 'b', toolFilter: { deny } })
+  for (const cb of listeners.get('subagent/start') ?? []) cb({ id: child.id })
+  for (const name of [...MANDATORY, 'use_agent']) {
+    assert.equal(known.has(name), false, `child schema drops ${name}`)
+  }
+  assert.deepEqual([...known].sort(), ['read', 'write'], 'non-spawn tools survive')
+  assert.equal(child.ctx.tools.get('use_agent'), undefined, 'no direct execute handle for a spawn tool')
+  await assert.rejects(
+    Promise.resolve().then(() => child.ctx.tools.get('use_agent').execute({}, {})),
+    TypeError,
+    'a child cannot execute a spawn tool directly',
+  )
+  release()
+  console.log('PASS child schema has no spawn tool; direct execute refused')
 }
 
-// An explicit leafDenyTools replaces the computed default entirely.
+// ---------------------------------------------------------------------------
+// 4. Plain foreground: A's output verbatim, synchronous cancel, isolation.
+// ---------------------------------------------------------------------------
+const agentsDir = mkdtempSync(join(tmpdir(), 'registry-deep-inert-'))
+writeFileSync(join(agentsDir, 'worker.md'), '---\nname: worker\nmodel: probe/worker\n---\nworker persona\n')
+const PARENT = parentAtDepth(0)
+
+function foregroundHost() {
+  const runs = []
+  const disposed = []
+  const ctx = {
+    started: runs,
+    disposed,
+    subagents: {
+      // The descendant runtime is gone: even a host exposing the tree seam is
+      // never asked to join, drain or resolve a tree root.
+      waitForTreeWork: async () => { throw new Error('descendant join must not be used') },
+      drainDescendants: async () => { throw new Error('descendant drain must not be used') },
+      rootOf: () => { throw new Error('descendant root probe must not be used') },
+      startActivation: async (spec) => {
+        let resolve
+        const result = new Promise((res) => { resolve = res })
+        const run = { spec, result, resolve }
+        runs.push(run)
+        return { childId: `child-${runs.length}`, result, dispose: async () => { disposed.push(run) } }
+      },
+    },
+    get: () => undefined,
+    agents: { get: () => undefined },
+    on: () => () => {},
+  }
+  return ctx
+}
+
+const toolOf = (ctx) => runAgentTool(ctx, { agentsDir, provider: 'spawn', toolName: 'use_agent' })
+const call = (ctx, signal) => toolOf(ctx).execute(
+  { agent: 'worker', prompt: 'p', fresh: true },
+  { agent: PARENT, signal: signal ?? new AbortController().signal },
+)
+
 {
-  const md = MD('deep: 0\n')
-  const req = buildStartRequest({
-    agentName: 'leaf', prompt: 'p', parent: parentAtDepth(0),
-    persona: 'b', deep: 0, toolName: 'use_agent',
-    leafDenyTools: ['subagent'],
-  })
-  assert.deepEqual([...req.toolFilter.deny], ['subagent'])
-  console.log('PASS leafDenyTools override:', JSON.stringify(req.toolFilter.deny))
+  const ctx = foregroundHost()
+  const own = [{ type: 'text', text: 'A_ONLY' }, { type: 'json', data: { a: 1 } }]
+  const pending = call(ctx)
+  ctx.started[0].resolve({ stopReason: 'completed', output: own })
+  const out = await pending
+  assert.deepEqual(out.output, own, 'A output returned verbatim (no provenance, no aggregation)')
+  assert.equal(ctx.disposed.length, 1, 'activation disposed once')
+  console.log('PASS plain foreground returns A output verbatim')
 }
 
-// The default list is exactly SPAWN_TOOL_NAMES + the tool name.
 {
-  const req = buildStartRequest({
-    agentName: 'leaf', prompt: 'p', parent: parentAtDepth(0),
-    persona: 'b', deep: 0, toolName: 'use_agent',
-  })
-  assert.deepEqual([...req.toolFilter.deny], [...SPAWN_TOOL_NAMES, 'use_agent'])
-  console.log('PASS default deny === SPAWN_TOOL_NAMES + toolName')
+  const ctx = foregroundHost()
+  const controller = new AbortController()
+  const pending = call(ctx, controller.signal)
+  await new Promise(resolve => setImmediate(resolve))
+  controller.abort()
+  await assert.rejects(pending, (error) => error.name === 'AbortError', 'abort rejects synchronously with AbortError')
+  // The result never settles: a rejected foreground cannot hang on it.
+  assert.equal(ctx.disposed.length, 1, 'aborted activation disposed once')
+  console.log('PASS abort rejects immediately and disposes idempotently')
 }
 
-console.log('\nAll assertions passed.')
+{
+  // Non-deep abort (worker.md has no `deep` key): the model turn is
+  // interrupted, the caller rejects synchronously without waiting for A's
+  // result, and the run settles exactly once.
+  const ctx = foregroundHost()
+  const controller = new AbortController()
+  let callerSettles = 0
+  const pending = call(ctx, controller.signal).then(
+    () => { callerSettles += 1; throw new Error('abort must reject') },
+    (error) => { callerSettles += 1; return error },
+  )
+  await new Promise(resolve => setImmediate(resolve))
+  const hung = ctx.started[0].result
+  let turnSettled = false
+  void hung.then(() => { turnSettled = true }, () => { turnSettled = true })
+  controller.abort()
+  const error = await Promise.race([
+    pending,
+    new Promise((_resolve, reject) => setTimeout(() => reject(new Error('abort did not reject synchronously')), 100)),
+  ])
+  assert.equal(error.name, 'AbortError', 'non-deep abort rejects with AbortError')
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(turnSettled, false, 'the interrupted A model turn never settles')
+  assert.equal(callerSettles, 1, 'the caller settles exactly once')
+  assert.equal(ctx.disposed.length, 1, 'the activation is disposed exactly once')
+  console.log('PASS non-deep abort: A turn interrupted, synchronous reject, single settle')
+}
+
+{
+  const ctx = foregroundHost()
+  const first = call(ctx)
+  const second = call(ctx)
+  assert.equal(ctx.started.length, 2, 'two independent activations')
+  ctx.started[1].resolve({ stopReason: 'completed', output: [{ type: 'text', text: 'SECOND' }] })
+  assert.deepEqual((await second).output, [{ type: 'text', text: 'SECOND' }])
+  ctx.started[0].resolve({ stopReason: 'completed', output: [{ type: 'text', text: 'FIRST' }] })
+  assert.deepEqual((await first).output, [{ type: 'text', text: 'FIRST' }])
+  assert.equal(ctx.disposed.length, 2, 'each concurrent run disposes exactly its own activation')
+  console.log('PASS concurrent foreground runs stay isolated')
+}
+
+rmSync(agentsDir, { recursive: true, force: true })
+console.log('\nAll deep-inert / child-deny assertions passed.')

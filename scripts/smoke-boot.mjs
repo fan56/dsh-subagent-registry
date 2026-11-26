@@ -31,7 +31,7 @@
 // printed on failure, removed on success.
 
 import { spawnSync } from 'node:child_process'
-import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -78,12 +78,11 @@ writeFileSync(path.join(profile, 'package.json'), JSON.stringify({
   },
 }, null, 2) + '\n')
 
-// Peers must not auto-install into the scratch profile: npm 7+ would resolve
-// peer floors to the old tower and shadow the host closure under it — the
-// failure mode the optional-peer contract exists for (the dsh-llm-proxy
-// smoke precedent). Lifecycle scripts stay ON below (the consumer-path
+// No .npmrc bypass: every host peer is optional, so npm's DEFAULT resolution
+// must leave the host closure alone instead of auto-installing a second copy.
+// A legacy-peer-deps override here would hide exactly the peer conflict this
+// smoke is meant to catch. Lifecycle scripts stay ON below (the consumer-path
 // regression this install is here for).
-writeFileSync(path.join(profile, '.npmrc'), 'legacy-peer-deps=true\n')
 
 // The profile install pins the official registry explicitly: a dev machine
 // .npmrc pointing at a mirror must not decide what this gate resolves.
@@ -95,8 +94,31 @@ if (install.status !== 0 || install.error) fail('npm install in the scratch prof
 // bundled closure — the failure mode the optional-peer contract exists for).
 const installedOwn = path.join(profile, 'node_modules', ownName)
 if (existsSync(path.join(installedOwn, 'node_modules', '@deepseek-ai'))) {
-  fail('the closure linker ran inside the consumer profile — it must stand down outside the repo')
+  fail('the closure linker ran inside the installed plugin — it must stand down outside the repo')
 }
+// Same check across the whole scratch profile: the only @deepseek-ai scope
+// dir allowed is the host's own top-level one. A nested copy under any profile
+// package is a consumer-side shadow of the host closure.
+const nestedScopes = []
+function scanNestedScopes(nodeModules, depth) {
+  if (!existsSync(nodeModules)) return
+  const scope = path.join(nodeModules, '@deepseek-ai')
+  if (depth > 0 && existsSync(scope)) nestedScopes.push(scope)
+  for (const entry of readdirSync(nodeModules, { withFileTypes: true })) {
+    if (!entry.isDirectory() || entry.name.startsWith('.')) continue
+    if (entry.name === '@deepseek-ai') continue
+    const location = path.join(nodeModules, entry.name)
+    if (entry.name.startsWith('@')) {
+      for (const scoped of readdirSync(location, { withFileTypes: true })) {
+        if (scoped.isDirectory()) scanNestedScopes(path.join(location, scoped.name, 'node_modules'), depth + 1)
+      }
+    } else {
+      scanNestedScopes(path.join(location, 'node_modules'), depth + 1)
+    }
+  }
+}
+scanNestedScopes(path.join(profile, 'node_modules'), 0)
+if (nestedScopes.length > 0) fail(`nested @deepseek-ai copies in the scratch profile: ${nestedScopes.join(', ')}`)
 
 const dshEnv = { ...process.env, DSH_HOME: home }
 

@@ -1,4 +1,6 @@
-// Real SDK lifecycle regression; model and descendant creation are scripted.
+// Real SDK lifecycle regression: model output is scripted. Subagents cannot
+// spawn subagents, so this exercises fresh/resume/cancel/dispose without any
+// descendant tree and asserts the child schema carries no spawn tool.
 import assert from 'node:assert/strict'
 import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -14,66 +16,46 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import FsLocal from '@deepseek-ai/dsh-fs-local'
 import * as JsonlPersistenceModule from '@deepseek-ai/dsh-session-persistence-jsonl'
-// 0.2.0 exports the class as default; the 0.2.1 line exports a named apply plugin.
 const JsonlSessionPersistence = JsonlPersistenceModule.default ?? JsonlPersistenceModule
 import SubagentRuntime from '@deepseek-ai/dsh-subagent'
 import * as Spawn from '@deepseek-ai/dsh-subagent-spawn-in-process'
 import SkillRegistry from '@deepseek-ai/dsh-skill'
 import { scopeOf } from '@deepseek-ai/dsh-scope'
 import * as Registry from '../lib/index.js'
+
+const hostVersion = process.env.DSH_TEST_HOST_VERSION ?? ''
+const modernHost = hostVersion === '' || Number(/^0\.2\.(\d+)/.exec(hostVersion)?.[1] ?? 0) >= 2
+const SPAWN_NAMES = ['subagent', 'subagent_fork', 'subagent_codex', 'subagent_claude_code', 'workflow', 'ralph', 'use_agent']
 const deferred = () => Promise.withResolvers()
 const ctx = new Context()
 const root = await mkdtemp(join(tmpdir(), 'registry-verifier-lifecycle-'))
 const signal = new AbortController().signal
-let parent, scenario
-const ids = []
-async function startDescendant(owner, model) {
-  const request = { parent: owner, prompt: [{ type: 'text', text: 'actual descendant' }], agentOptions: { provider: 'probe', model }, persona: 'descendant fixture' }
-  const result = typeof ctx.subagents.startActivation === 'function'
-    ? await ctx.subagents.startActivation({ provider: 'spawn', label: model, request, signal, delivery: 'parent' })
-    : await ctx.subagents.startContinuable({ provider: 'spawn', label: model, request, signal })
-  ids.push(result.childId)
-  return result.childId
-}
+let parent
 class Adapter extends LlmAdapter {
   scripts = []
+  started
+  workerTurns = 0
   async resolveModel(provider, id) { return { provider, id, name: id, reasoning: { efforts: [{ id: 'high', name: 'High' }] } } }
   async *stream(options) {
     let entry
     if (options.model === 'parent') entry = { text: 'PARENT_SETTLEMENT' }
     else if (options.model === 'worker') {
-      entry = this.scripts.shift() ?? { text: 'ROOT_AFTER_DESC' }
-      assert.equal(options.reasoningEffort, 'high')
+      this.workerTurns += 1
+      entry = this.scripts.shift() ?? { text: 'WORKER_DEFAULT' }
+      assert.equal(options.reasoningEffort, 'high', 'frontmatter thinking survives fresh and resumed runs')
       assert.match(JSON.stringify(options.messages.filter(m => m.role === 'system')), /Worker persona retained/)
+      for (const name of SPAWN_NAMES) {
+        assert.ok(!(options.tools ?? []).some(tool => tool.name === name), `child schema has no ${name}`)
+      }
       const worker = ctx.agents.list().find(a => a.options.model === 'worker')
       assert(worker, 'real live worker identity')
-      scenario.workerId = worker.id
-      if (entry.tree) await startDescendant(worker, 'desc')
-    } else if (options.model === 'desc') {
-      const descendant = ctx.agents.list().find(a => a.options.model === 'desc')
-      assert(descendant)
-      // A settlement starts another model turn; create the tree only once.
-      if (!scenario.spawned) { scenario.spawned = true; await startDescendant(descendant, 'grand') }
-      entry = { text: 'DESC_EARLY' }
-    } else if (options.model === 'grand' || options.model === 'unrelated') {
-      const gate = options.model === 'grand' ? scenario.grand : scenario.unrelated
-      gate.started.resolve()
-      await new Promise((resolve, reject) => {
-        const abort = () => { gate.aborted = true; reject(new Error('fixture model aborted')) }
-        options.signal.addEventListener('abort', abort, { once: true })
-        if (options.signal.aborted) abort()
-        else gate.release.promise.then(resolve, reject)
-      })
-      entry = { text: 'DESC_DONE' }
+      this.started?.resolve(worker.id)
+      if (entry.hang) {
+        await new Promise((_, reject) => {
+          options.signal.addEventListener('abort', () => reject(new Error('fixture worker aborted')), { once: true })
+        })
+      }
     } else throw new Error('unexpected model ' + options.model)
-    if (entry.hang) {
-      scenario.workerStarted.resolve()
-      await new Promise((_, reject) => {
-        const abort = () => reject(new Error('fixture worker aborted'))
-        if (options.signal.aborted) abort()
-        else options.signal.addEventListener('abort', abort, { once: true })
-      })
-    }
     yield { type: 'block-start', index: 0, blockType: 'text' }
     yield { type: 'text-delta', index: 0, text: entry.text }
     yield { type: 'block-end', index: 0, block: { type: 'text', text: entry.text } }
@@ -82,86 +64,90 @@ class Adapter extends LlmAdapter {
   }
 }
 const adapter = new Adapter()
-const freshScenario = () => ({ spawned: false, grand: { started: deferred(), release: deferred(), aborted: false }, unrelated: { started: deferred(), release: deferred(), aborted: false }, workerStarted: deferred() })
 const textOf = r => r.output.filter(b => b.type === 'text').map(b => b.text).join('\n')
-const assertGone = () => { for (const id of [scenario.workerId, ...ids]) { assert.equal(ctx.agents.get(id), undefined, `Agent released ${id}`); assert.equal(ctx.sessions.get(id), undefined, `Session released ${id}`) } ids.length = 0 }
+const assertGone = async () => {
+  const bound = Date.now() + 2000
+  while (ctx.agents.list().some(a => a.options.model === 'worker') && Date.now() < bound) {
+    await new Promise(resolve => setImmediate(resolve))
+  }
+  for (const agent of ctx.agents.list()) {
+    if (agent.options.model === 'worker') assert.fail(`worker agent still live: ${agent.id}`)
+  }
+}
 try {
   const agentsDir = join(root, 'agents'); await mkdir(agentsDir)
   await writeFile(join(agentsDir, 'worker.md'), '---\nname: worker\nmodel: probe/worker\nthinking: high\ndeep: 3\n---\nWorker persona retained\n')
   for (const Plugin of [LlmRuntime, SessionStore, SessionProjectionRegistry, SessionQueryEngine, SystemPrompt, FsLocal]) await ctx.plugin(Plugin)
-  if (process.env.DSH_TEST_HOST_VERSION !== '0.2.0-rc.2') await ctx.plugin((await import('@deepseek-ai/dsh-working-directory')).default)
-  await ctx.plugin(ToolRuntime); await ctx.plugin(AgentRegistry)
+  if (hostVersion !== '0.2.0-rc.2') await ctx.plugin((await import('@deepseek-ai/dsh-working-directory')).default)
+  await ctx.plugin(ToolRuntime)
+  if (modernHost) await ctx.plugin((await import('@deepseek-ai/dsh-tool-executor-native')))
+  await ctx.plugin(AgentRegistry)
   await ctx.plugin(JsonlSessionPersistence, { root: join(root, 'sessions') })
   await ctx.plugin(AgentLoop, { agents: [] }); await ctx.plugin(SubagentRuntime)
   await ctx.plugin(Spawn, { providerName: 'spawn' }); await ctx.plugin(SkillRegistry)
   ctx.llm.registerAdapter(['probe'], adapter)
   await ctx.plugin(Registry, { agentsDir, provider: 'spawn', toolName: 'use_agent', askToolName: 'ask_agent' })
-  let parentHandle = await ctx.agents.create({ sessionId: SessionId('probe-parent'), agentOptions: { provider: 'probe', model: 'parent' } })
+  const parentHandle = await ctx.agents.create({ sessionId: SessionId('probe-parent'), agentOptions: { provider: 'probe', model: 'parent' } })
   parent = parentHandle.agent
   const call = (args, ownSignal = signal) => ctx.tools.get('use_agent', scopeOf(parent.ctx)).execute({ agent: 'worker', prompt: 'probe', ...args }, { agent: parent, signal: ownSignal })
-  // A successful fresh foreground waits for a real two-level tree and reads the late suffix.
-  scenario = freshScenario(); adapter.scripts.push({ text: 'ROOT_EARLY', tree: true })
-  let completed = false
-  const fresh = call({ fresh: true }).finally(() => { completed = true })
-  await scenario.grand.started.promise
-  await new Promise(resolve => setImmediate(resolve))
-  assert.equal(completed, false, 'foreground must wait for active grandchild')
-  scenario.grand.release.resolve()
-  assert.match(textOf(await fresh), /ROOT_AFTER_DESC/)
-  assertGone()
-  console.log('PASS actual foreground descendant wait and final output suffix')
-  // Persist one interrupted run, then resume the same identity with a real tree.
-  scenario = freshScenario(); adapter.scripts.push({ text: 'INTERRUPTED', limit: true })
+
+  // Fresh foreground: A's own output, verbatim — no provenance, no aggregation.
+  adapter.scripts.push({ text: 'ROOT_OK' })
+  const freshText = textOf(await call({ fresh: true }))
+  assert.equal(freshText, 'ROOT_OK', 'fresh result is A output verbatim')
+  assert.equal(adapter.workerTurns, 1, 'A runs exactly one model turn — no join or second round')
+  await assertGone()
+  console.log('PASS actual fresh foreground returns A output unchanged (one turn)')
+
+  // Interrupted run then resume: persisted work is kept and the continuation
+  // answer comes back with resume provenance.
+  adapter.scripts.push({ text: 'INTERRUPTED', limit: true })
   await assert.rejects(call({ fresh: true }), /token limit/)
-  const interrupted = scenario.workerId
-  assertGone()
-  scenario = freshScenario(); adapter.scripts.push({ text: 'ROOT_EARLY', tree: true })
-  completed = false
-  const resumed = call({ resume: true }).finally(() => { completed = true })
-  await scenario.grand.started.promise
-  assert.equal(scenario.workerId, interrupted)
-  const beforeBusy = (await ctx.subagents.listChildren(parent.id)).length
-  await assert.rejects(call({ resume: true }), /already in progress|busy/)
-  assert.equal((await ctx.subagents.listChildren(parent.id)).length, beforeBusy, 'busy resume must not create another task')
-  await new Promise(resolve => setImmediate(resolve))
-  assert.equal(completed, false, 'resume must wait for active grandchild')
-  scenario.grand.release.resolve()
-  assert.match(textOf(await resumed), /ROOT_AFTER_DESC/)
-  assertGone()
-  console.log('PASS actual foreground resume waits for descendants and retains session/persona/model/thinking')
-  // Cancellation drains the exact resumed tree while preserving another parent's running child.
-  scenario = freshScenario(); adapter.scripts.push({ text: 'INTERRUPTED', limit: true })
-  await assert.rejects(call({ fresh: true }), /token limit/); assertGone()
-  scenario = freshScenario()
-  const otherHandle = await ctx.agents.create({ sessionId: SessionId('other-parent'), agentOptions: { provider: 'probe', model: 'parent' } })
-  const unrelatedId = await startDescendant(otherHandle.agent, 'unrelated'); ids.splice(ids.indexOf(unrelatedId), 1)
-  await scenario.unrelated.started.promise
-  adapter.scripts.push({ text: 'ROOT_EARLY', tree: true })
-  const cancel = new AbortController()
-  const cancelled = call({ resume: true }, cancel.signal)
-  const cancellationCheck = assert.rejects(cancelled, /cancel/)
-  await scenario.grand.started.promise
-  cancel.abort()
-  await cancellationCheck
-  assert.equal(scenario.grand.aborted, true); assertGone()
-  assert(ctx.agents.get(unrelatedId), 'unrelated parent tree remains live')
-  assert.equal(scenario.unrelated.aborted, false)
-  const unrelated = scenario.unrelated
-  unrelated.release.resolve(); await otherHandle.dispose()
-  console.log('PASS actual resume cancellation drains exact tree without cancelling unrelated parent')
-  // An independently owned parent's disposal aborts the resumed drive and removes every live resource.
-  scenario = freshScenario(); adapter.scripts.push({ text: 'INTERRUPTED', limit: true })
-  await assert.rejects(call({ fresh: true }), /token limit/); assertGone()
-  scenario = freshScenario(); adapter.scripts.push({ text: 'ROOT_EARLY', tree: true, hang: true })
-  const teardown = call({ resume: true })
+  assert.equal(adapter.workerTurns, 2, 'the interrupted run is exactly one A turn')
+  await assertGone()
+  adapter.scripts.push({ text: 'RESUME_OK' })
+  const resumedText = textOf(await call({ resume: true }))
+  assert.match(resumedText, /Resumed from the interrupted prior run/)
+  assert.match(resumedText, /RESUME_OK$/)
+  assert.equal(adapter.workerTurns, 3, 'resume drives exactly one continuation turn')
+  await assertGone()
+  console.log('PASS actual foreground resume retains session, persona, model and thinking (one turn)')
+
+  // Caller cancellation rejects the foreground promptly and disposes the child.
+  adapter.started = deferred()
+  adapter.scripts.push({ text: 'HANG', hang: true })
+  const controller = new AbortController()
+  const startedAt = Date.now()
+  const cancelled = call({ fresh: true }, controller.signal)
+  const workerId = await adapter.started.promise
+  controller.abort()
+  await assert.rejects(cancelled, /abort|cancel/)
+  assert.equal(adapter.workerTurns, 4, 'cancelled A started exactly one turn')
+  assert.ok(Date.now() - startedAt < 2000, 'abort rejects the foreground promptly')
+  await assertGone()
+  assert.equal(ctx.sessions.get(workerId), undefined, 'cancelled child session released')
+  console.log('PASS caller cancellation rejects foreground and releases resources')
+
+  // Disposing the calling parent aborts its foreground run and releases every
+  // live resource it owns.
+  adapter.started = deferred()
+  adapter.scripts.push({ text: 'HANG', hang: true })
+  // A real host hands the tool the parent loop's signal, which aborts on
+  // disposal. A direct tool call has no loop, so model that edge here.
+  const teardownController = new AbortController()
+  ctx.on('agent/disposed', ev => {
+    if (ev.agent === parent) teardownController.abort(new DOMException('parent disposed', 'AbortError'))
+  })
+  const teardown = call({ fresh: true }, teardownController.signal)
   const teardownCheck = assert.rejects(teardown, /cancel|disposed|abort/)
-  await scenario.grand.started.promise; await scenario.workerStarted.promise
+  await adapter.started.promise
   await parentHandle.dispose(); await teardownCheck
-  assert.equal(scenario.grand.aborted, true); assertGone()
+  assert.equal(adapter.workerTurns, 5, 'parent teardown aborts the single live A turn')
+  await assertGone()
   assert.equal(ctx.agents.get(parent.id), undefined); assert.equal(ctx.sessions.get(parent.id), undefined)
-  console.log('PASS actual parent disposal aborts resumed run and releases descendant agents/sessions')
+  console.log('PASS parent disposal aborts foreground run and releases live resources')
   assert.equal(adapter.scripts.length, 0)
-  console.log(`lifecycle probe: PASS SDK ${process.env.DSH_TEST_HOST_VERSION}; real services/persistence/manager, scripted model and harness descendant starts; no external model or PTC execution`)
+  console.log(`lifecycle probe: PASS SDK ${hostVersion || 'pinned rc.5'}; real services/persistence/manager, scripted model; no external model or PTC execution`)
 } finally {
   await ctx.fiber.dispose()
   assert(root.startsWith(join(tmpdir(), 'registry-verifier-lifecycle-')))

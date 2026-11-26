@@ -166,7 +166,7 @@ export interface ResumeDriveInput {
     readonly childId: SessionId;
     /** Agent-file body, re-applied as the shadowing persona section. */
     readonly persona: string;
-    /** Leaf tool scoping re-applied on resume, when the agent is `deep: 0`. */
+    /** Spawn-tool deny list re-applied on every resumed child. */
     readonly toolFilter?: ToolRestriction;
     /** Frontmatter model route overrides, as for a fresh dispatch. */
     readonly agentOptions?: AgentOptions;

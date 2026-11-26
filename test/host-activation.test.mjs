@@ -23,8 +23,21 @@ import * as Delegate from '@deepseek-ai/dsh-tool-subagent'
 import SkillRegistry from '@deepseek-ai/dsh-skill'
 import { scopeOf } from '@deepseek-ai/dsh-scope'
 import * as Registry from '../lib/index.js'
-import { createLegacyDescendantJoin } from '../lib/host-compat.js'
+import { listDirectChildren } from '../lib/host-compat.js'
 import { foregroundLabel } from '../lib/resume.js'
+
+// The 0.2.2 line ships the tool-executor packages in its real base bundle;
+// 0.2.0/0.2.1 closures predate them and must never import them. An unset
+// version selects the pinned dev closure, which is on the 0.2.2 line.
+const hostVersion = process.env.DSH_TEST_HOST_VERSION ?? ''
+const modernHost = hostVersion === '' || Number(/^0\.2\.(\d+)/.exec(hostVersion)?.[1] ?? 0) >= 2
+const SPAWN_NAMES = ['subagent', 'subagent_fork', 'subagent_codex', 'subagent_claude_code', 'workflow', 'ralph', 'use_agent']
+const assertLeafSurface = (names, path) => {
+  for (const name of SPAWN_NAMES) {
+    assert.ok(!names.has(name), `${path}: child tool surface drops ${name}`)
+  }
+}
+const assertedChildPaths = new Set()
 
 class ScriptedAdapter extends LlmAdapter {
   script = []
@@ -40,6 +53,8 @@ class ScriptedAdapter extends LlmAdapter {
       assert.equal(options.reasoningEffort, 'high', 'frontmatter thinking survives resume')
       assert.match(JSON.stringify(options.messages.filter(message => message.role === 'system')), /Follow the task\./)
       assert.deepEqual((options.tools ?? []).filter(tool => ['subagent', 'subagent_fork', 'use_agent', 'scoped_custom'].includes(tool.name)).map(tool => tool.name), [], 'leaf tools stay restricted')
+      assertLeafSurface(new Set((options.tools ?? []).map(tool => tool.name)), `model:${entry.text}`)
+      assertedChildPaths.add(entry.text)
     }
     this.active?.()
     if (entry.error) throw new Error(entry.error)
@@ -75,6 +90,8 @@ try {
   await ctx.plugin(FsLocal)
   if (process.env.DSH_TEST_HOST_VERSION !== '0.2.0-rc.2') await ctx.plugin((await import('@deepseek-ai/dsh-working-directory')).default)
   await ctx.plugin(ToolRuntime)
+  // 0.2.2+ moved tool execution into a plugin mounted beside ToolRuntime.
+  if (modernHost) await ctx.plugin((await import('@deepseek-ai/dsh-tool-executor-native')))
   await ctx.plugin(AgentRegistry)
   await ctx.plugin(JsonlSessionPersistence, { root: join(root, 'sessions') })
   await ctx.plugin(AgentLoop, { agents: [] })
@@ -104,13 +121,30 @@ try {
   assert.deepEqual(guided.tools.filter(tool => !['use_agent', 'ask_agent'].includes(tool.name)), baseline.tools)
   assert.deepEqual(guided.contexts, baseline.contexts)
   assert.deepEqual(guided.variables, baseline.variables)
-  // Assembly-only runtime: no PTC program runs in this test.
+  // Assembly-only runtime: no PTC program runs in this test. On 0.2.2+
+  // presentAs('ptc') is gone; mount the real PTC executor in the parent's
+  // scope instead. The root keeps its native executor, so every scope has
+  // exactly one executor and the native-path assertions below stay valid.
   class PtcPresentation extends Service {
     language = 'typescript'
     constructor(ctx) { super(ctx, 'ptcRuntime') }
   }
   await ctx.plugin(PtcPresentation)
-  const restorePtc = parent.ctx.tools.presentAs('ptc')
+  let restorePtc
+  if (modernHost) {
+    const NativeExecutor = await import('@deepseek-ai/dsh-tool-executor-native')
+    const PtcExecutor = await import('@deepseek-ai/dsh-tool-executor-ptc')
+    const ptcPlugin = await parent.ctx.plugin(PtcExecutor, {})
+    restorePtc = async () => {
+      await ptcPlugin.dispose()
+      // Unloading a scoped executor leaves that scope with no selection
+      // instead of falling back to the root; reinstall the native one so the
+      // assertions below still exercise the default presentation path.
+      await parent.ctx.tools.setExecutor(new NativeExecutor.NativeToolExecutor(parent.ctx))
+    }
+  } else {
+    restorePtc = parent.ctx.tools.presentAs('ptc')
+  }
   const ptc = await assemble()
   assert.deepEqual(ptc.tools.map(tool => tool.name), ['run_code'])
   assert.match(textOfAssembly(ptc), /from the `use_agent`/)
@@ -133,8 +167,8 @@ try {
   const activationHost = typeof ctx.subagents.startActivation === 'function'
   if (process.env.DSH_TEST_HOST_VERSION) assert.equal(activationHost, process.env.DSH_TEST_HOST_VERSION !== '0.2.0-rc.2',
     'the activation API is the 0.2.1-line dispatch path; the 0.2.0 line stays on start/startContinuable')
-  if (!activationHost) parentJoin = createLegacyDescendantJoin(ctx, signal)
-  const waitForChildren = () => activationHost ? ctx.subagents.waitForChildren(parent) : parentJoin.wait(parent)
+  // No descendant join: background follow-ups only need the parent to settle.
+  const waitForChildren = () => parent.whenIdle()
   const tool = ctx.tools.get('use_agent', scope)
   const ask = ctx.tools.get('ask_agent', scope)
   const shadow = parent.ctx.tools.register({ ...tool, description: 'Another scoped tool with the same name.' })
@@ -145,17 +179,17 @@ try {
 
   adapter.script.push({ text: 'FG_OK' })
   assert.equal(textOf(await call({ fresh: true })), 'FG_OK')
-  let rows = await ctx.subagents.listChildren(parent.id)
+  let rows = await listDirectChildren(ctx, parent.id, signal)
   assert.equal(rows.at(-1).mode, activationHost ? 'continuable' : 'one-shot')
   assert.equal(rows.at(-1).label, activationHost ? foregroundLabel('worker') : 'worker')
   const count = rows.length
 
   adapter.script.push({ text: 'PARTIAL', limit: true })
   await assert.rejects(call({ fresh: true }), /token limit.*[\s\S]*PARTIAL/)
-  const interrupted = (await ctx.subagents.listChildren(parent.id)).at(-1).id
+  const interrupted = (await listDirectChildren(ctx, parent.id, signal)).at(-1).id
   adapter.script.push({ text: 'RESUME_OK' })
   assert.match(textOf(await call({ resume: true })), /Resumed from the interrupted prior run[\s\S]*\nRESUME_OK$/)
-  rows = await ctx.subagents.listChildren(parent.id)
+  rows = await listDirectChildren(ctx, parent.id, signal)
   assert.equal(rows.length, count + 1, 'resume must not create a new child')
   assert.equal(rows.at(-1).id, interrupted)
 
@@ -169,8 +203,48 @@ try {
   assert.equal(textOf(reply), 'FOLLOWUP_OK')
   await waitForChildren()
   await parent.whenIdle()
-  const bg = (await ctx.subagents.listChildren(parent.id)).find(row => String(row.id) === background.subagentId)
+  const bg = (await listDirectChildren(ctx, parent.id, signal)).find(row => String(row.id) === background.subagentId)
   assert.equal(bg.label, 'worker')
+  // Activation hosts materialize a child scope per run and dispose it at
+  // settlement, so no live handle remains here. The durable child id is still
+  // in the registry child record; use it with the child's real session header
+  // to exercise the guard exactly as a child-held tool handle would.
+  assert(Registry.isRegistryChild(bg.id), 'background child is in the registry child record')
+  const bgChild = { id: bg.id, session: { header: { parentSession: parent.id, origin: 'subagent' } } }
+  assertedChildPaths.add('BG_OK')
+
+  // Nested delegation guard: neither a registry child nor a host-forked child
+  // may reach the dispatch handler. Both must be refused before any new agent
+  // is created.
+  const beforeNested = ctx.agents.list().length
+  await assert.rejects(
+    tool.execute({ agent: 'worker', prompt: 'nested task' }, { agent: bgChild, signal }),
+    (error) => error.code === Registry.NESTED_DELEGATION_ERROR_CODE,
+    'registry child dispatch is refused with the stable code',
+  )
+  assert.equal(ctx.agents.list().length, beforeNested, 'registry child call created no agent')
+  const forkTool = ctx.tools.get('subagent_fork', scope)
+  assert(forkTool, 'host subagent_fork tool is mounted')
+  await forkTool.execute({ description: 'forked child', prompt: 'inherit this conversation' }, { agent: parent, signal })
+  const forkRow = (await listDirectChildren(ctx, parent.id, signal)).find(row => row.label === 'forked child')
+  assert(forkRow, 'fork child row exists')
+  assert.equal(Registry.isRegistryChild(forkRow.id), false, 'a host fork is not a registry child record')
+  const forkChild = { id: forkRow.id, session: { header: { parentSession: parent.id, origin: 'subagent' } } }
+  await assert.rejects(
+    tool.execute({ agent: 'worker', prompt: 'nested task' }, { agent: forkChild, signal }),
+    (error) => error.code === Registry.NESTED_DELEGATION_ERROR_CODE,
+    'host-forked child dispatch is refused with the stable code',
+  )
+  assert.equal(ctx.agents.list().length, beforeNested + 1, 'only the fork child was added; guard created none')
+  await assert.rejects(
+    tool.execute({ agent: 'worker', prompt: 'nested task' }, { signal }),
+    (error) => error.code === Registry.NESTED_DELEGATION_ERROR_CODE,
+    'unknown caller identity is refused',
+  )
+  assert.equal(ctx.agents.list().length, beforeNested + 1, 'unknown caller created no agent')
+  assert.ok(['FG_OK', 'RESUME_OK', 'BG_OK'].every(path => assertedChildPaths.has(path)),
+    'fresh, resume and background child tool surfaces were all asserted')
+
   adapter.script.push({ text: 'NEWER_FOREGROUND_OK' })
   assert.equal(textOf(await call({ fresh: true })), 'NEWER_FOREGROUND_OK')
   adapter.script.push({ text: 'BY_NAME_OK' })
@@ -188,7 +262,7 @@ try {
   await active
   adapter.active = undefined
   cancellation.abort()
-  await assert.rejects(canceled, /cancel/)
+  await assert.rejects(canceled, /cancel|abort/)
 
   adapter.script.push({ error: 'HOST_DIAGNOSTIC_TEST' })
   await assert.rejects(call({ fresh: true }), /HOST_DIAGNOSTIC_TEST/)

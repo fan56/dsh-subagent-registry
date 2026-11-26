@@ -51,11 +51,9 @@ export interface RunAgentConfig {
      */
     resume?: ResumeMode;
     /**
-     * Optional explicit deny list installed on a `deep: 0` (leaf) agent's child.
-     * An empty/absent list means the computed default: every agent-spawning tool
-     * in the dsh base distribution plus this plugin's own `toolName` (so a
-     * customized tool name is still denied). A non-empty list replaces the
-     * default entirely — the caller then owns it, including our tool name.
+     * Extra deny names installed on EVERY child, unioned with the mandatory
+     * spawn-tool list (including this plugin's own `toolName`). Children can
+     * never call subagents; this lets a deployment deny additional spawners.
      */
     leafDenyTools?: readonly string[];
     /**
@@ -73,29 +71,30 @@ export interface RunAgentConfig {
     disabledAgents?: DisabledAgentsInput;
 }
 /**
- * Every tool in the stock dsh base distribution that can start agents,
- * excluding this plugin's own configurable `use_agent` tool name (registered
- * separately through `RunAgentConfig.toolName`). `dsh-tool-workflow` fans work
- * out across many subagents and `dsh-tool-ralph` starts a fresh child every
- * round, so both are agent-spawning even though they are not `subagent`-named;
+ * Every known agent-spawning tool name in the dsh base distribution, PLUS this
+ * plugin's own configurable `use_agent` tool name (registered separately
+ * through `RunAgentConfig.toolName`). Every child gets all of these denied:
+ * subagents cannot call subagents. `dsh-tool-workflow` fans work out across
+ * many subagents and `dsh-tool-ralph` starts a fresh child every round, so
+ * both are agent-spawning even though they are not `subagent`-named.
  * `send_message`/`interrupt_agent`/`list_agents` only address already-running
- * children, so a leaf cannot abuse them to spawn and they stay visible.
+ * children, so they stay visible.
  */
-export declare const SPAWN_TOOL_NAMES: readonly ["subagent", "subagent_fork", "workflow", "ralph"];
+export declare const SPAWN_TOOL_NAMES: readonly ["subagent", "subagent_fork", "subagent_codex", "subagent_claude_code", "workflow", "ralph"];
 /**
- * The deny list installed on a `deep: 0` (leaf) agent's child, both at fresh
- * dispatch and again at resume: an explicit non-empty `leafDenyTools` replaces
- * the default (every agent-spawning tool in the dsh base distribution plus
- * this plugin's own `toolName`).
+ * The deny list installed on EVERY child, at fresh dispatch and again at
+ * resume: the mandatory spawn-tool names unioned with this plugin's own
+ * `toolName` and the caller's `leafDenyTools` (so a customized tool name or a
+ * deployment-specific spawner is always covered). Duplicates are collapsed.
  *
  * `hostKnown` is the host's currently-registered global tool names (see
- * `resolveHostToolNames`); when provided, the DEFAULT list is intersected
- * with it. The stock spawn-tool names are a static enumeration over a
- * distribution whose composition moves — dsh 0.1.7-rc.1 stopped registering
+ * `resolveHostToolNames`); when provided, the union is intersected with it.
+ * The stock spawn-tool names are a static enumeration over a distribution
+ * whose composition moves — dsh 0.1.7-rc.1 stopped registering
  * `dsh-tool-ralph` while its `tools.restrict()` became fail-fast on unknown
- * names, so passing a stale default verbatim aborts the whole spawn. An
- * explicit `leafDenyTools` is NOT intersected: the caller owns that list and
- * the host's strict validation is the right feedback for a stale entry.
+ * names, so passing a stale name verbatim aborts the whole spawn. The
+ * mandatory union is what we WANT denied; the intersection is what the host
+ * will accept without a fail-fast restriction error.
  */
 export declare function leafDenyList(toolName: string, leafDenyTools?: readonly string[], hostKnown?: ReadonlySet<string>): readonly string[];
 /**
@@ -106,6 +105,31 @@ export declare function leafDenyList(toolName: string, leafDenyTools?: readonly 
  * never to "deny nothing".
  */
 export declare function resolveHostToolNames(ctx: Context, scope?: ScopeKey): ReadonlySet<string> | undefined;
+/** Mandatory spawn-tool names the host does NOT register (so the intersect
+ * in {@link leafDenyList} drops them). `undefined` means the host exposed no
+ * restrictable-name view, so no intersection — and no drop — happened. */
+export declare function missingSpawnTools(hostKnown?: ReadonlySet<string>): readonly string[];
+/** Stable diagnostic text for the mandatory names the host cannot deny. */
+export declare function spawnToolWarningMessage(missing: readonly string[]): string;
+/**
+ * Warn whenever the host-known intersection drops a mandatory spawn tool.
+ * Silently losing a name would let a child keep a spawner the plugin promised
+ * to deny, so the omission is always reported. No-op when the host view is
+ * unavailable (the deny list is then passed verbatim, nothing is dropped).
+ */
+export declare function warnMissingSpawnTools(ctx: Context, hostKnown?: ReadonlySet<string>): void;
+/** Inert nesting fields that are explicitly set and therefore deprecated. */
+export declare function deprecatedDelegationFields(input: {
+    deepDeclared?: boolean;
+    maxDepth?: unknown;
+}): readonly string[];
+/** Stable deprecation text; the fields remain parsed/validated but inert. */
+export declare function delegationDeprecationMessage(fields: readonly string[]): string;
+/** Warn for deprecated nesting fields. The dispatch is unchanged. */
+export declare function warnDeprecatedDelegation(ctx: Context, input: {
+    deepDeclared?: boolean;
+    maxDepth?: unknown;
+}): void;
 /** Join text blocks from a canonical block array without trusting values. */
 export declare function textOf(output: readonly unknown[]): string;
 /**
@@ -143,15 +167,15 @@ export interface BuildStartRequestInput {
     };
     /** The agent file body, passed through verbatim as the child's persona. */
     persona: string;
-    /** The parsed frontmatter `deep` (default 1); 0 = leaf. */
+    /** @deprecated Inert compatibility field: parsed from frontmatter, no longer read (subagents cannot spawn subagents). */
     deep: number;
-    /** This plugin's registered tool name (denied on leaves). */
+    /** This plugin's registered tool name (always denied on children). */
     toolName: string;
-    /** Optional explicit replacement for the default leaf deny list. */
+    /** Optional extra deny names, unioned with the mandatory spawn-tool list. */
     leafDenyTools?: readonly string[];
     /**
      * The host's registered global tool names (`resolveHostToolNames`), used to
-     * intersect the DEFAULT leaf deny list — see `leafDenyList`.
+     * intersect the deny list — see `leafDenyList`.
      */
     hostKnownTools?: ReadonlySet<string>;
     /** Optional dsh `provider/model` route from the agent frontmatter. */
@@ -168,26 +192,14 @@ export interface BuildStartRequestInput {
     thinking?: ThinkingLevel;
 }
 /**
- * Build the one-shot subagent start request for one custom agent, encoding the
- * `deep` semantics:
+ * Build the one-shot subagent start request for one custom agent.
  *
- * - `deep === 0` (leaf): the child must run but must not start any subagent.
- *   `maxDepth` is OMITTED (an absolute `maxDepth: 0` would fail the child's
- *   own start — `resolveChildDepth` rejects child depth 1 > 0), and a
- *   `toolFilter` deny list removes every agent-spawning tool from the child's
- *   registry (the in-process driver applies it as a scoped `tools.restrict()`
- *   in the creation window, so the tools vanish from the prompt AND refuse to
- *   execute). The child keeps its full non-spawn tool set.
- *
- * - `deep >= 1` (default 1): the child may start subagents. No `toolFilter`;
- *   `maxDepth` is set to the child's own absolute depth plus `deep`, a
- *   relative budget that can never reject the start (`childDepth <=
- *   childDepth + deep` always holds), while keeping the "deep = generations
- *   of spawns" reading: a `deep: 1` agent's children may themselves sit one
- *   level deeper before their own per-request caps take over as the
- *   recursion backstop. The host's native default — `3` in dsh ≤ 0.1.5,
- *   lowered to `1` from 0.1.6-alpha.1 (upstream B-04) — is never binding
- *   here, since this plugin always passes an explicit `maxDepth`.
+ * Every child gets a `toolFilter` deny list that removes every agent-spawning
+ * tool from its registry (the in-process driver applies it as a scoped
+ * `tools.restrict()` in the creation window, so the tools vanish from the
+ * prompt AND refuse to execute). The child keeps its full non-spawn tool set.
+ * `deep` is an inert compatibility field: it no longer produces a `maxDepth`
+ * or any nested spawn capability — subagents cannot call subagents.
  */
 export declare function buildStartRequest(input: BuildStartRequestInput): Omit<SubagentStartRequest, 'signal'> & ChildComposition;
 /** Map a non-`completed` stop reason to a human headline for the parent model. */

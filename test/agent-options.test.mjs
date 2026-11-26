@@ -256,7 +256,7 @@ function fakeResumeBackend(prior, scriptTurn) {
   } })
   const tool = runAgentTool(ctx, { agentsDir: AGENTS_DIR, provider: 'spawn', toolName: 'use_agent' })
   const pending = tool.execute({ agent: 'plain', prompt: 'x' }, { agent: PARENT, signal: controller.signal })
-  const rejected = assert.rejects(pending, /cancelled/)
+  const rejected = assert.rejects(pending, /abort|cancell?ed/i, 'abort rejects the foreground synchronously')
   await ready
   // Let the startActivation await acquire its returned handle before aborting.
   await Promise.resolve()

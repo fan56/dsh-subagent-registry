@@ -20,6 +20,7 @@ import type { Context } from '@deepseek-ai/cordis';
 import { type RunAgentConfig } from './tool-run-agent.ts';
 export { agentsDir, dshHome } from './agents-dir.ts';
 export { readAgentMaxRounds } from './agent-caps.ts';
+export { assertTopLevelCaller, isRegistryChild, NestedDelegationError, NESTED_DELEGATION_ERROR_CODE, REGISTRY_DELEGATION_ENTRY_POINTS, } from './caller-guard.ts';
 export { foregroundLabel, stripForegroundLabel } from './resume.ts';
 export { composeAgentRuntime, readModelProfilesDoc, workspaceProfileName } from './profile-resolution.ts';
 export { AGENT_PRESET_REGISTRY_ROW, SUBAGENT_MODEL_SELECTION_ROW, PRESET_SUPPORT_ROWS, mountPresetSupportRows, } from './preset-mount.ts';
@@ -47,9 +48,9 @@ export declare const inject: string[];
  * dsh-home agents dir (`$DSH_HOME/agents`, i.e. `~/.dsh/agents`), `provider`
  * reuses dsh-base's already-assembled `spawn` provider, `toolName` names the
  * dispatch tool, `askToolName` names the follow-up tool, `leafDenyTools`
- * overrides the tool list removed from `deep: 0` (leaf) agents' children
- * (default: all agent-spawning tools in the dsh base distribution plus
- * `toolName` itself), `resume` selects when `use_agent` continues a
+ * adds extra deny names to every child's spawn-tool deny list
+ * (mandatory: all agent-spawning tools in the dsh base distribution plus
+ * `toolName` itself — children cannot spawn subagents), `resume` selects when `use_agent` continues a
  * prior interrupted run of the same agent (default `auto`), and
  * `language` selects the UI/skill/seed language (`zh` Chinese default,
  * `en`, `ru`, `es`).

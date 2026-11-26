@@ -15,7 +15,7 @@ partial work. No host patching, no code — a markdown file per agent.
 - **Resumes interrupted runs** — after an error, cancellation, token limit or
   crash, the next call for the same agent continues from the saved partial
   work instead of starting over.
-- **Role-aware delegation guidance** — Concise English guidance directs delegation to a matching custom role with a self-contained prompt, runs independent tasks in the background, and uses `subagent_fork` only when conversation inheritance is necessary. It applies only where this plugin's dispatch tool is visible; unloading restores the host guidance.
+- **Role-aware delegation guidance** — Concise English guidance directs delegation to a matching custom role with a self-contained prompt and dispatches independent tasks as parallel top-level subagents in the background. It applies only where this plugin's dispatch tool is visible; unloading restores the host guidance. **No nested delegation**: children are stripped of every spawn tool and only complete their own task.
 - **Background dispatch + two-way follow-ups** — `background: true` runs the
   agent as a durable background conversation while the parent keeps working;
   `ask_agent` sends a follow-up and waits for the reply.
@@ -35,12 +35,23 @@ partial work. No host patching, no code — a markdown file per agent.
 - **Built on the official subagent machinery** — no reimplementation: every
   custom agent starts through dsh's stock `spawn` provider, so each child is a
   real dsh subagent (full session, persistence, continuable). New capabilities
-  in the official subagent stack (bidirectional messaging, say) are inherited
-  automatically; the native `subagent` tool keeps working alongside — the two
-  coexist without interference.
-- **Pure plugin** — supports the RC/stable line's public subagent machinery (compatibility validated through DSH `0.2.0-rc.2` and `0.2.1-rc.2`); uninstalls cleanly at any time. The alpha line is not supported.
+  in the official subagent stack (bidirectional messaging with the parent, say)
+  are inherited automatically, and the main conversation keeps the native
+  `subagent` tool. The child tool surface drops every spawn tool — `subagent` /
+  `subagent_fork` / `use_agent` included — so a child cannot spawn subagents;
+  any nested dispatch attempt is refused.
+- **Pure plugin** — supports only DSH `0.2.2-rc.5` (schemastery `3.19.x`, peer range `>=0.2.2-rc.5 <0.2.3-0`); older RCs and the alpha line are unsupported; uninstalls cleanly at any time.
 
-Dispatch is selected by public API availability (feature detection, no version-number branches): the 0.2.1 line uses `startActivation` with `caller` / `parent` delivery for foreground/background work; the 0.2.0 line uses `start` / `startContinuable`. A selected call's failure is propagated without retrying through another dispatch API. On the 0.2.1 line the start request no longer carries a child persona or the leaf tool filter — the plugin installs the reserved persona section and leaf restriction on the child's own agent scope at the `subagent/start` edge (the same section and window the host's own composition uses), matching the 0.2.0-line request-field semantics. Foreground resume uses public `agents.resume` with current composition and caller cancellation, but is outside manager capacity and `interrupt_agent` control; resumed children cannot use stock `send_message` to contact the parent. Background follow-ups remain managed. Failure to inspect or resume a selected session is an error; use explicit `fresh: true` to restart.
+Dispatch goes through the `0.2.2-rc.5` host's public `startActivation`, with `caller` delivery for foreground work; the persona and leaf tool filter are installed on the child's own agent scope at the `subagent/start` edge (the same section and window the host's own composition uses) instead of riding the request. A selected call's failure is propagated without retrying through another dispatch API. Foreground resume uses public `agents.resume` with current composition and caller cancellation, but is outside manager capacity and `interrupt_agent` control; resumed children cannot use stock `send_message` to contact the parent. Background follow-ups remain managed. Failure to inspect or resume a selected session is an error; use explicit `fresh: true` to restart.
+
+### Top-level delegation only, no nesting (`0.2.2-rc.5`, breaking)
+
+- **No nested delegation** — the child tool surface drops every tool that can spawn an agent — `subagent` / `subagent_fork` / `use_agent` included; a child that tries to delegate again (including a caller whose identity cannot be verified) is refused with the stable code `DSH_REGISTRY_NESTED_DELEGATION_UNSUPPORTED`. The child only completes its own task and derives no descendants.
+- **The plugin guard covers only this plugin's start/resume tools** — `use_agent` / `ask_agent` and every dispatch or resume entry point re-check top-level caller identity before any host call. The host's native `subagent` / `subagent_fork` tools are host-managed: nesting through them is outside this plugin's control, and no promise is made to block it.
+- **Non-agent CLI/API callers do not call the registry dispatch tools directly** — `use_agent` / `ask_agent` are for model callers with a verifiable top-level agent identity; a direct CLI/API call without one is refused by the same guard with the same error code. Start from the main conversation or use host-native mechanisms instead. Calls made by a top-level agent inside a CLI/TUI session are unaffected (the roster is still re-read per invocation; see "Subagent preset manager").
+- **No descendant join, aggregation or lineage cancel** — the registry no longer waits for or summarizes descendants, and there is no lineage-wide cancellation; a foreground `use_agent` returns only that child's own result.
+- **The main agent orchestrates multi-step work** — when several steps are needed, run them sequentially in the main agent or dispatch several top-level subagents in parallel; do not push the delegation chain down into a child.
+- **`deep` and `maxDepth` are deprecated and ignored at runtime** — the `deep` frontmatter and the host `maxDepth` config are retained for compatibility only; they no longer tighten depth or enable nested orchestration. Do not configure them for nested orchestration.
 
 ## The three shipped agents (the seed trio) + two opt-ins
 
@@ -103,28 +114,31 @@ You are my-agent. This markdown body is used verbatim as the system prompt.
 
 Frontmatter keys: `name` (required), `description`, `display_name`, `model`
 (`provider/model`; absent = inherit), `thinking`
-(`off/low/medium/high/max`; absent = inherit), `deep` (`0` = leaf, may not
-spawn subagents; default `1`), `background` (`true` = dispatch in the
-background by default). Unknown keys are silently ignored.
+(`off/low/medium/high/max`; absent = inherit), `deep` (deprecated, retained
+for compatibility but ignored at runtime — every child is a leaf and may not
+spawn subagents), `background` (`true` = dispatch in the background by default).
+Unknown keys are silently ignored.
 
 ### Concurrency and round limits (since 0.1.7)
 
-**Concurrency and nesting depth are owned by the official dsh-subagent
-service** — this plugin keeps no concurrency counter or queue of its own (the
-official ActivationManager schedules): `maxActiveSubagents` (live-children
-cap, default `8`) and `maxDepth` (delegation-depth cap, default `1`). Both are
-volatile fields, tunable without a restart — via a profile patch
-`subagent: { maxActiveSubagents: N, maxDepth: M }` or at runtime with
-`settings.update('subagent', …)`. The `use_agent` `deep` frontmatter only
-tightens within that official depth budget (`deep: 0` leaves strip every
-agent-spawning tool outright).
+**Concurrency is owned by the official dsh-subagent service** — this plugin
+keeps no concurrency counter or queue of its own (the official
+ActivationManager schedules): `maxActiveSubagents` (live-children cap,
+default `8`) is a volatile field, tunable without a restart — via a profile
+patch `subagent: { maxActiveSubagents: N }` or at runtime with
+`settings.update('subagent', …)`.
+
+**Do not configure `maxDepth` / `deep` for nested orchestration (both are
+deprecated)**: the `maxDepth` (delegation-depth cap) host key and the `deep`
+frontmatter are retained for compatibility and ignored at runtime; nested
+delegation is not supported and a child cannot derive descendants.
 
 `maxRounds` (a per-agent turn budget) **stays**: the official subagent seam
 has no round-budget capability, and the key is still consumed by the host
 TUI's hard-stop ladder.
 
 → **Full reference**: [docs/AGENT-FORMAT.md](docs/AGENT-FORMAT.md) — every key's
-validation and failure modes, `deep`/`thinking` semantics, resume mechanics,
+validation and failure modes, `thinking` semantics, resume mechanics,
 background dispatch, configuration fields, known limitations.
 
 ## Plugin config (entry config)
@@ -138,7 +152,7 @@ section of the cordis.patch.yml `insert` entry):
 | `provider`      | `spawn`         | Subagent provider (reuses dsh-base's `spawn`).                                                    |
 | `toolName`      | `use_agent`     | Dispatch tool name.                                                                               |
 | `askToolName`   | `ask_agent`     | Follow-up tool name.                                                                              |
-| `leafDenyTools` | `[]`            | Tool deny list for `deep: 0` leaf children; empty = static default intersected with the host's registered tools. |
+| `leafDenyTools` | `[]`            | Tool deny list for children (every child is a leaf; no nesting); empty = static default intersected with the host's registered tools. |
 | `resume`        | `auto`          | Resume mode: `auto` / `opt-in` / `off`.                                                           |
 | `language`      | `zh`            | UI language: `zh` (Chinese, the default) / `en` (English) / `ru` (Русский) / `es` (Español). Affects the web management panel texts, the bundled skill body and its model-facing routing description, and the agent templates seeded on first install (`templates/agents/<language>/`); restart dsh after changing. Existing agent files are never rewritten. |
 | `disabledAgents` | `[]` (volatile) | **The roster toggle**: listed agent names vanish from the `use_agent`/`ask_agent` rosters and calls by name are refused; **a pure roster filter that never touches agent files**. Volatile writes hot-apply; the `/registry-config` command writes it for you, and the execute path re-checks the live value (a model hard-naming a disabled agent is refused). |
@@ -217,7 +231,7 @@ key — see the table above).
 
 ## Installation
 
-**Requires dsh >= 0.2.0-rc.2** (the RC/stable line; the alpha line is not supported). Compatibility validated through `0.2.0-rc.2` and `0.2.1-rc.2`. The host must mount session persistence and `sessionQuery`. Resume and follow-ups use each host's own session format; cross-version migration is not provided.
+**Requires DSH `0.2.2-rc.5` only** (schemastery `3.19.x`; peer range `>=0.2.2-rc.5 <0.2.3-0`). Older RCs and the alpha line are unsupported, and cross-version migration is not provided. The host must mount session persistence and `sessionQuery`.
 
 Option A — mount a checkout into a dsh profile:
 
@@ -249,31 +263,31 @@ npm run check    # tsc --noEmit
 npm run build    # tsc -> lib/
 npm test         # unit regressions and real npm install in a temporary directory (no LLM)
 npm run test:host # current SDK's real services/persistence/manager/spawn; scripted model, no network
-npm run test:hosts # same compiled plugin, two published SDK closures with version checks
+npm run test:hosts # same compiled plugin against the published 0.2.2-rc.5 closure, with version checks
+npm run probe:npm # real npm consumer install probe under default peer resolution; needs network (same as CI's npm-install-probe job)
 ```
 
 Prepare isolated SDKs from the plugin directory (reuse existing closures when available):
 
 ```sh
-npm install --prefix ../../.tmp/dsh-type-closure-rc2 --ignore-scripts @deepseek-ai/dsh@0.2.0-rc.2 @deepseek-ai/dsh-session-query@0.2.0-rc.2
-npm install --prefix ../../.tmp/dsh-type-closure --ignore-scripts @deepseek-ai/dsh@0.2.1-rc.2 @deepseek-ai/dsh-session-query@0.2.1-rc.2 @deepseek-ai/dsh-working-directory@0.2.1-rc.2
+npm install --prefix ../../.tmp/dsh-type-closure-022rc5 --ignore-scripts @deepseek-ai/dsh@0.2.2-rc.5 @deepseek-ai/dsh-session-query@0.2.2-rc.5
 ```
 
-Override `DSH_TEST_RC2_CLOSURE_DIR` / `DSH_TEST_021_CLOSURE_DIR` with other isolated `node_modules` directories. Only model responses are scripted; host services and persistence use their actual published implementations.
+Override `DSH_TEST_022RC5_CLOSURE_DIR` with another isolated `node_modules` directory. Only model responses are scripted; host services and persistence use the actual `0.2.2-rc.5` implementations.
 
 ### The `@deepseek-ai/*` dependency contract (why optional peers)
 
 This repo declares the `@deepseek-ai/*` packages (`cordis`, `dsh-subagent`,
 `dsh-llm`, `schemastery`, …) as **optional peerDependencies** in releases
-(`>=0.2.0-rc.2 || >=0.2.1-rc.1`). That is a deliberate two-layer split:
+(`>=0.2.2-rc.5 <0.2.3-0`; `schemastery` at `~3.19.0`). That is a deliberate two-layer split:
 
 - **Release semantics (for consumers)**: the declaration says "use the host's
-  own copies, range `>=0.2.0-rc.2 || >=0.2.1-rc.1`". Optional peers are never auto-installed
+  own copies, range `>=0.2.2-rc.5 <0.2.3-0`". Optional peers are never auto-installed
   by pnpm or npm, so they cannot materialize a second copy in the profile's
   `node_modules` that shadows the host's bundled closure. What does break
-  hosts is a hard dependency pinned to an old rc — that can render a 0.2.x
-  host unbootable (a known community failure mode).
-- **Dev typecheck (for this repo)**: devDependencies pin the newer SDK;
+  hosts is a hard dependency pinned to an old rc — that can render the
+  supported `0.2.2-rc.5` host unbootable (a known community failure mode).
+- **Dev typecheck (for this repo)**: devDependencies pin the `0.2.2-rc.5` closure;
   `scripts/link-dsh-closure.mjs` (the root `prepare` install hook; also
   runnable as `npm run link-closure`) symlinks
   `node_modules/@deepseek-ai/*` to `DSH_CLOSURE_DIR` or the global dsh install's closure, keeping

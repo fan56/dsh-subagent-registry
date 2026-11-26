@@ -51,6 +51,15 @@ import { installChildCompositionListener } from './host-compat.ts'
 // feature): dsh-tui-pi imports these from this package.
 export { agentsDir, dshHome } from './agents-dir.ts'
 export { readAgentMaxRounds } from './agent-caps.ts'
+// Nested-delegation guard: exported so hosts and tests can assert the stable
+// error code and the guarded call-site manifest.
+export {
+  assertTopLevelCaller,
+  isRegistryChild,
+  NestedDelegationError,
+  NESTED_DELEGATION_ERROR_CODE,
+  REGISTRY_DELEGATION_ENTRY_POINTS,
+} from './caller-guard.ts'
 export { foregroundLabel, stripForegroundLabel } from './resume.ts'
 export { composeAgentRuntime, readModelProfilesDoc, workspaceProfileName } from './profile-resolution.ts'
 // Issue #9 seam: the runtime-mounted agent-preset support rows and the
@@ -61,6 +70,17 @@ export {
   PRESET_SUPPORT_ROWS,
   mountPresetSupportRows,
 } from './preset-mount.ts'
+
+// ---------------------------------------------------------------------------
+// Entry surface: agent tools only
+// ---------------------------------------------------------------------------
+// Dispatch/resume is reachable ONLY through the agent tools this plugin
+// registers (`use_agent` / `ask_agent`, names configurable). The handler
+// modules (`tool-run-agent.ts`, `resume.ts`, `caller-guard.ts`) are internal:
+// there is no CLI binary, HTTP/API route, or public package export that calls
+// them directly — the package `exports` map exposes no start/resume subpath.
+// A host CLI/API delegation therefore travels through the same tool and the
+// same top-level caller guard. Do not open a second entry point.
 
 export const name = 'dsh-subagent-registry'
 
@@ -172,9 +192,9 @@ export const inject = ['tools', 'subagents', 'agents', 'skills', 'systemPrompt']
  * dsh-home agents dir (`$DSH_HOME/agents`, i.e. `~/.dsh/agents`), `provider`
  * reuses dsh-base's already-assembled `spawn` provider, `toolName` names the
  * dispatch tool, `askToolName` names the follow-up tool, `leafDenyTools`
- * overrides the tool list removed from `deep: 0` (leaf) agents' children
- * (default: all agent-spawning tools in the dsh base distribution plus
- * `toolName` itself), `resume` selects when `use_agent` continues a
+ * adds extra deny names to every child's spawn-tool deny list
+ * (mandatory: all agent-spawning tools in the dsh base distribution plus
+ * `toolName` itself — children cannot spawn subagents), `resume` selects when `use_agent` continues a
  * prior interrupted run of the same agent (default `auto`), and
  * `language` selects the UI/skill/seed language (`zh` Chinese default,
  * `en`, `ru`, `es`).

@@ -1,25 +1,20 @@
 # CI: build, typecheck, unit suite on Node 22/24, plus a real-host boot smoke
 # — on every push to main and every pull request.
 #
-# The @deepseek-ai/* devDeps are pinned to the current wave line (0.2.2-rc.2)
-# so installs resolve a real published surface, but typecheck/tests run against
+# The @deepseek-ai/* devDeps are pinned to the single supported RC (0.2.2-rc.5)
+# so installs resolve the real published surface; typecheck/tests run against
 # the DSH_CLOSURE_DIR override or the GLOBAL dsh CLI's own closure
 # (scripts/link-dsh-closure.mjs re-points every @deepseek-ai/* at it) — one
-# cordis in the type graph, and the gate tracks
-# the rolling rc/stable line the same way the running host does. The smoke job
-# boots a scratch profile with the plugin mounted via the real dsh CLI
-# (scripts/smoke-boot.mjs) so "loads under real cordis" is a gate, not a hope.
+# cordis in the type graph. Only 0.2.2-rc.5 is supported (no older RC / alpha);
+# a dedicated job guards `latest` against drifting past that RC so the support
+# matrix cannot silently go stale. The smoke job boots a scratch profile with
+# the plugin mounted via the real dsh CLI (scripts/smoke-boot.mjs) so "loads
+# under real cordis" is a gate, not a hope.
 #
-# 2026-11-05: the rolling newest-of(latest,next) resolution is RESTORED after
-# the 0.2.2-rc.1 adaptation landed — the 2026-11-04 incident pin had
-# suspended it while this source still spoke the 0.2.1-rc.5 surface
-# (PromptPresentation.tools and dsh-tools' CodeRunFailedError are adapted
-# now) and the 0.2.2 wave is complete on the registry
-# (dsh-plan-mode@0.2.2-rc.1 included).
-# 2026-11-12: devDeps re-pointed to the 0.2.2-rc.2 wave; the rc.2 child-surface
-# reshapes (listChildren/waitForChildren, nested activation spec, resume
-# parentAgent) are adapted behind generation probes in src/host-compat.ts, so
-# the rolling resolution needs no change.
+# 2026-11-26: support matrix narrowed to the latest RC 0.2.2-rc.5 — peers are
+# `>=0.2.2-rc.5 <0.2.3-0`, schemastery is `~3.19.0`, devDeps and the hosts
+# closure are all rc.5. Older runtime compatibility branches in src/ are kept,
+# but CI no longer exercises the 0.2.0-rc.2 / 0.2.1-rc.2 hosts.
 name: CI
 
 on:
@@ -35,6 +30,24 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  support-matrix-drift:
+    name: Guard latest drift (support matrix)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      # The published surface this repo supports is exactly 0.2.2-rc.5. If the
+      # registry moves on and nobody updates the matrix, fail loudly instead of
+      # letting CI keep passing against an untested newer host.
+      - name: Check dsh dist-tag latest matches the supported RC
+        run: |
+          SUPPORTED='0.2.2-rc.5'
+          LATEST="$(npm view @deepseek-ai/dsh dist-tags.latest)"
+          echo "dsh dist-tags.latest=${LATEST}; supported=${SUPPORTED}"
+          if [ "$LATEST" != "$SUPPORTED" ]; then
+            echo "::error:: @deepseek-ai/dsh latest drifted to ${LATEST}; this repo supports only ${SUPPORTED}. Update the support matrix (package.json peers/devDeps, test/package-compat.test.mjs, test/host-matrix.test.mjs and this guard) before proceeding."
+            exit 1
+          fi
+
   test:
     name: Check & Test (node ${{ matrix.node-version }})
     runs-on: ubuntu-latest
@@ -299,3 +312,81 @@ jobs:
 
       - name: Boot smoke (real dsh host, scratch profile)
         run: node scripts/smoke-boot.mjs
+
+  hosts:
+    name: Host matrix (one published SDK closure)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install dependencies (frozen lockfile)
+        run: pnpm install --frozen-lockfile
+
+      - name: Install the supported published SDK closure
+        run: |
+          # The closure is a real npm install of dsh@<version> with every
+          # caret/tilde-ranged @deepseek-ai dep pinned to that exact wave.
+          # host-sdk-imports.mjs then validates the published service versions
+          # before a fixture is allowed to run — no synthetic closure here.
+          # Only the latest RC is supported; old hosts are no longer tested.
+          for SPEC in \
+            0.2.2-rc.5:DSH_TEST_022RC5_CLOSURE_DIR; do
+            VERSION="${SPEC%%:*}"
+            VAR="${SPEC##*:}"
+            DIR="${RUNNER_TEMP:-/tmp}/host-closure-${VERSION}"
+            node -e '
+              const { execFileSync } = require("node:child_process")
+              const { writeFileSync, mkdirSync } = require("node:fs")
+              const [ver, dir] = process.argv.slice(1)
+              const deps = JSON.parse(execFileSync("npm", ["view", `@deepseek-ai/dsh@${ver}`, "dependencies", "--json", "--registry=https://registry.npmjs.org"], { encoding: "utf8" }))
+              const overrides = {}
+              for (const [name, range] of Object.entries(deps ?? {})) {
+                if (name.startsWith("@deepseek-ai/") && /^[~^]/.test(range)) overrides[name] = range.replace(/^[~^]/, "")
+              }
+              mkdirSync(dir, { recursive: true })
+              writeFileSync(`${dir}/package.json`, JSON.stringify({
+                name: `host-closure-${ver}`,
+                private: true,
+                dependencies: { "@deepseek-ai/dsh": ver },
+                overrides,
+              }, null, 2))
+            ' "$VERSION" "$DIR"
+            (cd "$DIR" && npm install --no-audit --no-fund --registry=https://registry.npmjs.org)
+            echo "${VAR}=${DIR}/node_modules" >> "$GITHUB_ENV"
+          done
+
+      - name: Build
+        run: pnpm build
+
+      - name: Host matrix (supported published host)
+        run: node test/host-matrix.test.mjs
+
+  npm-install-probe:
+    name: Default npm install of published tarball
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # Deliberately no pnpm install: the probe uses a bare consumer so npm's
+      # default peer resolution is the only thing under test.
+      - name: npm tarball install probe
+        run: node scripts/probe-npm-install.mjs

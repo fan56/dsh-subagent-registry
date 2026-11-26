@@ -604,7 +604,7 @@ try {
     assert.equal('signal' in spec.request, false, 'signal belongs to activation, not request')
     assert.equal(spec.label, 'worker', 'durable label = display_name ?? name')
     assert.equal(spec.request.persona, 'You are the worker body.', 'file body applied as persona')
-    assert.deepEqual(spec.request.toolFilter, { deny: ['subagent', 'subagent_fork', 'workflow', 'ralph', 'use_agent'] }, 'leaf toolFilter carried onto the continuable child')
+    assert.deepEqual(spec.request.toolFilter, { deny: ['subagent', 'subagent_fork', 'subagent_codex', 'subagent_claude_code', 'workflow', 'ralph', 'use_agent'] }, 'spawn-tool deny carried onto the continuable child')
     assert.equal(spec.request.maxDepth, undefined, 'leaf carries no maxDepth (same deep semantics as one-shot)')
     assert.equal(spec.request.label, undefined, 'request-level label stripped (durable label lives on the spec)')
     const text = result.output.map((b) => b.text ?? '').join('')
@@ -646,8 +646,8 @@ try {
     assert.equal(ctx.started[0].delivery, 'parent', 'background override uses parent delivery')
     assert.equal(ctx.started[0].label, 'fg', 'background override uses the ordinary label')
     assert.equal(ctx.started[0].request.persona, 'You are the foreground body.', 'persona from the right file')
-    assert.equal(ctx.started[0].request.toolFilter, undefined, 'non-leaf continuable child has no toolFilter')
-    assert.equal(typeof ctx.started[0].request.maxDepth, 'number', 'relative maxDepth carried')
+    assert.deepEqual(ctx.started[0].request.toolFilter, { deny: ['subagent', 'subagent_fork', 'subagent_codex', 'subagent_claude_code', 'workflow', 'ralph', 'use_agent'] }, 'every continuable child denies spawn tools')
+    assert.equal(ctx.started[0].request.maxDepth, undefined, 'no maxDepth: nested subagents are gone')
     console.log('PASS use_agent per-call background:true')
   }
 
