@@ -216,13 +216,13 @@ try {
   // Nested delegation guard: neither a registry child nor a host-forked child
   // may reach the dispatch handler. Both must be refused before any new agent
   // is created.
-  const beforeNested = ctx.agents.list().length
+  const beforeRegistryChild = ctx.agents.list().length
   await assert.rejects(
     tool.execute({ agent: 'worker', prompt: 'nested task' }, { agent: bgChild, signal }),
     (error) => error.code === Registry.NESTED_DELEGATION_ERROR_CODE,
     'registry child dispatch is refused with the stable code',
   )
-  assert.equal(ctx.agents.list().length, beforeNested, 'registry child call created no agent')
+  assert.equal(ctx.agents.list().length, beforeRegistryChild, 'registry child call created no agent')
   const forkTool = ctx.tools.get('subagent_fork', scope)
   assert(forkTool, 'host subagent_fork tool is mounted')
   await forkTool.execute({ description: 'forked child', prompt: 'inherit this conversation' }, { agent: parent, signal })
@@ -230,18 +230,20 @@ try {
   assert(forkRow, 'fork child row exists')
   assert.equal(Registry.isRegistryChild(forkRow.id), false, 'a host fork is not a registry child record')
   const forkChild = { id: forkRow.id, session: { header: { parentSession: parent.id, origin: 'subagent' } } }
+  const beforeForkChild = ctx.agents.list().length
   await assert.rejects(
     tool.execute({ agent: 'worker', prompt: 'nested task' }, { agent: forkChild, signal }),
     (error) => error.code === Registry.NESTED_DELEGATION_ERROR_CODE,
     'host-forked child dispatch is refused with the stable code',
   )
-  assert.equal(ctx.agents.list().length, beforeNested + 1, 'only the fork child was added; guard created none')
+  assert.equal(ctx.agents.list().length, beforeForkChild, 'host-forked child call created no agent')
+  const beforeUnknownCaller = ctx.agents.list().length
   await assert.rejects(
     tool.execute({ agent: 'worker', prompt: 'nested task' }, { signal }),
     (error) => error.code === Registry.NESTED_DELEGATION_ERROR_CODE,
     'unknown caller identity is refused',
   )
-  assert.equal(ctx.agents.list().length, beforeNested + 1, 'unknown caller created no agent')
+  assert.equal(ctx.agents.list().length, beforeUnknownCaller, 'unknown caller created no agent')
   assert.ok(['FG_OK', 'RESUME_OK', 'BG_OK'].every(path => assertedChildPaths.has(path)),
     'fresh, resume and background child tool surfaces were all asserted')
 
