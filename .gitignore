@@ -5,3 +5,6 @@ node_modules
 *.log
 /tmp
 package-lock.json
+
+# local verification/proof artifacts — never commit, never upload
+.proof/
