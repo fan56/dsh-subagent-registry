@@ -13,7 +13,7 @@
   system prompt，改完即生效。
 - **断点续跑** — 长任务中断（报错/取消/限额/崩溃）后再次调用，自动从已保存的
   中间进度继续，不从头重来。
-- **按角色优先委派** — 使用精简英文委派指导，要求选择名册中匹配的自定义角色并提供完整任务上下文；独立任务后台并行，仅在必须继承当前对话时使用 `subagent_fork`。指导只在当前作用域可见本插件工具时生效，卸载后恢复官方指导。
+- **按角色优先委派** — 使用精简英文委派指导，要求选择名册中匹配的自定义角色并提供完整任务上下文；独立任务作为多个顶层 subagent 后台并行派发。指导只在当前作用域可见本插件工具时生效，卸载后恢复官方指导。**不支持嵌套委派**：子代理不再获得任何启动工具，只能完成自身任务。
 - **后台派发 + 双向追问** — `background: true` 把代理放到后台跑，主对话继续干活；
   `ask_agent` 发追问并等它的回复。
 - **开箱即用三个人物** — 装好即自动植入 `workhorse` / `oldfox` / `rubber-duck`
@@ -30,11 +30,22 @@
   `ptcEnabled` 等配置键显式开启后才生效（见下）。
 - **站在官方 subagent 机制之上** — 不自建执行器：每个自定义 agent 都通过 dsh
   官方的 `spawn` provider 启动，子代理就是货真价实的 dsh subagent（完整会话、
-  持久化、continuable）。官方 subagent 栈的新能力（如双向通信）本插件自动
-  继承；官方原生 `subagent` 工具继续可用，两者并存、互不干扰。
-- **纯插件** — 支持 DSH RC/稳定线的公开 subagent 机制（兼容性验证至 `0.2.0-rc.2` 与 `0.2.1-rc.2`），可随时干净卸载；alpha 线不再支持。
+  持久化、continuable）。官方 subagent 栈的新能力（如与父级的双向通信）本插件
+  自动继承；主对话仍可用官方原生 `subagent` 工具。子代理工具面已移除
+  `subagent` / `subagent_fork` / `use_agent` 等所有启动工具，不能嵌套委派，
+  尝试再派发会被拒绝。
+- **纯插件** — 只支持 DSH `0.2.2-rc.5`（schemastery `3.19.x`，peer 范围 `>=0.2.2-rc.5 <0.2.3-0`）；更早的 RC 与 alpha 线不支持，可随时干净卸载。
 
-按宿主公开 API 自动选择派发方式（功能探测，无版本号分支）：0.2.1 线使用 `startActivation`，前台/后台分别以 `caller` / `parent` 投递；0.2.0 线使用 `start` / `startContinuable`。已选择的接口失败后直接报错，不尝试另一接口重复派发。0.2.1 线的启动请求不再携带 persona 与 leaf 工具限制——本插件在 `subagent/start` 边缘把预留的 persona 段与 leaf 工具限制安装到子代理自身作用域（宿主自身合成同一窗口的同一 section/restrict），语义与 0.2.0 线的请求字段一致。前台续跑使用公开 `agents.resume`，支持当前 persona/model/工具配置及调用取消，但不占用 manager 并发槽，也不能由 `interrupt_agent` 打断；续跑子代理不能使用 stock `send_message` 联系父级。后台追问继续由 manager 管理。已选中的旧会话若读取或恢复失败，会报错；显式 `fresh: true` 才重新派发。
+派发走 `0.2.2-rc.5` 宿主公开的 `startActivation`，前台以 `caller` 投递；persona 与 leaf 工具限制在 `subagent/start` 边缘安装到子代理自身作用域（宿主自身合成同一窗口的同一 section/restrict），不随请求字段发送。已选接口失败后直接报错，不尝试另一接口重复派发。前台续跑使用公开 `agents.resume`，支持当前 persona/model/工具配置及调用取消，但不占用 manager 并发槽，也不能由 `interrupt_agent` 打断；续跑子代理不能使用 stock `send_message` 联系父级。后台追问继续由 manager 管理。已选中的旧会话若读取或恢复失败，会报错；显式 `fresh: true` 才重新派发。
+
+### 顶层委派，无嵌套（`0.2.2-rc.5`，破坏性变更）
+
+- **不支持嵌套委派** — 子代理的工具面移除了 `subagent` / `subagent_fork` / `use_agent` 等所有能启动代理的工具；子代理尝试再委派（包括调用者身份无法验证时）会被拒绝，统一携带稳定错误码 `DSH_REGISTRY_NESTED_DELEGATION_UNSUPPORTED`。child 只完成自己的任务，不派生后代。
+- **插件守卫只覆盖本插件的启动/恢复工具** — `use_agent` / `ask_agent` 以及各派发、续跑入口在调用宿主之前复核顶层调用者身份。宿主原生的 `subagent` / `subagent_fork` 等工具由宿主管理，其嵌套不在本插件控制范围内，不承诺阻止。
+- **非 agent 的 CLI/API 不直接调用本插件的委派工具** — `use_agent` / `ask_agent` 面向具备顶层 agent 身份的模型调用者；没有可验证 agent/session 的 CLI/API 直调会被上述守卫以同一错误码拒绝，请由主对话或宿主原生机制发起。CLI/TUI 会话中由顶层 agent 发起的调用不受影响（名册仍按次读取文件，见「子智能体预设管理」）。
+- **无后代等待 / 汇总 / lineage 取消** — registry 不再等待或汇总 descendants，也没有按 lineage 传播的取消；前台 `use_agent` 只返回该子代理自身的结果。
+- **多步任务由主代理编排** — 需要多步时，由主代理顺序执行，或并行派发多个顶层 subagent；不要把委派链下放给子代理。
+- **`deep` / `maxDepth` 已弃用且运行时忽略** — `deep` frontmatter 与宿主 `maxDepth` 编排键仅为兼容保留，不再收紧深度或开启嵌套编排；不要再配置它们做嵌套编排。
 
 ## 三个预置 agent（三件套种子）+ 两个 opt-in
 
@@ -91,23 +102,24 @@ You are my-agent. 这段 markdown 正文会原样作为 system prompt。
 
 Frontmatter 字段：`name`（必填）、`description`、`display_name`、`model`
 （`provider/model`，缺省继承）、`thinking`（`off/low/medium/high/max`，缺省继承）、
-`deep`（`0` = 叶子不许再开子代理，缺省 `1`）、`background`（`true` = 默认后台跑）、`maxRounds`（正整数，per-agent 轮数上限，覆盖 `dsh-tui.maxRounds` 全局值；宿主 TUI 的硬停梯消费）。
+`deep`（已弃用，仅为兼容保留、运行时忽略；所有子代理都是叶子，不能再开子代理）、`background`（`true` = 默认后台跑）、`maxRounds`（正整数，per-agent 轮数上限，覆盖 `dsh-tui.maxRounds` 全局值；宿主 TUI 的硬停梯消费）。
 未知字段静默忽略。
 
 ### 并发与轮数上限（0.1.7 起）
 
-**并发数与嵌套深度由官方 dsh-subagent 托管**，本插件不自管并发计数与排队
+**并发数由官方 dsh-subagent 托管**，本插件不自管并发计数与排队
 （官方 ActivationManager 统一调度）：`maxActiveSubagents`（同时活跃子代理上限，
-默认 `8`）与 `maxDepth`（委托嵌套深度上限，默认 `1`）。两者都是 volatile 字段，
-免重启热调——在 profile patch 里写 `subagent: { maxActiveSubagents: N, maxDepth: M }`，
-或运行时 `settings.update('subagent', …)`。`use_agent` 的 `deep` frontmatter
-只是在这条官方深度预算内再收紧（`deep: 0` 叶子直接拔掉所有开代理的工具）。
+默认 `8`）是 volatile 字段，免重启热调——在 profile patch 里写
+`subagent: { maxActiveSubagents: N }`，或运行时 `settings.update('subagent', …)`。
+
+**不要再配置 `maxDepth` / `deep` 做嵌套编排（两者已弃用）**：`maxDepth`（委托嵌套深度上限）与
+`deep` frontmatter 仅为兼容保留，运行时忽略；不支持嵌套委派，子代理不能派生后代。
 
 `maxRounds`（per-agent 轮数上限）**本插件继续保留**：官方 subagent seam 没有轮数
 预算能力，该键仍由宿主 TUI 的硬停梯消费。
 
 → **完整参考**：[docs/AGENT-FORMAT.md](./docs/AGENT-FORMAT.md)（英文）——每个字段
-的校验与失败行为、`deep`/`thinking` 语义、续跑机制、后台派发、配置项、已知边界。
+的校验与失败行为、`thinking` 语义、续跑机制、后台派发、配置项、已知边界。
 
 ## 插件配置（entry config）
 
@@ -119,7 +131,7 @@ Frontmatter 字段：`name`（必填）、`description`、`display_name`、`mode
 | `provider`      | `spawn`         | 子代理 provider（复用 dsh-base 的 spawn）。                                                       |
 | `toolName`      | `use_agent`     | 派发工具名。                                                                                      |
 | `askToolName`   | `ask_agent`     | 追问工具名。                                                                                      |
-| `leafDenyTools` | `[]`            | `deep: 0` 叶子子的禁用工具表；空 = 静态默认再与宿主已注册工具取交集。                              |
+| `leafDenyTools` | `[]`            | 子代理的禁用工具表（所有子代理都是叶子，无嵌套）；空 = 静态默认再与宿主已注册工具取交集。             |
 | `resume`        | `auto`          | 续跑档位：`auto` / `opt-in` / `off`。                                                             |
 | `language`      | `zh`            | 界面语言：`zh`（中文，默认）/ `en`（English）/ `ru`（Русский）/ `es`（Español）。作用于 web 管理面板文案、内置技能正文与模型路由描述、首次播种的预置 agent 模板（`templates/agents/<language>/`）；改后重启 dsh 生效，已存在的 agent 文件不会被改写。 |
 | `disabledAgents` | `[]`（volatile） | **名册开关**：名单里的 agent 从 `use_agent`/`ask_agent` 名册隐藏、按名调用被拒；**只过滤名册，永不改动 agent 文件**。volatile 写热生效；`/registry-config` 命令可代写，执行期还会按活值再查（模型硬调停用名会被拒绝）。 |
@@ -181,7 +193,7 @@ NO_PROVIDER）时，命令降级为错误文案，指引用手改配置键（`di
 
 ## 安装
 
-**要求 dsh >= 0.2.0-rc.2**（RC/稳定线；alpha 线不再支持）。兼容性验证至 `0.2.0-rc.2` 与 `0.2.1-rc.2`。宿主须挂载会话持久化及 `sessionQuery` 服务；续跑与追问使用各版本自身的会话格式，不提供跨版本迁移。
+**只支持 DSH `0.2.2-rc.5`**（schemastery `3.19.x`；peer 范围 `>=0.2.2-rc.5 <0.2.3-0`）。更早的 RC 与 alpha 线不支持，也不提供跨版本迁移。宿主须挂载会话持久化及 `sessionQuery` 服务。
 
 方式 A — 把本地 checkout 挂进 dsh profile：
 
@@ -211,29 +223,30 @@ npm run check    # tsc --noEmit
 npm run build    # tsc -> lib/
 npm test         # 单元回归及临时目录中的真实 npm 安装检查（无 LLM）
 npm run test:host # 当前 SDK 的真实服务/持久化/manager/spawn；脚本化模型，无网络
-npm run test:hosts # 同一编译插件分别加载两套实际发布 SDK，并核实版本
+npm run test:hosts # 同一编译插件加载 0.2.2-rc.5 发布闭包，并核实版本
+npm run probe:npm # 真实 npm 消费者安装探针：默认 peer 解析，需联网（CI 的 npm-install-probe job 同款）
 ```
 
 从插件目录初始化隔离 SDK（已有环境无需重复安装）：
 
 ```sh
-npm install --prefix ../../.tmp/dsh-type-closure-rc2 --ignore-scripts @deepseek-ai/dsh@0.2.0-rc.2 @deepseek-ai/dsh-session-query@0.2.0-rc.2
-npm install --prefix ../../.tmp/dsh-type-closure --ignore-scripts @deepseek-ai/dsh@0.2.1-rc.2 @deepseek-ai/dsh-session-query@0.2.1-rc.2 @deepseek-ai/dsh-working-directory@0.2.1-rc.2
+npm install --prefix ../../.tmp/dsh-type-closure-022rc5 --ignore-scripts @deepseek-ai/dsh@0.2.2-rc.5 @deepseek-ai/dsh-session-query@0.2.2-rc.5
 ```
 
-可用 `DSH_TEST_RC2_CLOSURE_DIR` / `DSH_TEST_021_CLOSURE_DIR` 指向其他隔离环境的 `node_modules`；测试只将模型脚本化，服务与持久化使用对应版本的真实实现。
+可用 `DSH_TEST_022RC5_CLOSURE_DIR` 指向其他隔离环境的 `node_modules`；测试只将模型脚本化，服务与持久化使用 `0.2.2-rc.5` 的真实实现。
 
 ### `@deepseek-ai/*` 依赖契约（为什么是 optional peer）
 
 本仓对 `@deepseek-ai/*`（`cordis`、`dsh-subagent`、`dsh-llm`、`schemastery` 等）
-在发布包中声明 **optional peerDependencies**（`>=0.2.0-rc.2 || >=0.2.1-rc.1`）。这是有意的两层分工：
+在发布包中声明 **optional peerDependencies**（`>=0.2.2-rc.5 <0.2.3-0`；
+`schemastery` 为 `~3.19.0`）。这是有意的两层分工：
 
-- **发布语义（给消费者）**：声明表达「使用宿主自带的同名包、版本下限
-  `>=0.2.0-rc.2 || >=0.2.1-rc.1`」。optional peer 不会被 pnpm / npm 自动安装，因此不会在
+- **发布语义（给消费者）**：声明表达「使用宿主自带的同名包，版本范围
+  `>=0.2.2-rc.5 <0.2.3-0`」。optional peer 不会被 pnpm / npm 自动安装，因此不会在
   profile 的 `node_modules` 里生成第二份拷贝去遮蔽（shadow）宿主 bundled 的
-  闭包。会出事的是硬 dependency 精确钉旧 rc 版——那会把宿主 0.2.x 弄到无法
-  boot（已知社区事故模式）。
-- **开发 typecheck（给本仓）**：devDependencies 钉住新版 SDK，`scripts/link-dsh-closure.mjs`
+  闭包。会出事的是硬 dependency 精确钉旧 rc 版——那会把受支持的 `0.2.2-rc.5` 宿主
+  弄到无法 boot（已知社区事故模式）。
+- **开发 typecheck（给本仓）**：devDependencies 钉住 `0.2.2-rc.5` 闭包，`scripts/link-dsh-closure.mjs`
   （根项目 `prepare` 安装钩子，也可手动 `npm run link-closure`）把 `node_modules/@deepseek-ai/*` 软链到 `DSH_CLOSURE_DIR` 指定或全局 dsh 安装的闭包，
   保证类型图里只有一份 `@deepseek-ai/cordis`——出现第二份会打断 cordis 的
   `declare module` 类型增强（`Property 'settings' does not exist on type

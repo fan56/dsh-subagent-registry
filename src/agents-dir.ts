@@ -19,9 +19,10 @@
  *
  * Frontmatter keys are parsed loosely (`key: value`, optional surrounding
  * quotes); `name` is required, `description` feeds the tool roster, `model`
- * is a dsh `provider/model` route, `deep` is the spawn-depth budget (the
- * dsh-ui /agent manager uses it: default 1 = may start subagents, 0 = leaf
- * that runs but cannot spawn), `thinking` holds a reasoning effort id
+ * is a dsh `provider/model` route, `deep` is an inert compatibility field
+ * (deprecated: parsed/validated for older files but no longer produces a
+ * maxDepth or nested spawn capability — children can never spawn subagents),
+ * `thinking` holds a reasoning effort id
  * from the THINKING_LEVELS whitelist (an unknown value marks the file broken),
  * `background` opts the agent into continuable dispatch (a strict
  * `true`/`false`; anything else marks the file broken), and `maxRounds` is a
@@ -57,8 +58,14 @@ export interface AgentMeta {
   model?: string
   /** Reasoning effort id (one of THINKING_LEVELS); absent = inherit. */
   thinking?: ThinkingLevel
-  /** Spawn-depth budget: default 1 (may start subagents), 0 = leaf (runs, no spawn). */
+  /** @deprecated Inert compatibility field: parsed/validated but no longer used (default 1). */
   deep: number
+  /**
+   * Whether the file explicitly declared `deep` (as opposed to the parser's
+   * default 1). Only an explicit declaration earns a deprecation warning;
+   * the field itself stays inert either way.
+   */
+  deepDeclared?: boolean
   /**
    * Dispatch the agent as a durable continuable (background) child by default:
    * `use_agent` returns the child's id immediately and follow-ups go through
@@ -160,15 +167,17 @@ export function parseAgentMarkdown(text: string, path: string): AgentParseResult
   const name = values['name']?.trim()
   if (name === undefined || name === '') return { ok: false, error: 'missing required frontmatter key `name`' }
   let deep = 1
+  let metaDeepDeclared = false
   if (values['deep'] !== undefined) {
     const raw = values['deep'].trim()
     if (!/^\d+$/.test(raw)) {
       return { ok: false, error: `invalid \`deep\`: expected a non-negative integer, got "${raw}"` }
     }
     deep = Number(raw)
+    metaDeepDeclared = true
   }
   const body = lines.slice(bounds.close + 1).join('\n').replace(/^\n+/, '').trimEnd()
-  const meta: AgentMeta = { name, deep }
+  const meta: AgentMeta = { name, deep, ...(metaDeepDeclared ? { deepDeclared: true } : {}) }
   const displayName = values['display_name']?.trim()
   if (displayName !== undefined && displayName !== '') meta.displayName = displayName
   const description = values['description']?.trim()

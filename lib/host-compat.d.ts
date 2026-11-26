@@ -28,12 +28,10 @@ export interface LegacySubagents {
     }): Promise<{
         childId: SessionId;
     }>;
+    /** Direct-child catalog read (rc.2): the resume picker cuts this to depth 1. */
     listDescendants(id: SessionId, signal?: AbortSignal): Promise<readonly LegacyDescendant[]>;
-    drainContinuableDescendants(parents: readonly Agent[]): Promise<void>;
-    /** The pre-rc.2 child catalog read (removed from the rc.2 runtime). */
+    /** The pre-rc.2 direct-child catalog read. */
     listChildren?(parentSessionId: SessionId, signal?: AbortSignal): Promise<readonly DirectChildEntry[]>;
-    /** The pre-rc.2 descendant join (replaced by waitForTreeWork on rc.2). */
-    waitForChildren?(parent: Agent): Promise<boolean>;
 }
 export declare const legacySubagents: (ctx: Context) => LegacySubagents;
 /** Whether the host's subagents service speaks the 0.2.2-rc.2 child surface. */
@@ -51,36 +49,7 @@ export interface DirectChildEntry {
  * carries its `depth`; the pre-order keeps the parent catalog's order).
  */
 export declare function listDirectChildren(ctx: Context, parentId: SessionId, signal?: AbortSignal): Promise<DirectChildEntry[]>;
-/**
- * Resolve the agent the native descendant join must be called with for
- * `parent` on this host, or `undefined` when no native join can serve it
- * (the caller rides {@link createLegacyDescendantJoin}).
- *
- * pre-rc.2 hosts join through `waitForChildren(parent)`, which filters by
- * lineage below any parent — the parent itself is the join target. rc.2 hosts
- * join through `waitForTreeWork(root)`, which takes the exact live subagent
- * tree root: the runtime's first line is `if (this.rootOf(root) !== root)
- * return false`, and `rootOf` throws `UNAUTHORIZED` ("agent has no active
- * runtime owner") for a subagent-origin session outside manager residency.
- * The cold-resume drive child is exactly such an agent — it materializes
- * through the agents service, bypassing the manager — so calling
- * `waitForTreeWork` with it would either throw or silently resolve `false`
- * for a member, dropping the descendant join. Its root must therefore be
- * resolved through the runtime's own `rootOf`; when that throws, no
- * manager-owned tree exists beneath the child at all.
- */
-export declare function nativeChildWorkJoinRoot(ctx: Context, parent: Agent): Agent | undefined;
-/**
- * Join progressing descendant work below `parent` without cancelling it.
- * `root` is the native join target from {@link nativeChildWorkJoinRoot}:
- * rc.2 hosts join through `waitForTreeWork(root)` — the exact live tree root,
- * never the member itself (a member resolves `false` there and a non-resident
- * agent makes the runtime throw); pre-rc.2 lines through `waitForChildren`.
- * Resolves `false` when the host exposes no usable native join (the caller
- * falls back to {@link createLegacyDescendantJoin}).
- */
-export declare function waitForChildWork(ctx: Context, parent: Agent, root?: Agent): Promise<boolean>;
-/** A fresh custom-agent child's persona and optional leaf tool scoping. */
+/** A fresh custom-agent child's persona and optional tool scoping. */
 export interface ChildComposition {
     readonly persona: string;
     readonly toolFilter?: ToolRestriction;
@@ -109,11 +78,4 @@ export declare function releaseChildComposition(childId: SessionId): void;
  * the reservation when the delegating parent session is disposed.
  */
 export declare function installChildCompositionListener(ctx: Context): () => void;
-/** Drain exactly this forest, preserving the service receiver on both hosts. */
-export declare function drainRunDescendants(ctx: Context, root: Agent): Promise<void>;
-/** Install before driving the root; lifecycle edges also cover uncataloged external runs. */
-export declare function createLegacyDescendantJoin(ctx: Context, signal: AbortSignal): {
-    wait(root: Agent): Promise<void>;
-    dispose(): void;
-};
 export {};

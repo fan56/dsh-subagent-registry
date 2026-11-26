@@ -7,7 +7,8 @@ import { foldConsumedWork } from '@deepseek-ai/dsh-agent'
 import type { Agent, AgentOptions, ResumeAgentOptions } from '@deepseek-ai/dsh-agent'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import type { ToolRestriction } from '@deepseek-ai/dsh-tools'
-import { createLegacyDescendantJoin, drainRunDescendants, listDirectChildren, nativeChildWorkJoinRoot, waitForChildWork, type DirectChildEntry } from './host-compat.ts'
+import { listDirectChildren, type DirectChildEntry } from './host-compat.ts'
+import { assertTopLevelCaller } from './caller-guard.ts'
 import {
   applyChildComposition,
   finalAssistantOutput,
@@ -349,7 +350,7 @@ export interface ResumeDriveInput {
   readonly childId: SessionId
   /** Agent-file body, re-applied as the shadowing persona section. */
   readonly persona: string
-  /** Leaf tool scoping re-applied on resume, when the agent is `deep: 0`. */
+  /** Spawn-tool deny list re-applied on every resumed child. */
   readonly toolFilter?: ToolRestriction
   /** Frontmatter model route overrides, as for a fresh dispatch. */
   readonly agentOptions?: AgentOptions
@@ -377,6 +378,8 @@ export interface ResumedRunResult {
 const resumingChildren = new Set<SessionId>()
 
 export async function driveResumedRun(input: ResumeDriveInput): Promise<ResumedRunResult> {
+  // Identity first: never let a nested / unverifiable caller drive a resume.
+  assertTopLevelCaller({ agent: input.parent })
   if (resumingChildren.has(input.childId)) throw new Error('subagent resume is already in progress')
   resumingChildren.add(input.childId)
   let releaseParent: (() => unknown) | undefined
@@ -393,6 +396,9 @@ export async function driveResumedRun(input: ResumeDriveInput): Promise<ResumedR
 // ponytail: foreground resume is outside manager capacity/interrupt; migrate when host supports caller-delivery cold resume with composition overrides.
 async function driveLegacyResume(input: ResumeDriveInput): Promise<ResumedRunResult> {
   const { ctx, parent, childId, signal } = input
+  // Identity first: this is the handler that actually calls `agents.resume`;
+  // no host call, child cancel or event emission may precede the check.
+  assertTopLevelCaller({ agent: parent })
   signal.throwIfAborted()
   const childDepth = resolveChildDepth(parent, undefined)
   // 0.2.2-rc.2 removed `ResumeAgentOptions.parentAgent`: ownership now follows
@@ -421,20 +427,11 @@ async function driveLegacyResume(input: ResumeDriveInput): Promise<ResumedRunRes
   }
   const handle = await resumeCtx.agents.resume(resumeOptions)
   const child = handle.agent
-  let join: ReturnType<typeof createLegacyDescendantJoin> | undefined
-  let drain: Promise<void> | undefined
-  const drainDescendants = () => drain ??= Promise.resolve().then(() => drainRunDescendants(ctx, child))
-  const dispose = async () => {
-    const [descendants] = await Promise.allSettled([drainDescendants()])
-    const [handleDisposed] = await Promise.allSettled([handle.dispose()])
-    const errors = [descendants, handleDisposed].flatMap((r) => r.status === 'rejected' ? [r.reason] : [])
-    if (errors.length > 0) throw new AggregateError(errors, 'resumed subagent cleanup failed: ' + errors.map(String).join('; '))
-  }
+  const dispose = () => handle.dispose()
   const flags = { cancelled: false }
   const onAbort = () => {
     flags.cancelled = true
     child.cancel({ kind: 'parent' })
-    void drainDescendants().catch(() => {})
   }
   signal.addEventListener('abort', onAbort, { once: true })
   if (signal.aborted) onAbort()
@@ -449,16 +446,6 @@ async function driveLegacyResume(input: ResumeDriveInput): Promise<ResumedRunRes
     // the live child before disposal and fail identically in bare contexts
     // without persistence.
     const boundary = child.session.seq
-    // Native descendant join: `waitForTreeWork(root)` (rc.2) or
-    // `waitForChildren` (pre-rc.2). Neither exists on the 0.2.0 line — the
-    // legacy event-driven join stands in there. The rc.2 join takes the
-    // exact live tree root, resolved per child: this cold-resumed child
-    // materializes outside manager residency, so the runtime's `rootOf`
-    // throws for it (no active runtime owner) — no manager-owned tree can
-    // exist beneath it and the legacy join (durable-catalog based, present
-    // on every generation) keeps descendant events in the fold below.
-    const nativeRoot = nativeChildWorkJoinRoot(ctx, child)
-    if (nativeRoot === undefined) join = createLegacyDescendantJoin(ctx, signal)
     if (!flags.cancelled) {
       child.followup(createUserMessage({
         content: [{ type: 'text', text: input.continuationPrompt }],
@@ -470,23 +457,11 @@ async function driveLegacyResume(input: ResumeDriveInput): Promise<ResumedRunRes
       }))
       // Inbox listeners may cancel synchronously before followup wakes its driver.
       if (signal.aborted) onAbort()
-      if (join) {
-        try { await join.wait(child) } catch (error) {
-          if (!signal.aborted) throw error
-          await child.whenIdle()
-        }
-      } else {
-        while (true) {
-          await child.whenIdle()
-          const seq = child.session.seq
-          await waitForChildWork(ctx, child, nativeRoot)
-          if (child.status === 'idle' && child.session.seq === seq) break
-        }
-      }
+      await child.whenIdle()
     }
     const own = child.session.snapshotEvents(boundary)
-    const output = finalAssistantOutput(own) ?? []
     const recorded = toStopReason(turnEndKind(accountingTurnEnd(own)))
+    const output = finalAssistantOutput(own) ?? []
     outcome = {
       output,
       stopReason: flags.cancelled ? 'aborted' : recorded,
@@ -495,7 +470,6 @@ async function driveLegacyResume(input: ResumeDriveInput): Promise<ResumedRunRes
     // A failed drive still disposes; a disposal failure never masks it.
     const [disposal] = await Promise.allSettled([dispose()])
     signal.removeEventListener('abort', onAbort)
-    join?.dispose()
     if (disposal.status === 'rejected') {
       throw new AggregateError(
         [error, disposal.reason],
@@ -505,7 +479,6 @@ async function driveLegacyResume(input: ResumeDriveInput): Promise<ResumedRunRes
     throw error
   }
   signal.removeEventListener('abort', onAbort)
-  join?.dispose()
   await dispose()
   return outcome
 }

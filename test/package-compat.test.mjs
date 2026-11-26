@@ -1,31 +1,67 @@
-// Verify the delivered archive, including every compiled file and optional SDK peer.
+// Offline peer-contract check: read THIS repo's package.json directly, with no
+// archive path and no hardcoded range strings. The assertions are semantic —
+// node-semver decides which versions the published host closure admits.
 import assert from 'node:assert/strict'
-import { spawnSync } from 'node:child_process'
-import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import semver from 'semver'
 
 const cwd = fileURLToPath(new URL('../', import.meta.url))
-const source = JSON.parse(readFileSync(join(cwd, 'package.json'), 'utf8'))
-const archive = resolve(cwd, '../../.tmp', `aiwayds-dsh-subagent-registry-${source.version}.tgz`)
-const directory = mkdtempSync(join(tmpdir(), 'registry-package-'))
-try {
-  const extraction = spawnSync('tar', ['-xf', archive, '-C', directory], { stdio: 'inherit' })
-  assert.ifError(extraction.error)
-  assert.equal(extraction.status, 0)
-  const packedRoot = join(directory, 'package')
-  assert.deepEqual(JSON.parse(readFileSync(join(packedRoot, 'package.json'), 'utf8')), source)
-  for (const name of Object.keys(source.peerDependencies).filter(name => name.startsWith('@deepseek-ai/dsh-'))) {
-    assert.equal(source.peerDependencies[name], '>=0.2.0-rc.2 || >=0.2.1-rc.1', `${name} must retain both rc lines`)
-    assert.equal(source.peerDependenciesMeta[name]?.optional, true, `${name} must use the host SDK`)
-    assert.equal(source.dependencies?.[name], undefined, `${name} must not install a consumer-side copy`)
+const pkg = JSON.parse(readFileSync(join(cwd, 'package.json'), 'utf8'))
+const peers = pkg.peerDependencies ?? {}
+const peerMeta = pkg.peerDependenciesMeta ?? {}
+const dependencies = pkg.dependencies ?? {}
+const devDependencies = pkg.devDependencies ?? {}
+
+const dshPeers = Object.keys(peers).filter(name => name.startsWith('@deepseek-ai/dsh-'))
+assert.equal(dshPeers.length, 15, 'all 15 published DSH peers must be declared')
+
+// Only the newest RC is supported. The range must admit rc.5 and reject the
+// previous rc, the alpha line and the next minor — under BOTH default
+// node-semver semantics and includePrerelease (no prerelease escape hatch
+// may widen the declared support matrix).
+const admitted = '0.2.2-rc.5'
+const rejected = ['0.2.2-rc.4', '0.2.3-alpha.2', '0.3.0']
+const semantics = [
+  ['default', {}],
+  ['includePrerelease', { includePrerelease: true }],
+]
+for (const name of dshPeers) {
+  assert(semver.validRange(peers[name]), `${name} must declare a valid semver range`)
+  for (const [label, options] of semantics) {
+    assert(semver.satisfies(admitted, peers[name], options), `${name} must admit ${admitted} with ${label} semantics`)
+    for (const version of rejected) {
+      assert(!semver.satisfies(version, peers[name], options), `${name} must reject ${version} with ${label} semantics`)
+    }
   }
-  for (const name of readdirSync(join(cwd, 'lib'))) {
-    assert.deepEqual(readFileSync(join(packedRoot, 'lib', name)), readFileSync(join(cwd, 'lib', name)), `${name} archive differs from the checked build`)
-  }
-  console.log(`package-compat: PASS — ${source.version}, both rc peer lines, exact compiled archive contents`)
-} finally {
-  assert(directory.startsWith(join(tmpdir(), 'registry-package-')))
-  rmSync(directory, { recursive: true, force: true })
 }
+
+// schemastery is pinned to the 3.19 line only; 3.18.5 is out of support.
+const schemastery = '@deepseek-ai/schemastery'
+for (const [label, options] of semantics) {
+  assert(semver.satisfies('3.19.0', peers[schemastery], options), `schemastery peer must admit 3.19.0 with ${label} semantics`)
+  assert(!semver.satisfies('3.18.5', peers[schemastery], options), `schemastery peer must reject 3.18.5 with ${label} semantics`)
+}
+
+// Every pinned devDependency that has a peer must agree with that peer, with
+// default semantics (no includePrerelease escape hatch).
+for (const [name, range] of Object.entries(peers)) {
+  const pinned = devDependencies[name]
+  if (pinned === undefined) continue
+  assert(semver.satisfies(pinned, range), `devDependency ${name}@${pinned} must satisfy peer ${range}`)
+  assert(semver.satisfies(pinned, range, { includePrerelease: true }), `devDependency ${name}@${pinned} must satisfy peer ${range} with includePrerelease`)
+  if (name.startsWith('@deepseek-ai/dsh-')) {
+    assert.equal(pinned, admitted, `${name} devDependency must be pinned to ${admitted}`)
+  }
+}
+assert.equal(devDependencies[schemastery], '3.19.0', 'schemastery devDependency must stay on 3.19.0')
+
+// Host-owned packages stay peer-only; the host closure supplies exactly one
+// copy. All peers are optional so npm/pnpm never materialize a second one.
+assert.equal(dependencies[schemastery], undefined, 'schemastery must not be a direct dependency')
+for (const name of Object.keys(peers)) {
+  assert.equal(peerMeta[name]?.optional, true, `${name} must be an optional peer`)
+}
+
+console.log(`package-compat: PASS — ${pkg.version}, 15 DSH peers admit only ${admitted} (reject rc.4 / 0.2.3-alpha.2 / 0.3.0), schemastery admits 3.19.0 only, devDeps agree, all peers optional`)

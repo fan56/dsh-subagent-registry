@@ -31,10 +31,18 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import type { ContentBlock, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import { resolveChildDepth, finalAssistantOutput, type SubagentResult, type SubagentStartRequest, type SubagentActivation, type SubagentActivationSpec } from '@deepseek-ai/dsh-subagent'
+import { resolveChildDepth, type SubagentResult, type SubagentStartRequest, type SubagentActivation, type SubagentActivationSpec } from '@deepseek-ai/dsh-subagent'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import { scopeOf, type ScopeKey } from '@deepseek-ai/dsh-scope'
-import { createLegacyDescendantJoin, drainRunDescendants, legacySubagents, rc2ChildSurface, reserveChildComposition, releaseChildComposition, type ChildComposition, type DispatchRequest } from './host-compat.ts'
+import { assertTopLevelCaller, recordRegistryChild, releaseRegistryChild } from './caller-guard.ts'
+import {
+  legacySubagents,
+  rc2ChildSurface,
+  reserveChildComposition,
+  releaseChildComposition,
+  type ChildComposition,
+  type DispatchRequest,
+} from './host-compat.ts'
 import { expandHome, listAgentFiles, parseAgentMarkdown, type AgentFile, type ThinkingLevel } from './agents-dir.ts'
 import { composeAgentRuntime } from './profile-resolution.ts'
 import { decideBackgroundMode } from './interactive.ts'
@@ -47,7 +55,6 @@ import {
   foregroundLabel,
   accountingTurnEnd,
   readStoredEvents,
-  toStopReason,
   type ResumeMode,
 } from './resume.ts'
 
@@ -85,11 +92,9 @@ export interface RunAgentConfig {
    */
   resume?: ResumeMode
   /**
-   * Optional explicit deny list installed on a `deep: 0` (leaf) agent's child.
-   * An empty/absent list means the computed default: every agent-spawning tool
-   * in the dsh base distribution plus this plugin's own `toolName` (so a
-   * customized tool name is still denied). A non-empty list replaces the
-   * default entirely — the caller then owns it, including our tool name.
+   * Extra deny names installed on EVERY child, unioned with the mandatory
+   * spawn-tool list (including this plugin's own `toolName`). Children can
+   * never call subagents; this lets a deployment deny additional spawners.
    */
   leafDenyTools?: readonly string[]
   /**
@@ -108,18 +113,21 @@ export interface RunAgentConfig {
 }
 
 /**
- * Every tool in the stock dsh base distribution that can start agents,
- * excluding this plugin's own configurable `use_agent` tool name (registered
- * separately through `RunAgentConfig.toolName`). `dsh-tool-workflow` fans work
- * out across many subagents and `dsh-tool-ralph` starts a fresh child every
- * round, so both are agent-spawning even though they are not `subagent`-named;
+ * Every known agent-spawning tool name in the dsh base distribution, PLUS this
+ * plugin's own configurable `use_agent` tool name (registered separately
+ * through `RunAgentConfig.toolName`). Every child gets all of these denied:
+ * subagents cannot call subagents. `dsh-tool-workflow` fans work out across
+ * many subagents and `dsh-tool-ralph` starts a fresh child every round, so
+ * both are agent-spawning even though they are not `subagent`-named.
  * `send_message`/`interrupt_agent`/`list_agents` only address already-running
- * children, so a leaf cannot abuse them to spawn and they stay visible.
+ * children, so they stay visible.
  */
 export const SPAWN_TOOL_NAMES = [
-  // dsh-base patch: dsh-tool-subagent registered twice with these toolNames.
+  // dsh-base patch: dsh-tool-subagent registered with these toolNames.
   'subagent',
   'subagent_fork',
+  'subagent_codex',
+  'subagent_claude_code',
   // dsh-base patch: dsh-tool-workflow (toolName default 'workflow', spawn).
   'workflow',
   // dsh-base patch: dsh-tool-ralph (fixed tool name 'ralph', fresh children).
@@ -127,28 +135,27 @@ export const SPAWN_TOOL_NAMES = [
 ] as const
 
 /**
- * The deny list installed on a `deep: 0` (leaf) agent's child, both at fresh
- * dispatch and again at resume: an explicit non-empty `leafDenyTools` replaces
- * the default (every agent-spawning tool in the dsh base distribution plus
- * this plugin's own `toolName`).
+ * The deny list installed on EVERY child, at fresh dispatch and again at
+ * resume: the mandatory spawn-tool names unioned with this plugin's own
+ * `toolName` and the caller's `leafDenyTools` (so a customized tool name or a
+ * deployment-specific spawner is always covered). Duplicates are collapsed.
  *
  * `hostKnown` is the host's currently-registered global tool names (see
- * `resolveHostToolNames`); when provided, the DEFAULT list is intersected
- * with it. The stock spawn-tool names are a static enumeration over a
- * distribution whose composition moves — dsh 0.1.7-rc.1 stopped registering
+ * `resolveHostToolNames`); when provided, the union is intersected with it.
+ * The stock spawn-tool names are a static enumeration over a distribution
+ * whose composition moves — dsh 0.1.7-rc.1 stopped registering
  * `dsh-tool-ralph` while its `tools.restrict()` became fail-fast on unknown
- * names, so passing a stale default verbatim aborts the whole spawn. An
- * explicit `leafDenyTools` is NOT intersected: the caller owns that list and
- * the host's strict validation is the right feedback for a stale entry.
+ * names, so passing a stale name verbatim aborts the whole spawn. The
+ * mandatory union is what we WANT denied; the intersection is what the host
+ * will accept without a fail-fast restriction error.
  */
 export function leafDenyList(
   toolName: string,
   leafDenyTools?: readonly string[],
   hostKnown?: ReadonlySet<string>,
 ): readonly string[] {
-  if (leafDenyTools !== undefined && leafDenyTools.length > 0) return leafDenyTools
-  const defaults = [...SPAWN_TOOL_NAMES, toolName]
-  return hostKnown ? defaults.filter(name => hostKnown.has(name)) : defaults
+  const union = [...new Set([...SPAWN_TOOL_NAMES, toolName, ...(leafDenyTools ?? [])])]
+  return hostKnown ? union.filter(name => hostKnown.has(name)) : union
 }
 
 /**
@@ -169,6 +176,75 @@ export function resolveHostToolNames(ctx: Context, scope?: ScopeKey): ReadonlySe
   } catch {
     return undefined
   }
+}
+
+// ---------------------------------------------------------------------------
+// Diagnostics: mandatory spawners dropped by the host intersection, and inert
+// nesting fields. Both are warnings only — neither changes a dispatch.
+// ---------------------------------------------------------------------------
+
+/** Mandatory spawn-tool names the host does NOT register (so the intersect
+ * in {@link leafDenyList} drops them). `undefined` means the host exposed no
+ * restrictable-name view, so no intersection — and no drop — happened. */
+export function missingSpawnTools(hostKnown?: ReadonlySet<string>): readonly string[] {
+  if (hostKnown === undefined) return []
+  return SPAWN_TOOL_NAMES.filter(name => !hostKnown.has(name))
+}
+
+/** Stable diagnostic text for the mandatory names the host cannot deny. */
+export function spawnToolWarningMessage(missing: readonly string[]): string {
+  return (
+    `dsh-subagent-registry: the host does not register mandatory spawn tool(s) ${missing.join(', ')}; ` +
+    `they are dropped from the child deny list by the host-known intersection — verify the host cannot re-expose them`
+  )
+}
+
+/** Emit a diagnostic through the host logger when present, else console.warn. */
+function emitDiagnostic(ctx: Context, message: string): void {
+  const logger = (ctx as unknown as { logger?: { warn?: (message: string) => void } }).logger
+  if (logger != null && typeof logger.warn === 'function') logger.warn(message)
+  else console.warn(message)
+}
+
+/**
+ * Warn whenever the host-known intersection drops a mandatory spawn tool.
+ * Silently losing a name would let a child keep a spawner the plugin promised
+ * to deny, so the omission is always reported. No-op when the host view is
+ * unavailable (the deny list is then passed verbatim, nothing is dropped).
+ */
+export function warnMissingSpawnTools(ctx: Context, hostKnown?: ReadonlySet<string>): void {
+  const missing = missingSpawnTools(hostKnown)
+  if (missing.length === 0) return
+  emitDiagnostic(ctx, spawnToolWarningMessage(missing))
+}
+
+/** Inert nesting fields that are explicitly set and therefore deprecated. */
+export function deprecatedDelegationFields(input: {
+  deepDeclared?: boolean
+  maxDepth?: unknown
+}): readonly string[] {
+  const fields: string[] = []
+  if (input.deepDeclared === true) fields.push('deep')
+  if (input.maxDepth !== undefined) fields.push('maxDepth')
+  return fields
+}
+
+/** Stable deprecation text; the fields remain parsed/validated but inert. */
+export function delegationDeprecationMessage(fields: readonly string[]): string {
+  return (
+    `dsh-subagent-registry: ${fields.join(' and ')} is deprecated and inert ` +
+    `(subagents cannot spawn subagents); remove it from the agent frontmatter / start request`
+  )
+}
+
+/** Warn for deprecated nesting fields. The dispatch is unchanged. */
+export function warnDeprecatedDelegation(ctx: Context, input: {
+  deepDeclared?: boolean
+  maxDepth?: unknown
+}): void {
+  const fields = deprecatedDelegationFields(input)
+  if (fields.length === 0) return
+  emitDiagnostic(ctx, delegationDeprecationMessage(fields))
 }
 
 /** Join text blocks from a canonical block array without trusting values. */
@@ -260,15 +336,15 @@ export interface BuildStartRequestInput {
   parent: { options: { subagentDepth?: number }; session: { header: { delegationDepth?: number } } }
   /** The agent file body, passed through verbatim as the child's persona. */
   persona: string
-  /** The parsed frontmatter `deep` (default 1); 0 = leaf. */
+  /** @deprecated Inert compatibility field: parsed from frontmatter, no longer read (subagents cannot spawn subagents). */
   deep: number
-  /** This plugin's registered tool name (denied on leaves). */
+  /** This plugin's registered tool name (always denied on children). */
   toolName: string
-  /** Optional explicit replacement for the default leaf deny list. */
+  /** Optional extra deny names, unioned with the mandatory spawn-tool list. */
   leafDenyTools?: readonly string[]
   /**
    * The host's registered global tool names (`resolveHostToolNames`), used to
-   * intersect the DEFAULT leaf deny list — see `leafDenyList`.
+   * intersect the deny list — see `leafDenyList`.
    */
   hostKnownTools?: ReadonlySet<string>
   /** Optional dsh `provider/model` route from the agent frontmatter. */
@@ -286,35 +362,17 @@ export interface BuildStartRequestInput {
 }
 
 /**
- * Build the one-shot subagent start request for one custom agent, encoding the
- * `deep` semantics:
+ * Build the one-shot subagent start request for one custom agent.
  *
- * - `deep === 0` (leaf): the child must run but must not start any subagent.
- *   `maxDepth` is OMITTED (an absolute `maxDepth: 0` would fail the child's
- *   own start — `resolveChildDepth` rejects child depth 1 > 0), and a
- *   `toolFilter` deny list removes every agent-spawning tool from the child's
- *   registry (the in-process driver applies it as a scoped `tools.restrict()`
- *   in the creation window, so the tools vanish from the prompt AND refuse to
- *   execute). The child keeps its full non-spawn tool set.
- *
- * - `deep >= 1` (default 1): the child may start subagents. No `toolFilter`;
- *   `maxDepth` is set to the child's own absolute depth plus `deep`, a
- *   relative budget that can never reject the start (`childDepth <=
- *   childDepth + deep` always holds), while keeping the "deep = generations
- *   of spawns" reading: a `deep: 1` agent's children may themselves sit one
- *   level deeper before their own per-request caps take over as the
- *   recursion backstop. The host's native default — `3` in dsh ≤ 0.1.5,
- *   lowered to `1` from 0.1.6-alpha.1 (upstream B-04) — is never binding
- *   here, since this plugin always passes an explicit `maxDepth`.
+ * Every child gets a `toolFilter` deny list that removes every agent-spawning
+ * tool from its registry (the in-process driver applies it as a scoped
+ * `tools.restrict()` in the creation window, so the tools vanish from the
+ * prompt AND refuse to execute). The child keeps its full non-spawn tool set.
+ * `deep` is an inert compatibility field: it no longer produces a `maxDepth`
+ * or any nested spawn capability — subagents cannot call subagents.
  */
 export function buildStartRequest(input: BuildStartRequestInput): Omit<SubagentStartRequest, 'signal'> & ChildComposition {
-  const { agentName, prompt, parent, persona, deep, toolName, leafDenyTools, hostKnownTools, model, displayName, thinking } = input
-  // The child's absolute delegation depth, computed by the same authoritative
-  // resolver the in-process driver uses (parent depth + 1, monotone floor).
-  const childDepth = resolveChildDepth(
-    parent as Parameters<typeof resolveChildDepth>[0],
-    undefined,
-  )
+  const { agentName, prompt, parent, persona, toolName, leafDenyTools, hostKnownTools, model, displayName, thinking } = input
   const modelOptions = model !== undefined ? splitModel(model) : {}
   // TODO(alpha): expose a frontmatter `maxTokens` → `agentOptions.maxTokens`
   //   (native since v0.1.2-alpha) alongside model/thinking.
@@ -330,17 +388,11 @@ export function buildStartRequest(input: BuildStartRequestInput): Omit<SubagentS
     prompt: [{ type: 'text', text: prompt }],
     parent: parent as Parameters<typeof resolveChildDepth>[0],
     persona,
-    ...(deep === 0
-      ? {
-          // Leaf: strip every spawn capability; no maxDepth at all.
-          toolFilter: {
-            deny: [...leafDenyList(toolName, leafDenyTools, hostKnownTools)],
-          },
-        }
-      : {
-          // Relative depth budget: childDepth + deep, never a start blocker.
-          maxDepth: childDepth + deep,
-        }),
+    // Every child: strip every spawn capability. No maxDepth — nested
+    // subagents are unsupported, not depth-budgeted.
+    toolFilter: {
+      deny: [...leafDenyList(toolName, leafDenyTools, hostKnownTools)],
+    },
     ...(Object.keys(routeOptions).length > 0 ? { agentOptions: routeOptions } : {}),
   }
   return request
@@ -353,18 +405,31 @@ interface ForegroundRun {
   dispose(): Promise<void>
 }
 
-/** Caller cancellation owns accepted foreground work until teardown finishes. */
+/**
+ * Caller cancellation owns accepted foreground work until teardown finishes.
+ * The activation result is raced against an abort promise: a rejection is
+ * synchronous (never waits for a run that hangs after cancellation), the race
+ * settles once, and `dispose()` is idempotent. The child's own output blocks
+ * are returned verbatim — no provenance block, no aggregation.
+ */
 async function settleForegroundRun(ctx: Context, run: ForegroundRun, agentName: string, signal: AbortSignal): Promise<readonly ContentBlock[]> {
   let disposal: Promise<void> | undefined
   const dispose = () => disposal ??= Promise.resolve().then(() => run.dispose())
+  let abortHandled = false
+  let rejectAbort!: (error: unknown) => void
+  const aborted = new Promise<never>((_resolve, reject) => { rejectAbort = reject })
   const onAbort = () => {
+    if (abortHandled) return
+    abortHandled = true
     if (run.cancel) run.cancel()
     else void dispose().catch(() => {})
+    rejectAbort(new DOMException('subagent run aborted', 'AbortError'))
   }
   signal.addEventListener('abort', onAbort, { once: true })
   if (signal.aborted) onAbort()
   const [execution] = await Promise.allSettled([
-    run.result.then(async (result) => {
+    Promise.race([
+      run.result.then(async (result) => {
       if (result.stopReason !== 'completed') {
         const text = textOf(result.output)
         const headline = `${stopReasonError(String(result.stopReason))} (agent "${agentName}")`
@@ -382,8 +447,10 @@ async function settleForegroundRun(ctx: Context, run: ForegroundRun, agentName: 
         if (diagnostic) parts.push(`Child diagnostic: ${diagnostic}`)
         throw new Error(parts.join('\n'))
       }
-      return result.output
-    }),
+        return result.output
+      }),
+      aborted,
+    ]),
   ])
   signal.removeEventListener('abort', onAbort)
   const [released] = await Promise.allSettled([dispose()])
@@ -398,56 +465,26 @@ async function settleForegroundRun(ctx: Context, run: ForegroundRun, agentName: 
   return execution.value
 }
 
-/** rc.2's one-shot result precedes descendant settlement; read the live final suffix before release. */
+/** Start one fresh child on a legacy host: the service's one-shot result, no descendant join or drain. */
 async function startLegacyForeground(
   ctx: Context,
   provider: string,
   request: SubagentStartRequest & ChildComposition,
+  parent: Agent,
 ): Promise<ForegroundRun> {
-  const join = createLegacyDescendantJoin(ctx, request.signal)
-  try {
-    const run = await legacySubagents(ctx).start(provider, request)
-    const child = run.localAgent
-    if (!child) {
-      join.dispose()
-      return { childId: run.id, result: run.result, dispose: () => run.dispose() }
-    }
-    let drain: Promise<void> | undefined
-    const drainDescendants = () => drain ??= Promise.resolve().then(() => drainRunDescendants(ctx, child))
-    const cancel = () => {
-      child.cancel({ kind: 'parent' })
-      void drainDescendants().catch(() => {})
-    }
-    // Keep diagnostics live: cancellation stops/drains now, but disposal waits for the result read.
-    const result = run.result.then(async (early) => {
-      try { await join.wait(child) } catch (error) {
-        if (!request.signal.aborted) throw error
-        await child.whenIdle()
-      }
-      const own = child.session.snapshotEvents(child.session.inheritedEventCount)
-      const end = accountingTurnEnd(own)
-      const reason = (end?.data as { reason?: { kind?: string; error?: { message?: string } } } | undefined)?.reason
-      return {
-        ...early,
-        output: finalAssistantOutput(own) ?? [],
-        stopReason: request.signal.aborted ? 'aborted' : toStopReason(reason?.kind),
-        ...(reason?.error?.message ? { diagnostic: reason.error.message } : {}),
-      }
-    }).finally(() => join.dispose())
-    return {
-      childId: run.id,
-      result,
-      cancel,
-      async dispose() {
-        const [descendants] = await Promise.allSettled([drainDescendants()])
-        const [released] = await Promise.allSettled([Promise.resolve().then(() => run.dispose())])
-        const errors = [descendants, released].flatMap(r => r.status === 'rejected' ? [r.reason] : [])
-        if (errors.length > 0) throw new AggregateError(errors, 'subagent cleanup failed: ' + errors.map(String).join('; '))
-      },
-    }
-  } catch (error) {
-    join.dispose()
-    throw error
+  // Identity first: a child that reached this handler must not make the host
+  // create another child, even on the legacy start path.
+  assertTopLevelCaller({ agent: parent })
+  const run = await legacySubagents(ctx).start(provider, request)
+  recordRegistryChild(run.id)
+  return {
+    childId: run.id,
+    result: run.result,
+    ...(run.localAgent !== undefined ? { cancel: () => run.localAgent?.cancel({ kind: 'parent' }) } : {}),
+    dispose: async () => {
+      releaseRegistryChild(run.id)
+      await run.dispose()
+    },
   }
 }
 
@@ -470,6 +507,9 @@ async function activateWithReservedComposition(
   delivery: 'parent' | 'caller',
   parent: Agent,
 ): Promise<SubagentActivation> {
+  // Identity first: no id reservation, composition record or host call for a
+  // nested / unverifiable caller.
+  assertTopLevelCaller({ agent: parent })
   const childId = randomUUID() as SessionId
   reserveChildComposition(childId, parent.id, {
     persona: request.persona,
@@ -593,17 +633,25 @@ export function runAgentTool(ctx: Context, cfg: RunAgentConfig) {
     },
     isConcurrencySafe: () => true,
     async execute(args, exec) {
-      const parent = exec.agent
-      if (parent === undefined) {
-        throw new Error(`${cfg.toolName} requires a calling agent (exec.agent was undefined)`)
-      }
+      // Identity first: a child (registry-spawned or host-forked) or any caller
+      // whose identity cannot be verified is refused before any host read,
+      // file read, record write or event emission.
+      assertTopLevelCaller(exec)
+      const parent = exec.agent as Agent
       // Read after registration, in the caller's scope, including this dispatch tool.
       const hostKnownTools = resolveHostToolNames(ctx, scopeOf(parent.ctx ?? ctx))
+      // A mandatory spawner missing from the host's restrictable names is
+      // dropped by the intersection below; report it instead of losing it
+      // silently. No-op when the host view is unavailable (nothing dropped).
+      warnMissingSpawnTools(ctx, hostKnownTools)
       if (args.resume === true && args.fresh === true) {
         throw new Error(`${cfg.toolName}: "resume" and "fresh" are mutually exclusive — pass at most one`)
       }
       // Re-check existence at execute time with a friendly, roster-aware error.
       const agent = loadAgent(dir, args.agent, nameList === '' ? [] : nameList.split(',').map((n) => n.trim()))
+      // `deep` (and any `maxDepth` a caller carries) stay inert, but an
+      // explicit declaration now earns a one-line deprecation warning.
+      warnDeprecatedDelegation(ctx, { deepDeclared: agent.meta.deepDeclared })
       // Re-check the toggle at execute time against the LIVE disabledAgents
       // value: the description's roster snapshot may lag a hot-swap, and a
       // model that hard-names a disabled agent must be refused here — the
@@ -662,6 +710,10 @@ export function runAgentTool(ctx: Context, cfg: RunAgentConfig) {
               request,
               signal: exec.signal,
             })
+        // Register the durable id in the registry-child record even on a legacy
+        // host (where no composition reservation exists). The activation path
+        // already records it; re-recording is idempotent.
+        recordRegistryChild(childId)
         const followUpTool = cfg.askToolName ?? 'ask_agent'
         return {
           kind: 'agent-start' as const,
@@ -718,10 +770,8 @@ export function runAgentTool(ctx: Context, cfg: RunAgentConfig) {
             parent,
             childId: candidate.childId,
             persona: agent.body,
-            toolFilter:
-              agent.meta.deep === 0
-                ? { deny: [...leafDenyList(cfg.toolName, cfg.leafDenyTools, hostKnownTools)] }
-                : undefined,
+            // Every child (fresh or resumed) loses every spawn tool.
+            toolFilter: { deny: [...leafDenyList(cfg.toolName, cfg.leafDenyTools, hostKnownTools)] },
             agentOptions: Object.keys(resumeOptions).length > 0 ? resumeOptions : undefined,
             continuationPrompt: buildContinuationPrompt(candidate.classification.endedAs, args.prompt),
             noticeSummary: `resume interrupted "${args.agent}" subagent run`,
@@ -745,10 +795,10 @@ export function runAgentTool(ctx: Context, cfg: RunAgentConfig) {
         }
       }
 
-      // persona = the file's body (system prompt); `deep` semantics, model
-      // routing, and the frontmatter `thinking` effort (native
-      // agentOptions.reasoningEffort) are applied by the pure builder (see
-      // buildStartRequest).
+      // persona = the file's body (system prompt); model routing and the
+      // frontmatter `thinking` effort (native agentOptions.reasoningEffort)
+      // are applied by the pure builder (see buildStartRequest). `deep` is an
+      // inert compatibility field.
       const { label: _requestLabel, ...request } = buildStartRequest({
         agentName: args.agent,
         prompt: args.prompt,
@@ -766,7 +816,7 @@ export function runAgentTool(ctx: Context, cfg: RunAgentConfig) {
 
       const run = typeof ctx.subagents.startActivation === 'function'
         ? await activateWithReservedComposition(ctx, cfg.provider, foregroundLabel(label), request, signal, 'caller', parent)
-        : await startLegacyForeground(ctx, cfg.provider, { ...request, label, signal })
+        : await startLegacyForeground(ctx, cfg.provider, { ...request, label, signal }, parent)
       return {
         kind: 'agent-result' as const,
         // settleForegroundRun always disposes the run, even when result

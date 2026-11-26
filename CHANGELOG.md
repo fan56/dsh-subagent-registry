@@ -4,6 +4,33 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.22.0] - 2026-11-26
+
+### Breaking
+- **Support matrix narrowed to the latest DSH RC only: `0.2.2-rc.5` with schemastery `3.19.x`.** Every `@deepseek-ai/dsh-*` peer is now `>=0.2.2-rc.5 <0.2.3-0`; older RC lines (0.2.0 / 0.2.1) and the alpha line are neither supported nor tested, and no cross-version session migration is promised. README (zh/en), the dev peer contract and the host matrix now state the same single-RC matrix.
+- **Upgrade migration is required.** Move the dsh host to `0.2.2-rc.5` before installing this release (finish or discard in-flight runs first — sessions from older RC lines are not migrated), drop every nested-dispatch configuration (`deep` / `maxDepth`, descendant joins, lineage cancel) and stop branching on the removed cold-resume descendant error code below. Multi-step work moves to the main agent as parallel top-level dispatch or sequential calls.
+- **Nested delegation is removed.** The child tool surface drops every spawn tool (`subagent` / `subagent_fork` / `use_agent` and the like), so a child can only complete its own task and any nested dispatch attempt is refused — including an unverifiable caller — with the stable code `DSH_REGISTRY_NESTED_DELEGATION_UNSUPPORTED`. Multi-step work is orchestrated by the main agent — sequentially or by dispatching several top-level subagents in parallel. The guard covers only this plugin's own start/resume tools; nesting through the host's native `subagent` / `subagent_fork` tools is host-managed and outside the plugin's control (no promise to block it). Non-agent CLI/API callers do not call the registry dispatch tools directly: without a verifiable top-level agent identity they are refused by the same guard; use the main conversation or host-native mechanisms instead.
+- **No descendant join, aggregation or lineage cancel.** The registry no longer waits for or summarizes descendants, and cancellation no longer propagates along a run lineage; a foreground `use_agent` returns only that child's own result.
+- **The cold-resume descendant error code is removed.** `DSH_REGISTRY_COLD_RESUME_DESCENDANT_UNSUPPORTED` is no longer emitted: code that branched on it must be updated (there is no descendant settlement path left to guard).
+- **`deep` and `maxDepth` are deprecated and inert.** The `deep` frontmatter and the host `maxDepth` orchestration key are retained for compatibility and ignored at runtime; do not configure `maxDepth` / `deep` for nested orchestration.
+
+### Added
+- **caller-guard** — `src/caller-guard.ts` re-checks the caller at every registry entry point that can start or resume an agent (`use_agent.execute`, `activateWithReservedComposition`, `startLegacyForeground`, `driveResumedRun`, `driveLegacyResume`) as its first statement, before any host call, file read or record write. A registry child, a host-forked child or an unverifiable identity fails closed with one stable code, `DSH_REGISTRY_NESTED_DELEGATION_UNSUPPORTED` (`NestedDelegationError`, carried as `error.code` with an actionable next-step hint). `test/caller-guard.test.mjs` pins the guarded entry-point manifest, the single stable code and the no-side-effects refusal; `test/host-activation.test.mjs` covers the unknown-caller refusal.
+- **probe:npm / `npm-install-probe` CI job** — `scripts/probe-npm-install.mjs` (the `probe:npm` script) packs this repo and installs the tarball together with the real `dsh@0.2.2-rc.5` host in a scratch consumer under npm's DEFAULT peer resolution — no `--legacy-peer-deps`, no `--force`, no overrides, no repo `.npmrc`. It asserts no ERESOLVE / unmet / invalid-peer warning, every DSH peer at rc.5, exactly one `schemastery@3.19.0`, and no nested `@deepseek-ai` copy; compat failure (exit 1) and registry/network failure (exit 2) print distinct banners. The new `npm-install-probe` CI job runs the probe on every push/PR.
+- **devDep** — `@deepseek-ai/dsh-error@0.2.2-rc.5` joins the dev-only rc.5 pin set (devDependencies only; no new peer or runtime dependency), keeping the dev graph aligned with the published rc.5 closure.
+
+### Deprecated
+- **`deep` / `maxDepth`** — still accepted so existing configs keep parsing, but inert: they no longer tighten depth or enable nested orchestration (every child is a leaf). Remove them from new configs and orchestrate in the main agent (see Breaking).
+
+### Removed
+- **The 0.2.2+ foreground descendant settlement and cancellation path** — `createRunDescendantJoin`, the descendant snapshots aggregated into a foreground result, the run-rooted lineage cancel and the `DSH_REGISTRY_COLD_RESUME_DESCENDANT_UNSUPPORTED` guard for cold-resumed workers deriving descendants are removed along with their code.
+
+### Fixed
+- **peer** — all `@deepseek-ai/dsh-*` peers move from `>=0.2.0-rc.2 || >=0.2.1-rc.1` to `>=0.2.2-rc.5 <0.2.3-0`, and `@deepseek-ai/schemastery` from `~3.18.4` to `~3.19.0`; `test/package-compat.test.mjs` pins both default and `includePrerelease` semantics to admit rc.5 and reject rc.4 / alpha / 0.3.0. Entries stay optional peers (`optional: true`) so a consumer never materializes a second copy shadowing the host's bundled closure.
+- **devDep** — all 32 `@deepseek-ai/dsh-*` dev pins and `pnpm-lock.yaml` move from the 0.2.2-rc.2 wave to `0.2.2-rc.5` (`cordis@4.1.0` / `schemastery@3.19.0` unchanged); `semver@7.8.5` is added for the offline peer-contract test. `test/package-compat.test.mjs` and `test/delegation-guidance.test.mjs` join the `npm test` chain.
+- **CI** — `ci.yml` drops the rolling newest-of(`latest`,`next`) resolution and the two legacy host legs; a new `support-matrix-drift` job fails loudly when `@deepseek-ai/dsh dist-tags.latest` drifts off `0.2.2-rc.5`, and the host job installs only that published closure (`DSH_TEST_022RC5_CLOSURE_DIR`).
+- **guidance** — `src/delegation-guidance.ts` drops the trailing `$` anchor in the host-delegation matcher, so the roster guidance still replaces the generated paragraph when the rc.5 host appends an extra tail; `test/delegation-guidance.test.mjs` covers the appended-tail replacement, the untouched non-section persona and the hidden `subagent_fork` case.
+
 ## [0.21.0] - 2026-11-19
 
 ### Added

@@ -20,6 +20,13 @@ import {
   toStopReason,
 } from '../lib/resume.js'
 import { leafDenyList, runAgentTool } from '../lib/tool-run-agent.js'
+import {
+  assertTopLevelCaller,
+  isRegistryChild,
+  NESTED_DELEGATION_ERROR_CODE,
+  recordRegistryChild,
+  releaseRegistryChild,
+} from '../lib/caller-guard.js'
 
 // ---------------------------------------------------------------------------
 // Event log fixtures (structural minimums of real persisted session events).
@@ -185,35 +192,39 @@ const NOOP_TRAILING_LOG = [
   assert.equal(buildContinuationPrompt('x', '   ').includes('reworded request'), false, 'blank caller prompt omitted')
   console.log('PASS buildContinuationPrompt')
 
+  const mandatory = ['subagent', 'subagent_fork', 'subagent_codex', 'subagent_claude_code', 'workflow', 'ralph']
   assert.deepEqual(
     [...leafDenyList('use_agent')],
-    ['subagent', 'subagent_fork', 'workflow', 'ralph', 'use_agent'],
-    'default leaf deny list',
+    [...mandatory, 'use_agent'],
+    'every child denies all spawn tools plus the registry tool',
   )
-  assert.deepEqual([...leafDenyList('my_tool', ['only-this'])], ['only-this'], 'explicit override replaces the default')
-  assert.deepEqual([...leafDenyList('use_agent', [])], [...leafDenyList('use_agent')], 'empty override falls back to default')
+  assert.deepEqual(
+    [...leafDenyList('my_tool', ['only-this'])],
+    [...mandatory, 'my_tool', 'only-this'],
+    'extra deny names are UNIONED with the mandatory list',
+  )
+  assert.deepEqual([...leafDenyList('use_agent', [])], [...leafDenyList('use_agent')], 'empty extra list is a no-op')
 
   // hostKnownTools intersection (dsh 0.1.7-rc.1 fail-fast restrict): the
-  // DEFAULT list drops names the host no longer registers (e.g. ralph),
-  // an explicit override is passed through verbatim.
+  // union drops names the host no longer registers (e.g. ralph).
   const hostWithoutRalph = new Set(['subagent', 'subagent_fork', 'workflow', 'use_agent'])
   assert.deepEqual(
     [...leafDenyList('use_agent', undefined, hostWithoutRalph)],
     ['subagent', 'subagent_fork', 'workflow', 'use_agent'],
-    'default list drops host-unknown names (stale ralph)',
+    'union drops host-unknown names (stale ralph)',
   )
   assert.deepEqual(
     [...leafDenyList('use_agent', ['ralph'], hostWithoutRalph)],
-    ['ralph'],
-    'explicit override is NOT intersected — host validation stays the caller feedback',
+    ['subagent', 'subagent_fork', 'workflow', 'use_agent'],
+    'an explicit extra name is intersected too — no fail-fast restrict',
   )
-  const fullHost = new Set(['subagent', 'subagent_fork', 'workflow', 'ralph', 'use_agent'])
+  const fullHost = new Set([...mandatory, 'use_agent'])
   assert.deepEqual(
     [...leafDenyList('use_agent', undefined, fullHost)],
     [...leafDenyList('use_agent')],
-    'full host registry keeps the whole default list',
+    'full host registry keeps the whole mandatory list',
   )
-  console.log('PASS leafDenyList')
+  console.log('PASS leafDenyList (mandatory ∪ config, host intersection)')
 }
 
 // ---------------------------------------------------------------------------
@@ -401,9 +412,16 @@ function fakeResumeBackend(prior, scriptTurn, { whenIdle = async () => {}, paren
     whenIdle() { return whenIdle() },
     cancel() {},
   }
+  const listeners = new Map()
   const ctx = {
-    // The legacy event-driven join registers its lifecycle listeners here.
-    on(name) { captured.listeners.push(name); return () => {} },
+    // The legacy event-driven join registers its lifecycle listeners here;
+    // `emit` drives them from a fixture after the continuation started.
+    on(name, callback) {
+      captured.listeners.push(name)
+      const set = listeners.get(name) ?? new Set()
+      listeners.set(name, set); set.add(callback)
+      return () => set.delete(callback)
+    },
     subagents: {
       ...(rc2
         ? {
@@ -428,7 +446,10 @@ function fakeResumeBackend(prior, scriptTurn, { whenIdle = async () => {}, paren
       },
     },
   }
-  return { ctx, captured, child }
+  const emit = (name, info) => {
+    for (const callback of listeners.get(name) ?? []) callback(info)
+  }
+  return { ctx, captured, child, emit }
 }
 
 const DRIVE_PARENT = {
@@ -461,7 +482,7 @@ const signal = new AbortController().signal
   assert.equal(result.stopReason, 'completed', 'resumed run completes')
   assert.deepEqual(result.output, [{ type: 'text', text: 'all done now' }], 'output is the continuation turn answer')
   assert.equal(captured.disposed, true, 'handle disposed after the drive')
-  assert.equal(captured.drained, 1, 'descendants drained before handle disposal')
+  assert.equal(captured.drained, 0, 'no descendant drain — resumed children cannot spawn')
   assert.equal(captured.resumeOptions.parentAgent, DRIVE_PARENT, 'resume carries the exact delegating parent')
   assert.ok(String(captured.resumeOptions.resumeSessionId) === 'child-failed', 'resumes the persisted child id')
   assert.equal(captured.resumeOptions.agentOptions.provider, 'parent-prov', 'parent provider inherited')
@@ -473,100 +494,94 @@ const signal = new AbortController().signal
   assert.equal(captured.followup?.source?.summary, 'resume interrupted "workhorse" subagent run', 'followup notice summary present')
   assert.ok(captured.followup?.content[0]?.text?.includes('without redoing completed steps'), 'followup is the continuation prompt')
   assert.equal(captured.scope.persona, 'You are the workhorse.', 'persona section re-applied on resume')
-  assert.deepEqual(captured.scope.restrict, { deny: ['subagent', 'use_agent'] }, 'leaf tool restriction re-applied on resume')
+  assert.deepEqual(captured.scope.restrict, { deny: ['subagent', 'use_agent'] }, 'spawn-tool deny re-applied on resume')
   assert.ok(captured.scope.contexts.some((c) => c.name === 'subagent:delegation'), 'delegation context installed')
   console.log('PASS driveResumedRun happy path (composition asserted + followup + result + disposal)')
 }
 
 {
-  // The 0.2.2-rc.2 runtime, cold resume (the only shape a real host reaches:
-  // findResumableRun rejects live children). The resumed child materializes
-  // through the agents service outside manager residency, so the runtime's
-  // `rootOf` throws UNAUTHORIZED for it ("agent has no active runtime
-  // owner") and `waitForTreeWork(child)` would throw on the real manager.
-  // The drive must resolve the join target through the runtime's `rootOf`,
-  // find none, and ride the legacy event-driven join instead. The unified
-  // resume form still carries parentAgent — inert on rc.2, required pre-rc.2.
-  const prior = [...ERROR_LOG]
+  // The guard checks the CALLER, never the child being resumed. A recovered
+  // worker stays in the registry-child record from its first dispatch; that
+  // identity must not be misread as the caller when the top-level parent
+  // resumes it, and the worker itself must still be refused as a caller.
+  const childId = 'recovered-worker-guard'
+  recordRegistryChild(childId)
+  assert.equal(isRegistryChild(childId), true, 'recovered worker is a registry child record')
+  assert.throws(
+    () => assertTopLevelCaller({ agent: { id: childId, session: { header: { parentSession: DRIVE_PARENT.id } } } }),
+    (error) => error.code === NESTED_DELEGATION_ERROR_CODE,
+    'the recovered worker is still refused as a caller',
+  )
+  assert.doesNotThrow(() => assertTopLevelCaller({ agent: DRIVE_PARENT }), 'top-level parent is admitted')
+
   const script = (events) => {
-    events.push(ev('turn/start', { turn: 2 }), ev('step/start', { turn: 2, step: 0 }), ev('user/message'))
-    events.push({ type: 'assistant/message', data: { message: { role: 'assistant', content: [{ type: 'text', text: 'rc.2 turn done' }] }, stream: [] } })
+    events.push(ev('turn/start', { turn: 2 }), ev('step/start', { turn: 2, step: 0 }))
+    events.push({ type: 'assistant/message', data: { message: { role: 'assistant', content: [{ type: 'text', text: 'RECOVERED_OK' }] }, stream: [] } })
     events.push(ev('turn/end', { turn: 2, reason: { kind: 'completed' } }))
   }
-  const { ctx, captured } = fakeResumeBackend(prior, script, { rc2: true, rc2Tree: 'cold' })
+  const { ctx, captured } = fakeResumeBackend([...ERROR_LOG], script)
   const result = await driveResumedRun({
-    ctx,
-    parent: DRIVE_PARENT,
-    childId: 'child-rc2',
-    persona: 'You are the workhorse.',
-    continuationPrompt: buildContinuationPrompt('continue on rc.2'),
-    noticeSummary: 'resume interrupted "workhorse" subagent run',
-    signal,
+    ctx, parent: DRIVE_PARENT, childId, persona: 'You are the workhorse.',
+    toolFilter: { deny: ['subagent', 'use_agent'] },
+    continuationPrompt: buildContinuationPrompt('the turn failed with an error'),
+    noticeSummary: 'resume interrupted "workhorse" subagent run', signal,
   })
-  assert.equal(result.stopReason, 'completed', 'rc.2 cold-resume drive completes')
-  assert.deepEqual(result.output, [{ type: 'text', text: 'rc.2 turn done' }], 'rc.2 cold-resume drive reads the continuation output')
-  assert.equal(captured.joins.length, 0, 'waitForTreeWork is never called with the cold-resumed child (the real runtime throws UNAUTHORIZED for it)')
-  assert.ok(captured.listeners.includes('subagent/start'), 'the legacy event-driven join is installed as the fallback')
-  assert.equal(captured.resumeOptions.parentAgent, DRIVE_PARENT, 'unified resume form still carries parentAgent (required pre-rc.2, inert on rc.2)')
-  assert.equal(captured.drained, 0, 'a cold-resumed child owns no manager-tracked descendants — the manager drain (rootOf throws for it) is skipped')
-  assert.equal(captured.disposed, true, 'handle still disposed after the rc.2 cold-resume drive')
-  console.log('PASS driveResumedRun on rc.2 cold resume (rootOf throws → legacy join fallback, drain skipped)')
+  assert.equal(result.stopReason, 'completed', 'top-level resume passes the caller guard')
+  assert.deepEqual(result.output, [{ type: 'text', text: 'RECOVERED_OK' }], 'the recovered worker is not falsely rejected')
+  assert.equal(captured.resumeOptions.parentAgent, DRIVE_PARENT, 'guard validated the parent, not the recovered worker')
+  releaseRegistryChild(childId)
+  assert.equal(isRegistryChild(childId), false, 'test record released')
+  console.log('PASS top-level resume passes guard; recovered worker identity not falsely rejected')
 }
 
 {
-  // rc.2 with the resumed child resolvable as its own live tree root:
-  // `waitForTreeWork` must receive that root (the audit's fix form), and the
-  // manager drain runs on it.
-  const prior = [...ERROR_LOG]
-  const script = (events) => {
-    events.push(ev('turn/start', { turn: 2 }), ev('step/start', { turn: 2, step: 0 }), ev('user/message'))
-    events.push({ type: 'assistant/message', data: { message: { role: 'assistant', content: [{ type: 'text', text: 'rc.2 root turn done' }] }, stream: [] } })
-    events.push(ev('turn/end', { turn: 2, reason: { kind: 'completed' } }))
-  }
-  const { ctx, captured, child } = fakeResumeBackend(prior, script, { rc2: true, rc2Tree: 'self' })
-  const result = await driveResumedRun({
-    ctx,
-    parent: DRIVE_PARENT,
-    childId: 'child-rc2-root',
-    persona: 'You are the workhorse.',
-    continuationPrompt: buildContinuationPrompt('continue on rc.2 as a tree root'),
-    noticeSummary: 'resume interrupted "workhorse" subagent run',
-    signal,
-  })
-  assert.equal(result.stopReason, 'completed', 'rc.2 tree-root drive completes')
-  assert.ok(captured.joins.length >= 1, 'the join rode waitForTreeWork at least once')
-  assert.ok(captured.joins.every((joined) => joined === child), 'waitForTreeWork is called with the resolved tree root (the child itself), never bypassing rootOf')
-  assert.equal(captured.drained, 1, 'the manager drain runs when the driven agent is its own tree root')
-  console.log('PASS driveResumedRun on rc.2 with a self-rooted child (waitForTreeWork(root) join)')
+  // A nested / unverifiable caller cannot drive a resume at all: the guard
+  // refuses before any resume option, followup or host call is produced.
+  const nested = { id: 'nested-driver', session: { header: { parentSession: DRIVE_PARENT.id } } }
+  const backend = fakeResumeBackend([...ERROR_LOG], () => { throw new Error('script must not run for a nested caller') })
+  await assert.rejects(
+    driveResumedRun({
+      ctx: backend.ctx, parent: nested, childId: 'nested-resume-target', persona: 'p',
+      continuationPrompt: 'continue', noticeSummary: 's', signal,
+    }),
+    (error) => error.code === NESTED_DELEGATION_ERROR_CODE,
+    'nested resume driver is refused with the stable code',
+  )
+  assert.equal(backend.captured.resumeOptions, undefined, 'no resume was acquired for a nested caller')
+  assert.equal(backend.captured.followup, undefined, 'no followup was submitted for a nested caller')
+  console.log('PASS driveResumedRun refuses a nested caller with the stable code')
 }
 
 {
-  // rc.2 with the resumed child a resident member of a larger tree: the
-  // runtime's `rootOf(root) !== root` guard silently resolves `false` for a
-  // member, so passing the child would drop the descendant join entirely —
-  // the drive must hand waitForTreeWork the resolved tree root.
-  const prior = [...ERROR_LOG]
-  const script = (events) => {
-    events.push(ev('turn/start', { turn: 2 }), ev('step/start', { turn: 2, step: 0 }), ev('user/message'))
-    events.push({ type: 'assistant/message', data: { message: { role: 'assistant', content: [{ type: 'text', text: 'rc.2 member turn done' }] }, stream: [] } })
-    events.push(ev('turn/end', { turn: 2, reason: { kind: 'completed' } }))
+  // Every resumed child — including the cold-resumed one on the 0.2.2 line —
+  // re-applies the full spawn-tool deny list. No descendant join or drain is
+  // installed anywhere; the unified resume form still carries parentAgent.
+  for (const rc2Tree of ['cold', 'self', 'member']) {
+    const script = (events) => {
+      events.push(ev('turn/start', { turn: 2 }), ev('step/start', { turn: 2, step: 0 }), ev('user/message'))
+      events.push({ type: 'assistant/message', data: { message: { role: 'assistant', content: [{ type: 'text', text: `resume ${rc2Tree}` }] }, stream: [] } })
+      events.push(ev('turn/end', { turn: 2, reason: { kind: 'completed' } }))
+    }
+    const { ctx, captured } = fakeResumeBackend([...ERROR_LOG], script, { rc2: true, rc2Tree })
+    const result = await driveResumedRun({
+      ctx, parent: DRIVE_PARENT, childId: `resume-${rc2Tree}`,
+      persona: 'You are the workhorse.',
+      toolFilter: { deny: ['subagent', 'subagent_fork', 'subagent_codex', 'subagent_claude_code', 'workflow', 'ralph', 'use_agent'] },
+      continuationPrompt: 'continue',
+      noticeSummary: 'resume interrupted "workhorse" subagent run', signal,
+    })
+    assert.equal(result.stopReason, 'completed', `${rc2Tree} resume completes`)
+    assert.deepEqual(result.output, [{ type: 'text', text: `resume ${rc2Tree}` }])
+    assert.deepEqual(captured.scope.restrict, {
+      deny: ['subagent', 'subagent_fork', 'subagent_codex', 'subagent_claude_code', 'workflow', 'ralph', 'use_agent'],
+    }, `${rc2Tree}: every spawn tool is denied on the resumed child`)
+    assert.equal(captured.resumeOptions.parentAgent, DRIVE_PARENT, 'unified resume form carries parentAgent')
+    assert.equal(captured.joins.length, 0, `${rc2Tree}: no tree join is used`)
+    assert.equal(captured.drained, 0, `${rc2Tree}: no descendant drain is used`)
+    assert.ok(!captured.listeners.includes('subagent/start'), `${rc2Tree}: no descendant listener is installed`)
+    assert.equal(captured.disposed, true, `${rc2Tree}: handle disposed`)
   }
-  const { ctx, captured, child } = fakeResumeBackend(prior, script, { rc2: true, rc2Tree: 'member' })
-  const result = await driveResumedRun({
-    ctx,
-    parent: DRIVE_PARENT,
-    childId: 'child-rc2-member',
-    persona: 'You are the workhorse.',
-    continuationPrompt: buildContinuationPrompt('continue on rc.2 as a tree member'),
-    noticeSummary: 'resume interrupted "workhorse" subagent run',
-    signal,
-  })
-  assert.equal(result.stopReason, 'completed', 'rc.2 tree-member drive completes')
-  assert.ok(captured.joins.length >= 1, 'the join rode waitForTreeWork at least once')
-  assert.ok(captured.joins.every((joined) => joined === DRIVE_PARENT), 'waitForTreeWork is called with the tree root resolved by rootOf, never with the member child')
-  assert.ok(!captured.joins.includes(child), 'the member child itself is never passed to waitForTreeWork')
-  assert.equal(captured.drained, 0, 'a resident member owns no tree — the manager drain skips it')
-  console.log('PASS driveResumedRun on rc.2 with a resident tree member (waitForTreeWork receives the tree root)')
+  console.log('PASS driveResumedRun: every child denies spawn tools; no join, drain or cold refusal')
 }
 
 {
@@ -673,7 +688,7 @@ const signal = new AbortController().signal
   })
   assert.deepEqual(cancelledWhileActive, [false, true], 'abort listener and post-followup check cancel before and after driver wake')
   assert.equal(result.stopReason, 'aborted', 'caller abort wins over the scripted completed turn')
-  assert.equal(backend.captured.drained, 1, 'reentrant cancellation shares descendant drain')
+  assert.equal(backend.captured.drained, 0, 'cancellation never drains a descendant tree')
   assert.equal(backend.captured.disposed, true)
   console.log('PASS resume synchronous followup abort cancels its reactivated driver')
 }
@@ -713,21 +728,6 @@ const signal = new AbortController().signal
     assert.equal(backend.captured.followup, undefined)
   }
   console.log('PASS resume rejects foreign stored or live parent')
-}
-
-// Cleanup still releases the acquired handle if draining descendants fails.
-{
-  const backend = fakeResumeBackend(ERROR_LOG, (events) => {
-    events.push(...turn(2, 'completed'))
-  })
-  const drainError = new Error('descendant drain failed')
-  backend.ctx.subagents.drainDescendants = async () => { throw drainError }
-  await assert.rejects(driveResumedRun({
-    ctx: backend.ctx, parent: DRIVE_PARENT, childId: 'drain-failure', persona: 'p',
-    continuationPrompt: 'continue', noticeSummary: 's', signal,
-  }), (error) => error instanceof AggregateError && error.errors.includes(drainError))
-  assert.equal(backend.captured.disposed, true, 'drain failure cannot prevent handle disposal')
-  console.log('PASS resume descendant drain failure still disposes handle')
 }
 
 // ---------------------------------------------------------------------------
