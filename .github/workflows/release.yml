@@ -43,6 +43,68 @@ jobs:
       - name: Install dependencies
         run: npm install --no-audit --no-fund
 
+      - name: Install the supported dsh closure
+        # The test suite imports host packages the plugin never depends on
+        # (dsh-agent-loop, dsh-fs-local, dsh-tool-subagent, …) — they live only
+        # in the dsh CLI's own closure, not on the plugin's dependency list.
+        # Without them `npm test` fails in guard-injection's control phase
+        # (release run 45833217677). ci.yml installs that closure explicitly;
+        # this job must do the same, otherwise the publish gate can never pass.
+        #
+        # The version comes from the exact `@deepseek-ai/dsh-agent` devDependency
+        # pin. That pin is what `test/package-compat.test.mjs` enforces: every
+        # `@deepseek-ai/dsh-*` devDependency that is also a peer must equal the
+        # test's `admitted` version, and that test runs in this same `npm test`
+        # chain before the publish. (ci.yml's support-matrix-drift guard is a
+        # separate hand-maintained literal, not this file's source.)
+        run: |
+          DSH_VERSION="$(node -e '
+            const p = require("./package.json")
+            const ver = p.devDependencies?.["@deepseek-ai/dsh-agent"]
+            if (!ver || !/^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/.test(ver)) {
+              console.error(`@deepseek-ai/dsh-agent devDependency must be an exact version, got: ${ver}`)
+              process.exit(1)
+            }
+            process.stdout.write(ver)
+          ')"
+          echo "dsh closure: ${DSH_VERSION}"
+          DSH_DIR="${RUNNER_TEMP:-/tmp}/dsh-cli-install"
+          node -e '
+            const { execFileSync } = require("node:child_process")
+            const { writeFileSync, mkdirSync } = require("node:fs")
+            const [ver, dir] = process.argv.slice(1)
+            const deps = JSON.parse(execFileSync("npm", ["view", `@deepseek-ai/dsh@${ver}`, "dependencies", "--json"], { encoding: "utf8" }))
+            // Pin every caret/tilde @deepseek-ai dep to its base version so a
+            // half-published upstream wave cannot poison this exact release.
+            const overrides = {}
+            for (const [name, range] of Object.entries(deps ?? {})) {
+              if (name.startsWith("@deepseek-ai/") && /^[~^]/.test(range)) overrides[name] = range.replace(/^[~^]/, "")
+            }
+            mkdirSync(dir, { recursive: true })
+            writeFileSync(`${dir}/package.json`, JSON.stringify({
+              name: "dsh-release-install",
+              private: true,
+              dependencies: { "@deepseek-ai/dsh": ver },
+              overrides,
+            }, null, 2))
+          ' "$DSH_VERSION" "$DSH_DIR"
+          (cd "$DSH_DIR" && npm install --no-audit --no-fund)
+          echo "DSH_CLOSURE_DIR=${DSH_DIR}/node_modules/@deepseek-ai" >> "$GITHUB_ENV"
+
+      - name: Link @deepseek-ai/* to the dsh closure
+        # The linker exits 0 with a warning when it cannot find a closure (its
+        # dev-machine contract), which on a runner would silently leave the gate
+        # to fail later with a bare ERR_MODULE_NOT_FOUND. Assert the links the
+        # suite actually imports so an ignored DSH_CLOSURE_DIR fails here, loudly.
+        run: |
+          node scripts/link-dsh-closure.mjs
+          for pkg in dsh-agent-loop dsh-fs-local dsh-tool-subagent; do
+            if [ ! -L "node_modules/@deepseek-ai/$pkg" ]; then
+              echo "::error::node_modules/@deepseek-ai/$pkg is not linked to the dsh closure — DSH_CLOSURE_DIR was not honoured"
+              exit 1
+            fi
+          done
+
       - name: Build & Check & Test
         run: npm run build --if-present && npm run check --if-present && npm test
 
