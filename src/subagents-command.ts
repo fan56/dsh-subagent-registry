@@ -21,8 +21,11 @@
  * Persistence goes through `settings.mutate` against the plugin's own entry
  * config (namespace = the entry id `dsh-subagent-registry`), the same
  * describe → mutate(with revision) → one-conflict-retry spell
- * dsh-tui's preference writer uses. The texts follow the configured
- * `language` via the packaged `locale/<language>.json`.
+ * dsh-tui's preference writer uses. Non-volatile switches (`ptcEnabled` /
+ * `agyEnabled`) are refused by that volatile-only form on rc hosts, so those
+ * writes go through `ctx.configEditor.edit` instead (full profile row). The
+ * texts follow the configured `language` via the packaged
+ * `locale/<language>.json`.
  *
  * Degradation: on a headless deployment no answerer accepts the ask (the
  * service rejects with `NO_PROVIDER`) — the handler catches any ask failure
@@ -101,6 +104,18 @@ interface SettingsPathOpLike {
   path: readonly string[]
   value?: unknown
 }
+
+/** Structural `ctx.configEditor` surface for non-volatile config writes. */
+interface ConfigEditorLike {
+  entries(): Array<{ options?: { id?: unknown } }>
+  edit(
+    entry: unknown,
+    change: (current: Record<string, unknown>, inherited: Record<string, unknown>) => Record<string, unknown>,
+  ): Promise<void>
+}
+
+/** Non-volatile switches the settings form refuses to write (host rc.2+). */
+const NON_VOLATILE_SWITCHES = new Set(['ptcEnabled', 'agyEnabled'])
 
 /** The plugin's settings namespace = the profile patch entry id. */
 export const SUBAGENTS_SETTINGS_NAMESPACE = 'dsh-subagent-registry'
@@ -257,7 +272,33 @@ function isSettingsConflict(error: unknown): boolean {
  * @returns undefined on success, the failure message otherwise.
  */
 export async function writeRegistryConfig(ctx: Context, ops: readonly SettingsPathOpLike[]): Promise<string | undefined> {
-  const settings = (ctx as unknown as { get?(name: string): unknown }).get?.('settings') as SettingsFormsLike | undefined
+  const host = ctx as unknown as { get?(name: string): unknown }
+  // `settings.mutate` is volatile-only on rc hosts: a non-volatile switch
+  // (`ptcEnabled` / `agyEnabled`) is rejected before the edit is applied. The
+  // config editor owns the whole profile row, so route those writes there.
+  // Hosts without it (tests / bare deployments) keep the settings path.
+  if (ops.some((op) => op.path.length === 1 && NON_VOLATILE_SWITCHES.has(op.path[0]))) {
+    const editor = host.get?.('configEditor') as ConfigEditorLike | undefined
+    if (editor !== undefined && typeof editor.edit === 'function' && typeof editor.entries === 'function') {
+      const entry = editor.entries().find((row) => row.options?.id === SUBAGENTS_SETTINGS_NAMESPACE)
+      if (entry === undefined) return `Plugin entry "${SUBAGENTS_SETTINGS_NAMESPACE}" is not configurable.`
+      try {
+        await editor.edit(entry, (current) => {
+          const next = { ...current }
+          for (const op of ops) {
+            if (op.path.length !== 1) continue
+            if (op.op === 'set') next[op.path[0]] = op.value
+            else Reflect.deleteProperty(next, op.path[0])
+          }
+          return next
+        })
+        return undefined
+      } catch (error) {
+        return error instanceof Error ? error.message : String(error)
+      }
+    }
+  }
+  const settings = host.get?.('settings') as SettingsFormsLike | undefined
   if (settings === undefined) return 'Settings service is not available.'
   for (let attempt = 0; ; attempt++) {
     const descriptor = settings.describe().find((d) => d.ns === SUBAGENTS_SETTINGS_NAMESPACE)
@@ -307,9 +348,10 @@ export interface SubagentsCommandDeps {
   isPtcEnabled: () => boolean
   /**
    * Live agy switch state. Absent = built without agy wiring: both question
-   * option lists stay byte-for-byte identical to the pre-agy wizard. When the
-   * switch is OFF the agy rows are also omitted, so the lists stay identical
-   * on a machine that has not opted in.
+   * option lists stay byte-for-byte identical to the pre-agy wizard. When
+   * wired, the opt-in row is always shown (with its on/off + found/not-found
+   * marks), so the documented "check agy to enable it" path stays reachable
+   * while the switch is off.
    */
   agy?: () => AgyCommandState
 }
@@ -324,6 +366,11 @@ export interface AgyCommandState {
   reason?: string
   /** Visible built-in member (undefined when disabled / unresolved / shadowed). */
   definition?: { name: string; displayName: string }
+  /**
+   * Built-in member ignoring the roster toggle, for the disable question —
+   * a stopped agy must stay visible so it can be re-enabled there.
+   */
+  definitionIgnoringToggle?: { name: string; displayName: string }
 }
 
 /** Question id of the disable toggle (the answer echoes it back). */
@@ -402,8 +449,8 @@ export function buildDisableQuestion(
     label: agent.meta.name,
     description: disabled.has(agent.meta.name) ? strings.markDisabled : strings.markEnabled,
   }))
-  // The built-in member joins the roster toggle exactly where it joins the
-  // use_agent roster: enabled, resolvable, not disabled, no shadowing file.
+  // Callers pass the built-in definition resolved WITHOUT the roster toggle,
+  // so a disabled agy stays in this question (marked) and can be re-enabled.
   if (builtinAgy !== undefined) {
     options.push({
       label: builtinAgy.name,
@@ -439,13 +486,14 @@ export function buildOptInQuestion(
       description: `${strings.minimalBlurb} [${minimalInstalled ? strings.stateInstalled : strings.stateMissing}]`,
     },
   ]
-  // The agy row is shown only when the switch is already on: turning it on is
-  // a non-volatile change (settings / manual patch), while this wizard turns
-  // it off. With the switch off the two question lists are byte-identical.
-  if (agy?.enabled === true) {
+  // Any agy wiring shows the row — this opt-in question is the documented
+  // enable path, so a default-off install must still see it. The marks carry
+  // both the switch state and whether the command was resolved. Without
+  // wiring (older hosts / no seams) the two question lists stay untouched.
+  if (agy !== undefined) {
     options.push({
       label: 'agy',
-      description: `${strings.agyBlurb} [${strings.agyOnNow} · ${agy.resolved
+      description: `${strings.agyBlurb} [${agy.enabled ? strings.agyOnNow : strings.agyOffNow} · ${agy.resolved
         ? strings.agyFound
         : format(strings.agyNotFound, { reason: agy.reason ?? strings.stateMissing })}]`,
     })
@@ -478,17 +526,15 @@ export async function handleSubagentsCommand(
     return { kind: 'error', text: `${strings.askUnavailable}\n\n${strings.manualHint}` }
   }
 
-  // Snapshot the roster + current toggle state for the questions. With the agy
-  // switch off (or no agy wiring at all) the two option lists stay unchanged.
+  // Snapshot the roster + current toggle state for the questions. The agy row
+  // is present in the opt-in question whenever agy is wired; the roster
+  // question uses the toggle-agnostic definition so a stopped agy can return.
   const { agents } = listAgentFiles(deps.agentsDir)
   const currentDisabled = [...currentDisabledAgents(deps.disabledAgents)]
   const agy = deps.agy?.()
   const questions: AskQuestionItem[] = []
   if (agents.length > 0) {
-    questions.push(buildDisableQuestion(
-      strings, agents, currentDisabled,
-      agy?.enabled === true ? agy.definition : undefined,
-    ))
+    questions.push(buildDisableQuestion(strings, agents, currentDisabled, agy?.definitionIgnoringToggle))
   }
   questions.push(buildOptInQuestion(strings, deps.agentsDir, deps.isPtcEnabled(), agy))
 
@@ -560,13 +606,13 @@ export async function handleSubagentsCommand(
   if (ptcChanged) {
     ops.push({ op: 'set', path: ['ptcEnabled'], value: desiredPtc })
   }
-  // agy row is only present while the switch is ON; unchecking it writes false
-  // (non-volatile → the next mount unregisters the provider). A declined Q2
-  // never flips it, same rule as ptcEnabled.
+  // The agy row is shown whenever agy is wired, so Q2 answers flip the switch
+  // in both directions (non-volatile → the next mount registers/unregisters
+  // the provider). A declined Q2 never flips it, same rule as ptcEnabled.
   const agySelected = (optInSelected ?? []).includes('agy')
-  const agyChanged = agy?.enabled === true && optInSelected !== undefined && !agySelected
+  const agyChanged = agy !== undefined && optInSelected !== undefined && agySelected !== agy.enabled
   if (agyChanged) {
-    ops.push({ op: 'set', path: ['agyEnabled'], value: false })
+    ops.push({ op: 'set', path: ['agyEnabled'], value: agySelected })
   }
   if (ops.length > 0) {
     const persistMessage = await writeRegistryConfig(deps.ctx, ops)

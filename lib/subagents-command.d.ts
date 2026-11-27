@@ -21,8 +21,11 @@
  * Persistence goes through `settings.mutate` against the plugin's own entry
  * config (namespace = the entry id `dsh-subagent-registry`), the same
  * describe → mutate(with revision) → one-conflict-retry spell
- * dsh-tui's preference writer uses. The texts follow the configured
- * `language` via the packaged `locale/<language>.json`.
+ * dsh-tui's preference writer uses. Non-volatile switches (`ptcEnabled` /
+ * `agyEnabled`) are refused by that volatile-only form on rc hosts, so those
+ * writes go through `ctx.configEditor.edit` instead (full profile row). The
+ * texts follow the configured `language` via the packaged
+ * `locale/<language>.json`.
  *
  * Degradation: on a headless deployment no answerer accepts the ask (the
  * service rejects with `NO_PROVIDER`) — the handler catches any ask failure
@@ -150,9 +153,10 @@ export interface SubagentsCommandDeps {
     isPtcEnabled: () => boolean;
     /**
      * Live agy switch state. Absent = built without agy wiring: both question
-     * option lists stay byte-for-byte identical to the pre-agy wizard. When the
-     * switch is OFF the agy rows are also omitted, so the lists stay identical
-     * on a machine that has not opted in.
+     * option lists stay byte-for-byte identical to the pre-agy wizard. When
+     * wired, the opt-in row is always shown (with its on/off + found/not-found
+     * marks), so the documented "check agy to enable it" path stays reachable
+     * while the switch is off.
      */
     agy?: () => AgyCommandState;
 }
@@ -166,6 +170,14 @@ export interface AgyCommandState {
     reason?: string;
     /** Visible built-in member (undefined when disabled / unresolved / shadowed). */
     definition?: {
+        name: string;
+        displayName: string;
+    };
+    /**
+     * Built-in member ignoring the roster toggle, for the disable question —
+     * a stopped agy must stay visible so it can be re-enabled there.
+     */
+    definitionIgnoringToggle?: {
         name: string;
         displayName: string;
     };

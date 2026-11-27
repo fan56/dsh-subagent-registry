@@ -123,7 +123,7 @@ const ACP_COPY: Record<AcpCode, AcpCopy> = {
     nextStep: 'Pass an absolute, existing directory and retry.',
   },
   ACP_BUSY: {
-    title: 'An agy task is already running (agyMaxConcurrent=1)',
+    title: 'An agy task is already running',
     nextStep: 'Wait for it to finish and re-dispatch; dsh does not queue.',
   },
   ACP_AUTH_REQUIRED: {
@@ -161,14 +161,17 @@ export class AcpError extends Error {
   readonly stage: AcpStage
   readonly fact?: string
   readonly nextStep: string
+  /** Flattened/bounded remote JSON-RPC `message` for logs only — never a diagnostic. */
+  readonly remoteMessage?: string
 
-  constructor(code: AcpCode, stage: AcpStage, fact?: string, nextStep?: string) {
+  constructor(code: AcpCode, stage: AcpStage, fact?: string, nextStep?: string, remoteMessage?: string) {
     super(ACP_COPY[code].title)
     this.name = 'AcpError'
     this.code = code
     this.stage = stage
     if (fact !== undefined && fact !== '') this.fact = fact
     this.nextStep = nextStep ?? ACP_COPY[code].nextStep
+    if (remoteMessage !== undefined && remoteMessage !== '') this.remoteMessage = remoteMessage
   }
 }
 
@@ -208,11 +211,16 @@ export function classifyAcpError(failure: AcpFailure, stage: AcpStage = 'process
   const facts: string[] = []
   if (failure.errno !== undefined && failure.errno !== '') facts.push(`errno ${failure.errno}`)
   if (failure.rpcCode !== undefined) facts.push(`jsonrpc code ${failure.rpcCode}`)
-  if (code === ACP_CODES.AGENT_ERROR && failure.rpcMessage !== undefined && failure.rpcMessage !== '') {
-    // Only the message field, flattened and bounded — never the `data` field.
-    facts.push(`message: ${truncateUtf8(failure.rpcMessage.replace(/[\r\n\t]+/g, ' '), RPC_MESSAGE_MAX_BYTES)}`)
+  // Only the `message` field is ever kept, flattened and bounded — never `data`.
+  // For non-AGENT_ERROR codes it is log-only: it stays off the fact (and so off
+  // every diagnostic) but the handshake catch can still warn with it.
+  const remoteMessage = failure.rpcMessage === undefined
+    ? undefined
+    : truncateUtf8(failure.rpcMessage.replace(/[\r\n\t]+/g, ' '), RPC_MESSAGE_MAX_BYTES)
+  if (code === ACP_CODES.AGENT_ERROR && remoteMessage !== undefined && remoteMessage !== '') {
+    facts.push(`message: ${remoteMessage}`)
   }
-  return new AcpError(code, stage, facts.join('; '))
+  return new AcpError(code, stage, facts.join('; '), undefined, remoteMessage)
 }
 
 /** Pre-release exit: the full text becomes the `use_agent` error. */

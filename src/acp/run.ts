@@ -381,6 +381,10 @@ export async function startAgyRun(
   } catch (error: unknown) {
     request.signal.removeEventListener('abort', onAbort)
     connection.close()
+    // A pre-release failure never reaches settleRunResult's onError. Keep the
+    // remote message in the log (it is still absent from the thrown fact).
+    const remoteMessage = (error as { remoteMessage?: string } | undefined)?.remoteMessage
+    warn(`[agy-acp] startup failed: ${remoteMessage ?? toError(error).message}`)
     await teardown().catch((cleanup: unknown) => { warn(`[agy-acp] startup cleanup: ${toError(cleanup).message}`) })
     throw withOutcome(diagnosticError(error, stage), outcome)
   }

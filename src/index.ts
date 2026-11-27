@@ -44,7 +44,7 @@ import { makePtcEnabledReader, registerSubagentsCommand } from './subagents-comm
 const BUNDLED_SKILL_RANK = 600
 import { agentsDir, expandHome } from './agents-dir.ts'
 import { seedBundledAgents } from './seed-defaults.ts'
-import { runAgentTool, visibleBuiltinAgy, type RunAgentConfig } from './tool-run-agent.ts'
+import { builtinAgyIgnoringToggle, runAgentTool, visibleBuiltinAgy, type RunAgentConfig } from './tool-run-agent.ts'
 import { askAgentTool } from './interactive.ts'
 import { registerDelegationGuidance } from './delegation-guidance.ts'
 import { registerPresetsRpc } from './presets-rpc.ts'
@@ -386,17 +386,24 @@ export function apply(ctx: Context, config: RunAgentConfig): void {
     refreshRoster: () => refreshRoster(),
     isPtcEnabled: makePtcEnabledReader(ctx, (runConfig as { ptcEnabled?: boolean }).ptcEnabled === true),
     agy: () => {
-      const definition = visibleBuiltinAgy(dir, {
+      const routing = {
         enabled: runConfig.agy?.enabled === true,
         resolveExecutable: runConfig.agy?.resolveExecutable ?? (() => undefined),
         disabledAgents: runConfig.disabledAgents,
         language: runConfig.language,
-      })
+      }
+      const definition = visibleBuiltinAgy(dir, routing)
+      // The disable question needs the toggle-agnostic definition: a stopped
+      // agy must stay listed (and marked disabled) so it can be re-enabled.
+      const ignoringToggle = builtinAgyIgnoringToggle(dir, routing)
       return {
         enabled: agyEnabled,
         resolved: agyExecutable !== undefined,
         reason: agyExecutable === undefined ? agyResolutionReason : undefined,
         definition: definition === undefined ? undefined : { name: definition.name, displayName: definition.displayName },
+        definitionIgnoringToggle: ignoringToggle === undefined
+          ? undefined
+          : { name: ignoringToggle.name, displayName: ignoringToggle.displayName },
       }
     },
   })

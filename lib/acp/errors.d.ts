@@ -77,7 +77,9 @@ export declare class AcpError extends Error {
     readonly stage: AcpStage;
     readonly fact?: string;
     readonly nextStep: string;
-    constructor(code: AcpCode, stage: AcpStage, fact?: string, nextStep?: string);
+    /** Flattened/bounded remote JSON-RPC `message` for logs only — never a diagnostic. */
+    readonly remoteMessage?: string;
+    constructor(code: AcpCode, stage: AcpStage, fact?: string, nextStep?: string, remoteMessage?: string);
 }
 /**
  * Truncate to a UTF-8 byte budget without cutting a multi-byte code point, so

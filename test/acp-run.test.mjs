@@ -309,10 +309,16 @@ async function stopAll(children) {
   const hs = makeSpec('auth', {
     transformLine: (line) => line.includes('-32000') ? line.replace('Authentication required', '中'.repeat(3000)) : line,
   })
-  await assert.rejects(startAgyRun(huge.request, hs.spec, hs.deps), (e) => e.code === ACP_CODES.AUTH_REQUIRED)
-  assert.ok(hs.logs.join('\n').includes('中') === false, 'auth error message is not logged as a diagnostic')
+  let rejected
+  await assert.rejects(startAgyRun(huge.request, hs.spec, hs.deps), (e) => {
+    rejected = e
+    return e.code === ACP_CODES.AUTH_REQUIRED
+  })
+  assert.match(hs.logs.join('\n'), /中/, 'handshake remote message reaches the log (SF1)')
+  assert.ok(!String(rejected.fact).includes('中'), 'remote message is absent from the thrown diagnostic fact')
+  assert.ok(!rejected.message.includes('中'), 'remote message is absent from the error title')
   await stopAll(hs.children)
-  console.log('PASS log-only: stderr tail and remote message stay out of diagnostics')
+  console.log('PASS log-only: stderr tail and remote message logged, never enter diagnostics')
 }
 
 // 10. Diagnostic byte budget and UTF-8 safety on a huge multibyte RPC message.
