@@ -27,7 +27,11 @@ import type { Context } from '@deepseek-ai/cordis'
 // The host injects the real service at runtime; these types only shape the
 // provider object this plugin hands it.
 import type { SkillCandidate, SkillDefinition, SkillProvider } from '@deepseek-ai/dsh-skill'
+import type { SubprocessHandle, SubprocessSpawnSpec } from '@deepseek-ai/dsh-subprocess'
 import type { Language } from './preset-contract.ts'
+import { asVolatileRef } from './ptc/config.ts'
+import { ACP_CODES, classifyAcpError } from './acp/errors.ts'
+import { AgyAcpProvider } from './acp/provider.ts'
 import { createCodemodeTool, type CodemodeDeps } from './ptc/runner.ts'
 import { createUsageLog } from './ptc/usage.ts'
 import { ptcConfigOf } from './ptc/config.ts'
@@ -212,7 +216,14 @@ export const inject = ['tools', 'subagents', 'agents', 'skills', 'systemPrompt']
  * it remounts the plugin, which is exactly the register/unregister act. The
  * six `jev*`/`storageDir` keys are volatile and hot-reload per call; defaults
  * are the standalone plugin's (jev OFF, zen backend, 3000 ms, usage sink
- * `<dsh home>/storages/ptc-subagent`). Fifteen keys in total.
+ * `<dsh home>/storages/ptc-subagent`).
+ *
+ * The experimental external ACP member (`agy`): `agyEnabled` (default false)
+ * is NOT volatile — flipping it remounts the plugin, which is exactly the
+ * `registry-acp` provider register/unregister act. The four tuning keys
+ * (`agyPermission`, `agyTimeoutMs`, `agyHandshakeTimeoutMs`, `agyMaxConcurrent`)
+ * are volatile and read per dispatch through the loader's live refs, so a
+ * settings edit never disturbs a running task. Twenty keys in total.
  */
 export const Config = z.object({
   agentsDir: z.string().default('~/.dsh/agents'),
@@ -230,7 +241,37 @@ export const Config = z.object({
   jevTimeoutMs: z.natural().min(1).default(3000).volatile(),
   jevSecretFile: z.string().default('').volatile(),
   storageDir: z.string().default('').volatile(),
+  agyEnabled: z.boolean().default(false),
+  agyPermission: z.union(['allow', 'reject']).default('reject').volatile(),
+  agyTimeoutMs: z.natural().min(1).default(600000).volatile(),
+  agyHandshakeTimeoutMs: z.natural().min(1).default(20000).volatile(),
+  agyMaxConcurrent: z.natural().min(1).default(1).volatile(),
 })
+
+/** The host subprocess seam shape this plugin touches (structural, no hard import). */
+interface AgySubprocessLike {
+  spawn?: (spec: SubprocessSpawnSpec) => SubprocessHandle
+  resolveExecutable?: (command: string, env?: Readonly<Record<string, string>>, signal?: AbortSignal) => Promise<string>
+}
+
+/** Emit a non-fatal agy wiring warning through the host logger when present. */
+function warnAgy(ctx: Context, message: string): void {
+  const logger = (ctx as unknown as { logger?: { warn?: (message: string) => void } }).logger
+  if (logger != null && typeof logger.warn === 'function') logger.warn(message)
+  else console.warn(message)
+}
+
+/**
+ * A plugin unload waits for in-flight agy activations before unregistering the
+ * provider — the cap matches the child's worst-case exit grace (EOF 6s +
+ * SIGTERM 3s). The probe is bounded so a wedged child can never hang unload.
+ */
+async function waitForAgyIdle(provider: { active: number }, capMs = 9000): Promise<void> {
+  const deadline = Date.now() + capMs
+  while (provider.active > 0 && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 25))
+  }
+}
 
 export function apply(ctx: Context, config: RunAgentConfig): void {
   // Agent-preset support rows (issue #9): mount `agent-preset-registry`
@@ -259,7 +300,31 @@ export function apply(ctx: Context, config: RunAgentConfig): void {
   // under one root. A configured custom path is taken verbatim (after `~`
   // expansion).
   const dir = config.agentsDir === '~/.dsh/agents' ? agentsDir() : expandHome(config.agentsDir)
-  const runConfig: RunAgentConfig & { language: Language } = { ...config, agentsDir: dir, language }
+  // Experimental agy member: the switch is non-volatile (a flip remounts the
+  // plugin), while the four tuning keys are read per dispatch through their
+  // live refs. The resolver seam is synchronous so the roster build stays
+  // synchronous; the async host lookup fills the cache at inject time.
+  const agyEnabled = (config as { agyEnabled?: boolean }).agyEnabled === true
+  const agyRaw = config as unknown as Record<string, unknown>
+  let subprocessService: AgySubprocessLike | undefined
+  let agyExecutable: string | undefined
+  let agyResolutionReason = 'command not resolved'
+  const agyResolver = (_name: string): string | undefined => agyExecutable
+  const readSubprocess = (): AgySubprocessLike | undefined =>
+    subprocessService ?? (ctx as unknown as { get?(name: string): unknown }).get?.('subprocess') as AgySubprocessLike | undefined
+  const agySpawn = (spec: SubprocessSpawnSpec): SubprocessHandle => {
+    const service = readSubprocess()
+    if (service === undefined || typeof service.spawn !== 'function') {
+      throw classifyAcpError({ code: ACP_CODES.NO_SUBPROCESS }, 'process')
+    }
+    return service.spawn(spec)
+  }
+  const runConfig: RunAgentConfig & { language: Language } = {
+    ...config,
+    agentsDir: dir,
+    language,
+    agy: { enabled: agyEnabled, resolveExecutable: agyResolver },
+  }
   // One-time seeding of the bundled default roster (workhorse / oldfox /
   // rubber-duck) into the configured agents dir: a fresh install starts
   // with a usable roster. Runs synchronously BEFORE the tool registers, so
@@ -328,7 +393,13 @@ export function apply(ctx: Context, config: RunAgentConfig): void {
   // edge — before the first prompt is queued. No-op on the 0.2.0 line (the
   // request fields exist there; nothing is ever parked).
   ctx.effect(() => installChildCompositionListener(ctx), 'dsh-subagent-registry:child-composition')
+  // Registering the experimental provider below emits `subagent/provider-added`;
+  // when the spawn provider is already live that event can run the deferred
+  // listener before the synchronous tail check. Keep registration idempotent.
+  let toolRegistered = false
   const registerTool = (): void => {
+    if (toolRegistered) return
+    toolRegistered = true
     ctx.effect(() => {
       let definition = runAgentTool(ctx, runConfig)
       let followUpDefinition = buildFollowUp()
@@ -410,6 +481,70 @@ export function apply(ctx: Context, config: RunAgentConfig): void {
   // patch (`subagent: { maxActiveSubagents: N, maxDepth: M }`) or
   // `settings.update('subagent', …)` — see README. The per-agent `maxRounds`
   // frontmatter key stays: the official seam has no round budget.
+  //
+  // Experimental agy: register the one-shot provider only when enabled. The
+  // disposer is owned by THIS plugin's effect (the subagent service puts its
+  // own disposer on its own fiber, so an unwrapped registration survives a
+  // registry remount and the next one throws DUPLICATE_PROVIDER). A name
+  // collision with a host/plugin twin degrades to a warning. On unload we wait
+  // (bounded) for in-flight agy runs before unregistering.
+  if (agyEnabled) {
+    const provider = new AgyAcpProvider({
+      command: 'agy',
+      args: ['acp'],
+      spawn: agySpawn,
+      get permission() { return asVolatileRef(agyRaw.agyPermission as 'allow' | 'reject' | undefined).get() },
+      get handshakeTimeoutMs() { return asVolatileRef(agyRaw.agyHandshakeTimeoutMs as number | undefined).get() },
+      get timeoutMs() { return asVolatileRef(agyRaw.agyTimeoutMs as number | undefined).get() },
+      get maxConcurrent() { return asVolatileRef(agyRaw.agyMaxConcurrent as number | undefined).get() },
+      log: {
+        log: (line) => {
+          const logger = (ctx as unknown as { logger?: { info?: (line: string) => void } }).logger
+          logger?.info?.(line)
+        },
+        warn: (line) => warnAgy(ctx, line),
+      },
+    })
+    ctx.effect(() => {
+      if (ctx.subagents.getProvider?.('registry-acp') !== undefined) {
+        warnAgy(ctx,
+          '[dsh-subagent-registry] registry-acp provider name is already taken (agyEnabled stays on) — ' +
+          'not registering a second provider; check for a host or plugin provider using that name')
+        return () => {}
+      }
+      let disposeProvider: unknown
+      try {
+        disposeProvider = ctx.subagents.registerProvider(provider)
+      } catch (error) {
+        warnAgy(ctx,
+          `[dsh-subagent-registry] registry-acp provider registration failed: ` +
+          `${error instanceof Error ? error.message : String(error)} — the registry keeps mounting`)
+        return () => {}
+      }
+      return async () => {
+        await waitForAgyIdle(provider)
+        if (typeof disposeProvider === 'function') (disposeProvider as () => unknown)()
+      }
+    }, 'dsh-subagent-registry:acp-provider')
+  }
+  // The async executable lookup uses the SAME resolver the subprocess seam
+  // spawns with. Until it settles the built-in member stays out of the roster;
+  // a successful resolution triggers the existing refreshRoster swap.
+  ctx.inject?.(['subprocess'], (subCtx: Context) => {
+    const service = (subCtx as unknown as { subprocess?: AgySubprocessLike }).subprocess
+    subprocessService = service
+    if (service === undefined || typeof service.resolveExecutable !== 'function') {
+      agyResolutionReason = 'subprocess.resolveExecutable unavailable'
+      return
+    }
+    void service.resolveExecutable('agy').then(
+      (resolved) => { agyExecutable = resolved; return refreshRoster() },
+      (error: unknown) => {
+        agyResolutionReason = error instanceof Error ? error.message : String(error)
+        return refreshRoster()
+      },
+    ).catch(() => {})
+  })
   if (ctx.subagents.getProvider(config.provider) !== undefined) {
     registerTool()
     return

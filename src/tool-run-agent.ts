@@ -110,6 +110,16 @@ export interface RunAgentConfig {
    * even when the model names it directly.
    */
   disabledAgents?: DisabledAgentsInput
+  /**
+   * Experimental built-in `agy` member wiring. Absent means the built-in is
+   * never visible (the default); the switch is non-volatile so a flip remounts
+   * the plugin, while the resolver cache is filled asynchronously at inject
+   * time. The host manager resolves `cwd`; this seam only decides visibility.
+   */
+  agy?: {
+    enabled: boolean
+    resolveExecutable: (name: string) => string | undefined
+  }
 }
 
 /**

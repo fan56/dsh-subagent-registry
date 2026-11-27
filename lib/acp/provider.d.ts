@@ -41,9 +41,10 @@ export declare class AgyAcpProvider implements SubagentProvider {
     readonly capabilities: import("@deepseek-ai/dsh-subagent").SubagentCapabilities;
     readonly inheritsParentContext = false;
     active: number;
-    private readonly maxConcurrent;
     private readonly options;
     private readonly deps;
     constructor(options: AgyAcpProviderOptions);
+    /** Read per start: `agyMaxConcurrent` is volatile and must apply without a remount. */
+    get maxConcurrent(): number;
     start(request: ResolvedSubagentStartRequest): Promise<SubagentRun>;
 }

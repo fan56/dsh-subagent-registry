@@ -68,7 +68,14 @@ export declare const inject: string[];
  * it remounts the plugin, which is exactly the register/unregister act. The
  * six `jev*`/`storageDir` keys are volatile and hot-reload per call; defaults
  * are the standalone plugin's (jev OFF, zen backend, 3000 ms, usage sink
- * `<dsh home>/storages/ptc-subagent`). Fifteen keys in total.
+ * `<dsh home>/storages/ptc-subagent`).
+ *
+ * The experimental external ACP member (`agy`): `agyEnabled` (default false)
+ * is NOT volatile — flipping it remounts the plugin, which is exactly the
+ * `registry-acp` provider register/unregister act. The four tuning keys
+ * (`agyPermission`, `agyTimeoutMs`, `agyHandshakeTimeoutMs`, `agyMaxConcurrent`)
+ * are volatile and read per dispatch through the loader's live refs, so a
+ * settings edit never disturbs a running task. Twenty keys in total.
  */
 export declare const Config: z<Schemastery.ObjectS<NoInfer<{
     agentsDir: z<string, string, "defined">;
@@ -86,6 +93,11 @@ export declare const Config: z<Schemastery.ObjectS<NoInfer<{
     jevTimeoutMs: z<number, number, "volatile-defined">;
     jevSecretFile: z<string, string, "volatile-defined">;
     storageDir: z<string, string, "volatile-defined">;
+    agyEnabled: z<boolean, boolean, "defined">;
+    agyPermission: z<"allow" | "reject", "allow" | "reject", "volatile-defined">;
+    agyTimeoutMs: z<number, number, "volatile-defined">;
+    agyHandshakeTimeoutMs: z<number, number, "volatile-defined">;
+    agyMaxConcurrent: z<number, number, "volatile-defined">;
 }>>, Schemastery.ObjectT<NoInfer<{
     agentsDir: z<string, string, "defined">;
     provider: z<string, string, "defined">;
@@ -102,5 +114,10 @@ export declare const Config: z<Schemastery.ObjectS<NoInfer<{
     jevTimeoutMs: z<number, number, "volatile-defined">;
     jevSecretFile: z<string, string, "volatile-defined">;
     storageDir: z<string, string, "volatile-defined">;
+    agyEnabled: z<boolean, boolean, "defined">;
+    agyPermission: z<"allow" | "reject", "allow" | "reject", "volatile-defined">;
+    agyTimeoutMs: z<number, number, "volatile-defined">;
+    agyHandshakeTimeoutMs: z<number, number, "volatile-defined">;
+    agyMaxConcurrent: z<number, number, "volatile-defined">;
 }>>, "plain">;
 export declare function apply(ctx: Context, config: RunAgentConfig): void;

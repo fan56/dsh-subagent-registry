@@ -56,14 +56,17 @@ export class AgyAcpProvider implements SubagentProvider {
   // through the external start path, which never reserves a childId/persona.
 
   active = 0
-  private readonly maxConcurrent: number
   private readonly options: AgyAcpProviderOptions
   private readonly deps: AgyRunDeps
 
   constructor(options: AgyAcpProviderOptions) {
     this.options = options
-    this.maxConcurrent = options.maxConcurrent ?? DEFAULT_MAX_CONCURRENT
     this.deps = options.log ?? {}
+  }
+
+  /** Read per start: `agyMaxConcurrent` is volatile and must apply without a remount. */
+  get maxConcurrent(): number {
+    return this.options.maxConcurrent ?? DEFAULT_MAX_CONCURRENT
   }
 
   async start(request: ResolvedSubagentStartRequest): Promise<SubagentRun> {
