@@ -65,7 +65,7 @@ Cuando tengas las respuestas, genera `<agentsDir>/<name>.md` y escríbelo en el 
 
 ## Configuración propia del plugin (entry config)
 
-El plugin no tiene espacio de nombres de ajustes; su configuración cuelga del **bloque de montaje del parche que lo carga** (la sección `config:` de la entrada `insert` del cordis.patch.yml del bundle, es decir, la configuración de entrada o entry config). Nueve claves de registro más seis claves jev (la capacidad ptc, que se explica más abajo):
+El plugin no tiene espacio de nombres de ajustes; su configuración cuelga del **bloque de montaje del parche que lo carga** (la sección `config:` de la entrada `insert` del cordis.patch.yml del bundle, es decir, la configuración de entrada o entry config). Nueve claves de registro más seis claves jev (la capacidad ptc, que se explica más abajo) más cinco claves agy (experimentales, desactivadas por defecto; véase más abajo):
 
 ```yaml
 - insert:
@@ -87,6 +87,12 @@ El plugin no tiene espacio de nombres de ajustes; su configuración cuelga del *
         # jevTimeoutMs: 3000       # plazo máximo por cada classify; una sola señal, sin reintentos
         # jevSecretFile: ''        # lista de literales del filtro de secretos salientes (uno por línea)
         # storageDir: ''           # directorio del registro de uso (usage sink); vacío = <dsh home>/storages/ptc-subagent
+        # --- miembro agy experimental (desactivado por defecto; véase "Experimental: agy" más abajo) ---
+        # agyEnabled: false        # interruptor general (no volátil): true = registrar el proveedor ACP; 'agy' en use_agent, no en ask_agent
+        # agyPermission: reject    # 'allow' | 'reject': cómo responder a las solicitudes de permiso ACP de agy; 'reject' = no responder por el usuario
+        # agyTimeoutMs: 600000     # plazo máximo por tarea tras el handshake (ms)
+        # agyHandshakeTimeoutMs: 20000 # plazo de initialize + session/new (ms)
+        # agyMaxConcurrent: 1      # ejecuciones agy simultáneas por proceso dsh; la 2.ª falla de inmediato con ACP_BUSY (sin cola)
 ```
 
 | Clave | Predeterminado | Descripción |
@@ -117,6 +123,59 @@ Desde la 0.18.0, este paquete incluye todo el antiguo `@aiwayds/dsh-ptc-subagent
 ### Límites de concurrencia y profundidad (dsh 0.1.7+, gestionados oficialmente)
 
 El número de subagentes activos a la vez y la profundidad de anidamiento los gestiona el **servicio oficial dsh-subagent** (el plugin no mantiene ningún contador ni cola de concurrencia propios): `maxActiveSubagents` (por defecto `8`) y `maxDepth` (por defecto `1`), ambos campos volátiles que se pueden ajustar en caliente sin reiniciar. Cuando el usuario quiera «varios subagentes en paralelo / más niveles de anidamiento», escribe `subagent: { maxActiveSubagents: N, maxDepth: M }` en un parche de perfil o llama a `settings.update('subagent', …)` en tiempo de ejecución; el `deep` de un archivo de agente solo restringe dentro de este presupuesto oficial (a las hojas `deep: 0` se les quitan directamente las herramientas de lanzamiento). `maxRounds` (límite de rondas por agente) sigue siendo una clave frontmatter de este plugin — la interfaz oficial no ofrece presupuesto de rondas, así que lo sigue consumiendo la escalera de parada forzosa de la TUI del host.
+
+## Experimental: `agy` con la cuota del plan Gemini (desactivado por defecto)
+
+> ⚠️ **Experimental — desactivado por defecto**: esta sección solo aplica cuando
+> `agyEnabled: true`; con el valor predeterminado, nada cambia para los usuarios
+> existentes.
+
+`agy` es la CLI de Antigravity. Con el interruptor activado, el plugin usa su
+propio cliente ACP para conectarse directamente al `agy acp` local y usar la
+**cuota del plan Google Gemini AI Pro**: sin depender de ningún perfil, sin
+consumir cuota de DeepSeek, y el uso de agy **no entra** en la contabilidad de uso
+de dsh. `agy` aparece solo en la lista de `use_agent`, **no en `ask_agent`** (que
+hace preguntas de seguimiento a subagentes dsh en segundo plano). Si existe
+`~/.dsh/agents/agy.md`, la lista muestra ese archivo de agente normal y no el agy
+integrado.
+
+Cómo activarlo/desactivarlo: en la sesión, escribe `/registry-config`; el asistente
+hará una pregunta adicional de **interruptor agy**: marcar «agy (Gemini ·
+experimental)» escribe `agyEnabled: true`, desmarcar escribe `false`, y omitir la
+pregunta no cambia nada; el cambio se aplica en el siguiente montaje del plugin
+(reinicio de dsh). La pregunta de instalación opcional no incluye agy: responderla
+no afecta a agy ni a codemode. Una vez activado, también puedes marcar agy en
+la pregunta de desactivación para retirarlo de la lista (`disabledAgents`, se aplica
+en caliente y no toca archivos). Si el asistente no se puede abrir (sin interfaz de
+preguntas), edita a mano la sección `config:` de la fila del plugin en
+`~/.dsh/profiles/<profile>/cordis.patch.yml`: añade `agyEnabled: true` y reinicia
+dsh. Claves (en esa misma sección `config:`): `agyEnabled` (por defecto `false`, no
+volátil), `agyPermission` (por defecto `reject`), `agyTimeoutMs` (`600000`),
+`agyHandshakeTimeoutMs` (`20000`), `agyMaxConcurrent` (`1`); las cuatro últimas son
+volátiles y se leen en cada llamada, solo `agyEnabled` requiere reinicio al cambiar.
+
+Limitaciones (tal cual, no son TODO ni defectos):
+
+- **Solo primer plano, sin reanudación**: `background` / `resume` / `fresh` fallan
+  con `ACP_FOREGROUND_ONLY`; vuelve a enviar la tarea, no la reanudes.
+- **Concurrencia 1**: la segunda llamada falla de inmediato con `ACP_BUSY` (sin
+  cola); envía las tareas de una en una.
+- **El resultado solo se devuelve cuando termina el proceso agy**: tiempo de la
+  tarea más la espera de salida, hasta ~9 s; la primera llamada tarda ~20–30 s
+  (arranque en frío ~20 s).
+- **No está en el panel de subagentes y no se puede interrumpir desde él**: la
+  ejecución externa no tiene una sesión dsh local; pulsa Esc para cancelar la
+  llamada de herramienta actual.
+- **Requiere `agy` instalado y con sesión iniciada en la máquina**: si no está o
+  no ha iniciado sesión → no aparece en la lista o el diagnóstico `ACP_AUTH_REQUIRED`.
+- Plataforma: macOS / Linux (Windows sin verificar).
+
+Seguridad: los permisos reales de agy los decide la **configuración del propio agy
+local** (la máquina puede estar en `always-proceed`, en cuyo caso no envía ninguna
+solicitud de permiso). El plugin solo reenvía las solicitudes de permiso ACP y las
+responde según `agyPermission`; **no limita lo que agy puede hacer**. Enviarlo a un
+directorio significa que se ejecutan los hooks de ese directorio; trata los
+escenarios de solo revisión como de alto riesgo.
 
 ## Cambiar el idioma del plugin (language)
 

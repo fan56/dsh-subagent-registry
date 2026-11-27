@@ -23,7 +23,7 @@
 
 import { readFileSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { Context } from '@deepseek-ai/cordis'
 // Type-only (erased at emit): alpha.3 moved JsonValue out of dsh-session to
@@ -32,6 +32,14 @@ import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import type { ContentBlock, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { resolveChildDepth, type SubagentResult, type SubagentStartRequest, type SubagentActivation, type SubagentActivationSpec } from '@deepseek-ai/dsh-subagent'
+import type { Language } from './preset-contract.ts'
+import {
+  BUILTIN_AGY_ID,
+  builtinAgyRosterLine,
+  resolveBuiltinAgy,
+  type BuiltinAgyDefinition,
+} from './builtin-agy.ts'
+import { ACP_CODES, AcpError, acpErrorText, classifyAcpError } from './acp/errors.ts'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import { scopeOf, type ScopeKey } from '@deepseek-ai/dsh-scope'
 import { assertTopLevelCaller, recordRegistryChild, releaseRegistryChild } from './caller-guard.ts'
@@ -110,6 +118,64 @@ export interface RunAgentConfig {
    * even when the model names it directly.
    */
   disabledAgents?: DisabledAgentsInput
+  /**
+   * Experimental built-in `agy` member wiring. Absent means the built-in is
+   * never visible (the default); the switch is non-volatile so a flip remounts
+   * the plugin, while the resolver cache is filled asynchronously at inject
+   * time. The host manager resolves `cwd`; this seam only decides visibility.
+   */
+  agy?: {
+    enabled: boolean
+    resolveExecutable: (name: string) => string | undefined
+  }
+  /** UI language for the built-in member's localized roster line. */
+  language?: Language
+}
+
+/** Inputs of the built-in member visibility check (pure, injected seams). */
+export interface AgyRoutingInput {
+  enabled: boolean
+  resolveExecutable: (name: string) => string | undefined
+  disabledAgents?: DisabledAgentsInput
+  language?: Language
+}
+
+/**
+ * Resolve the built-in definition ignoring the roster toggle — execute needs
+ * this shape so a model that hard-names a toggled-off agy gets the same
+ * "disabled" error as any other agent instead of "unknown agent". A user-owned
+ * `agy.md` (valid OR broken) always shadows the built-in; the async executable
+ * lookup lives in the caller's cached resolver.
+ */
+export function builtinAgyIgnoringToggle(dir: string, input: AgyRoutingInput): BuiltinAgyDefinition | undefined {
+  if (input.enabled !== true) return undefined
+  const { agents, broken } = listAgentFiles(dir)
+  const userNames = new Set(agents.map((agent) => agent.meta.name))
+  for (const file of broken) userNames.add(basename(file.path, '.md'))
+  return resolveBuiltinAgy({
+    language: input.language ?? 'zh',
+    enabled: true,
+    resolveExecutable: input.resolveExecutable,
+    parseUserAgent: (name) => (userNames.has(name) ? { ok: true } : undefined),
+  })
+}
+
+/** Resolve the built-in agy definition visible in the roster (toggle applied). */
+export function visibleBuiltinAgy(dir: string, input: AgyRoutingInput): BuiltinAgyDefinition | undefined {
+  const definition = builtinAgyIgnoringToggle(dir, input)
+  if (definition === undefined) return undefined
+  if (currentDisabledAgents(input.disabledAgents).includes(BUILTIN_AGY_ID)) return undefined
+  return definition
+}
+
+/** Collect the built-in agy inputs from the tool config into the pure seam. */
+function agyRoutingOf(cfg: RunAgentConfig): AgyRoutingInput {
+  return {
+    enabled: cfg.agy?.enabled === true,
+    resolveExecutable: cfg.agy?.resolveExecutable ?? (() => undefined),
+    disabledAgents: cfg.disabledAgents,
+    language: cfg.language,
+  }
 }
 
 /**
@@ -291,8 +357,9 @@ interface Roster {
  * `disabledAgents` names are excluded entirely — the toggle is a roster
  * filter, never a file operation (see {@link RunAgentConfig.disabledAgents}).
  */
-function buildRoster(dir: string, disabledAgents?: DisabledAgentsInput): Roster {
+function buildRoster(dir: string, cfg: RunAgentConfig): Roster {
   const { agents, broken } = listAgentFiles(dir)
+  const disabledAgents = cfg.disabledAgents
   const lines = agents
     .filter((agent) => !isAgentDisabled(agent.meta.name, disabledAgents))
     .map((agent) => {
@@ -301,14 +368,20 @@ function buildRoster(dir: string, disabledAgents?: DisabledAgentsInput): Roster 
         : agent.meta.name
       return `- ${label}: ${sanitizeDescription(agent.meta.description ?? '')}`
     })
-  const nameList = agents
+  const names = agents
     .filter((agent) => !isAgentDisabled(agent.meta.name, disabledAgents))
     .map((agent) => agent.meta.name)
-    .join(', ')
+  // Built-in external member: only when enabled, resolvable, not toggled off,
+  // and no user-owned agy.md shadows it (valid or broken).
+  const agy = visibleBuiltinAgy(dir, agyRoutingOf(cfg))
+  if (agy !== undefined) {
+    lines.push(builtinAgyRosterLine(agy))
+    names.push(agy.name)
+  }
   if (broken.length > 0) {
     lines.push(`- (unparsable agents excluded: ${broken.map((b) => b.path).join(', ')})`)
   }
-  return { rosterText: lines.join('\n'), nameList }
+  return { rosterText: lines.join('\n'), nameList: names.join(', ') }
 }
 
 /**
@@ -532,6 +605,27 @@ async function activateWithReservedComposition(
   }
 }
 
+/**
+ * Start one external one-shot activation (the built-in `agy` member) with the
+ * MINIMAL spec: no `childId`, no `name`, no `persona`/`toolFilter` reservation.
+ * Those fields belong to in-process children; an external provider rejects
+ * a reserved childId as UNSUPPORTED_CAPABILITY and has no local Agent to carry
+ * a parked composition. The persona is inlined into `prompt` by the caller.
+ */
+export async function activateExternal(
+  ctx: Context,
+  provider: string,
+  label: string,
+  prompt: ContentBlock[],
+  signal: AbortSignal,
+  delivery: 'parent' | 'caller',
+  parent: Agent,
+): Promise<SubagentActivation> {
+  assertTopLevelCaller({ agent: parent })
+  const spec: SubagentActivationSpec = { provider, label, prompt, parent, signal, delivery }
+  return await ctx.subagents.startActivation(spec)
+}
+
 /** Map a non-`completed` stop reason to a human headline for the parent model. */
 export function stopReasonError(reason: string): string {
   switch (reason) {
@@ -568,7 +662,15 @@ export function runAgentTool(ctx: Context, cfg: RunAgentConfig) {
   // at build time (refreshRoster rebuilds the definition when the toggle
   // changes). The execute-time check below re-reads the live value, so a
   // hot-swap takes effect immediately even before the description refreshes.
-  const { rosterText, nameList } = buildRoster(dir, cfg.disabledAgents)
+  const { rosterText, nameList } = buildRoster(dir, cfg)
+  const agyMember = visibleBuiltinAgy(dir, agyRoutingOf(cfg))
+  // S7: use_agent itself is concurrency-safe, but agy runs are capped and
+  // over-cap calls fail immediately — teach the model to dispatch one at a time.
+  const agyNote = agyMember === undefined ? '' :
+    `\nExternal member "${agyMember.name}" (${agyMember.displayName}) runs over ACP as a one-shot foreground worker: ` +
+    `no background/follow-up/resume, self-contained prompt required. Dispatch agy tasks ONE AT A TIME — ` +
+    `this tool is concurrency-safe, but agy runs are capped (see agyMaxConcurrent); a second parallel call ` +
+    `over the cap fails immediately with ACP_BUSY.`
   const description =
     `Call one of the locally-defined custom agents by name. These are your own ` +
     `custom sub-agents (defined in ${dir}/<name>.md); each runs as its own ` +
@@ -586,7 +688,7 @@ export function runAgentTool(ctx: Context, cfg: RunAgentConfig) {
     `session across turns, and you can follow up with ${cfg.askToolName ?? 'ask_agent'} ` +
     `(waits for the reply) or the base send_message (steer only) while the runtime ` +
     `notifies you when the run settles. Background dispatch ignores resume/fresh — ` +
-    `it always opens the agent's new conversation.\n` +
+    `it always opens the agent's new conversation.${agyNote}\n` +
     `Available agents:\n${rosterText}`
 
   return defineTool({
@@ -646,6 +748,45 @@ export function runAgentTool(ctx: Context, cfg: RunAgentConfig) {
       warnMissingSpawnTools(ctx, hostKnownTools)
       if (args.resume === true && args.fresh === true) {
         throw new Error(`${cfg.toolName}: "resume" and "fresh" are mutually exclusive — pass at most one`)
+      }
+      // Built-in external agy has NO agent file: route BEFORE loadAgent so a
+      // valid dispatch never collapses into `unknown agent "agy"`. A user-owned
+      // agy.md shadows this branch and follows the ordinary in-process path.
+      const routableAgy = builtinAgyIgnoringToggle(dir, agyRoutingOf(cfg))
+      if (routableAgy !== undefined && args.agent === BUILTIN_AGY_ID) {
+        if (isAgentDisabled(args.agent, cfg.disabledAgents)) {
+          throw new Error(
+            `agent "${args.agent}" is disabled by the disabledAgents plugin config ` +
+            `(roster toggle; the built-in agy member stays defined) — enable it via the /registry-config command ` +
+            `or remove it from the disabledAgents list in the plugin entry config`,
+          )
+        }
+        // Foreground one-shot only: no background/resume/fresh. Pre-release
+        // failure → full ACP_* text via assert.rejects-friendly Error.
+        if (args.background === true || args.resume === true || args.fresh === true) {
+          throw new Error(acpErrorText(classifyAcpError({ code: ACP_CODES.FOREGROUND_ONLY }, 'process')))
+        }
+        // persona inline: the external provider has no local Agent to carry a
+        // parked composition, so the brief rides the user prompt verbatim.
+        const promptText = `${routableAgy.body}\n\n---\n\n${args.prompt}`
+        let activation: SubagentActivation
+        try {
+          activation = await activateExternal(
+            ctx, 'registry-acp', routableAgy.displayName,
+            [{ type: 'text', text: promptText }], exec.signal, 'caller', parent,
+          )
+        } catch (error) {
+          // A pre-publication provider failure carries its own code/copy.
+          if (error instanceof AcpError) throw new Error(acpErrorText(error), { cause: error })
+          throw error
+        }
+        // Reuse the existing foreground settle: it waits for dispose() before
+        // throwing, consumes the child diagnostic and returns child output
+        // verbatim (including the provider's source header).
+        return {
+          kind: 'agent-result' as const,
+          output: (await settleForegroundRun(ctx, activation, args.agent, exec.signal)) as unknown as JsonValue[],
+        }
       }
       // Re-check existence at execute time with a friendly, roster-aware error.
       const agent = loadAgent(dir, args.agent, nameList === '' ? [] : nameList.split(',').map((n) => n.trim()))

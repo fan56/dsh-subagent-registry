@@ -145,6 +145,7 @@ export const REGISTRY_DELEGATION_ENTRY_POINTS = [
   'tool-run-agent.ts::use_agent.execute',
   'tool-run-agent.ts::activateWithReservedComposition',
   'tool-run-agent.ts::startLegacyForeground',
+  'tool-run-agent.ts::activateExternal',
   'resume.ts::driveResumedRun',
   'resume.ts::driveLegacyResume',
 ] as const

@@ -32,6 +32,12 @@ partial work. No host patching, no code — a markdown file per agent.
   are an experimental product surface: the capability has migrated and merged,
   but everything ships off and only an explicit `/registry-config` check or the
   `ptcEnabled` config keys turn it on (below).
+- **⚠️ Experimental — disabled by default: use Gemini plan quota through `agy`** —
+  `agyEnabled` defaults to `false`; with it on, `agy` appears in the `use_agent`
+  roster (not in `ask_agent`). It runs on the Google Gemini AI Pro plan quota:
+  the registry ships its own ACP client that talks directly to `agy acp`, with
+  no profile dependency and no DeepSeek quota, and agy usage does not enter
+  dsh's usage accounting (see below).
 - **Built on the official subagent machinery** — no reimplementation: every
   custom agent starts through dsh's stock `spawn` provider, so each child is a
   real dsh subagent (full session, persistence, continuable). New capabilities
@@ -158,6 +164,7 @@ section of the cordis.patch.yml `insert` entry):
 | `disabledAgents` | `[]` (volatile) | **The roster toggle**: listed agent names vanish from the `use_agent`/`ask_agent` rosters and calls by name are refused; **a pure roster filter that never touches agent files**. Volatile writes hot-apply; the `/registry-config` command writes it for you, and the execute path re-checks the live value (a model hard-naming a disabled agent is refused). |
 | `ptcEnabled`    | `false`         | **The opt-in gate**: false (default) registers nothing extra; true registers the `codemode` tool at standing scope (visible to the main agent and every dispatched subagent) on the next plugin mount (dsh restart). Experimental — disabled by default. |
 | six jev keys    | see the ptc section | The volatile jev configuration: `jevEnabled` (default false = zero jev calls) / `jevBackend` (zen) / `jevModel` ('' = backend default) / `jevTimeoutMs` (3000) / `jevSecretFile` ('') / `storageDir` ('' = `<dsh home>/storages/ptc-subagent`). |
+| five `agy*` keys | see the next section | Experimental agy member config (disabled by default): `agyEnabled` (default false, non-volatile) / `agyPermission` (reject) / `agyTimeoutMs` (600000) / `agyHandshakeTimeoutMs` (20000) / `agyMaxConcurrent` (1); the last four are volatile. |
 
 ## The /registry-config command
 
@@ -165,16 +172,20 @@ Type `/registry-config` in the session to open the management wizard (two
 multi-select questions through ask_user_question):
 
 1. **The disable toggle**: check the agents to disable (the checked set
-   becomes the new `disabledAgents`; nothing checked = all enabled; currently
-   disabled names must STAY checked to remain disabled — option descriptions
-   mark the current state). The scope covers every roster agent (including
-   your own), and **no md file is ever touched**.
+   becomes the new `disabledAgents`; leaving it blank = unchanged, it cannot
+   clear the list; currently disabled names must STAY checked to remain
+   disabled — option descriptions mark the current state). The scope covers
+   every roster agent (including your own), and **no md file is ever touched**.
 2. **Opt-in installs**: check `ptc-subagent` / `minimal-subagent` to install
    (⚠️ Experimental — disabled by default). Template copy; existing files
    never overwritten; unchecking never deletes. Selecting ptc links
    `ptcEnabled: true` and copies the md;
-   unselecting links the reverse (writes false and parks ptc-subagent in
-   `disabledAgents`, the copied md is kept).
+   checking another row but leaving ptc unchecked links the reverse (writes
+   false and parks ptc-subagent in `disabledAgents`, the copied md is kept).
+
+Note: **leaving a question blank is not an answer** — it neither clears the
+disable list nor turns codemode / agy off; clearing the list or disabling
+codemode requires a manual config edit.
 
 Timing: `disabledAgents` is volatile — the command refreshes the roster at the
 end, so it applies immediately; a `ptcEnabled` change waits for the next plugin
@@ -216,6 +227,70 @@ contract (failure kind + captured logs); the result reports
 - **Upgrading from the standalone ptc repo**: usage and config keys keep their
   names and meanings (the entry id becomes `dsh-subagent-registry`), the
   usage.jsonl path is unchanged, and existing records carry over.
+
+## Experimental: Gemini plan quota through `agy` (disabled by default)
+
+> ⚠️ **Experimental — disabled by default**: this section applies only when
+> `agyEnabled: true`; with the default off, nothing changes for existing users.
+
+**What it is.** `agy` is the Antigravity CLI. With the switch on, the registry
+uses its own bundled ACP client to talk directly to the local `agy acp` and runs
+on your **Google Gemini AI Pro plan quota** — no profile dependency, no DeepSeek
+quota, and agy usage does **not** enter dsh's usage accounting. `agy` appears in
+the `use_agent` roster, **not in `ask_agent`** (follow-ups there address
+background dsh subagents; agy is a one-shot foreground dispatch). If a local
+`~/.dsh/agents/agy.md` exists, the roster lists that ordinary dsh member file
+instead of the built-in agy.
+
+**How to turn it on and off.** In the session, type `/registry-config`: the wizard asks
+one extra **agy switch** question — choose "Enable agy (Experimental)" to write
+`agyEnabled: true`, or "Disable agy" to write `false`; skipping leaves it unchanged
+(the flip takes effect on the next plugin mount / dsh restart). The opt-in
+install question has no agy row; answering it never touches agy or codemode.
+Once on, choose "Disable agy" in the same switch to turn it off; you can also
+check `agy` in the disable question to only hide it from the roster
+(`disabledAgents`, hot-applies, touches no files — that list is hand-edited only,
+and a blank selection never clears it). When the wizard cannot
+open (no ask surface), edit the `config:` of the registry row in
+`~/.dsh/profiles/<profile>/cordis.patch.yml` by hand: add `agyEnabled: true`,
+then restart dsh.
+
+Note: wizard edits rewrite the registry row's `config:` block — comments inside
+that block are lost; put hand-written comments above the `config:` line instead.
+
+Config keys (all on the registry row's `config:` section, also shown as comments
+in the default `cordis.patch.yml`):
+
+| Key | Default | Description |
+| --- | --- | --- |
+| `agyEnabled` | `false` | Experimental master switch (non-volatile): `true` registers the ACP provider and puts `agy` in the `use_agent` roster; flipping it needs a dsh restart. |
+| `agyPermission` | `reject` | How the registry answers agy's ACP permission requests: `reject` = do not answer on the user's behalf (actual permissions are decided by the local agy's own settings); `allow` = answer with allow. Volatile, read per call. |
+| `agyTimeoutMs` | `600000` | Per-task deadline after handshake (ms, 10 min); a timeout returns partial output. Volatile. |
+| `agyHandshakeTimeoutMs` | `20000` | `initialize` + `session/new` handshake deadline (ms). Volatile. |
+| `agyMaxConcurrent` | `1` | Concurrent agy runs per dsh process; the second call fails immediately with `ACP_BUSY` (no queue). Volatile. |
+
+**Limitations (as they are, not TODOs or defects).**
+
+- **Foreground only, no resume**: `background: true` / `resume` / `fresh` all fail
+  with `ACP_FOREGROUND_ONLY`; re-dispatch after a failure rather than resuming.
+- **Concurrency 1**: only one agy run per dsh process at a time; the second call
+  fails immediately with `ACP_BUSY` (no queue) — dispatch one at a time.
+- **Each call returns only after the agy process exits**: task time plus exit
+  grace, up to ~9 s; the first call takes ~20–30 s (cold start ~20 s).
+- **Not in the subagent panel and not individually interruptible from it**: agy
+  is an external process with no local dsh Session; press Esc to cancel the
+  current tool call.
+- **Requires a locally installed and logged-in `agy`**: absent or not logged in
+  means no `agy` in the roster, or an `ACP_AUTH_REQUIRED` diagnostic.
+- **Platform**: macOS / Linux; Windows is unverified.
+
+**Security.** agy's actual permissions are decided by the **local agy's own
+settings** (the machine may be `always-proceed`, in which case agy sends no
+permission request at all and everything proceeds). The registry only forwards
+ACP permission requests and answers them per `agyPermission`; it **does not
+restrict what agy can do** — dispatching it into a directory means it reads and
+writes files and runs commands there, and that directory's hooks run; treat
+review-only scenarios as high risk.
 
 ## Bundled skill
 

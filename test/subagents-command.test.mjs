@@ -233,7 +233,7 @@ const INVOCATION = { agent: { id: 'root-1' }, rawInput: '', signal: new AbortCon
   }
 }
 
-// --- ptc linkage OFF: unselecting parks the file in disabledAgents, keeps it ---
+// --- ptc linkage blank: an empty selection writes nothing, keeps the file ---
 
 {
   const dir = agentsDir()
@@ -244,16 +244,14 @@ const INVOCATION = { agent: { id: 'root-1' }, rawInput: '', signal: new AbortCon
     })
     const result = await handleSubagentsCommand(makeDeps(ctx, dir, { isPtcEnabled: () => true }), INVOCATION)
     assert.equal(result.kind, 'success')
-    const setOps = ctx.recorded.mutations[0].ops.filter((op) => op.op === 'set')
-    assert.ok(setOps.some((op) => op.path[0] === 'ptcEnabled' && op.value === false), 'ptcEnabled := false on unselect')
-    const disabledOp = setOps.find((op) => op.path[0] === 'disabledAgents')
-    assert.ok(disabledOp && disabledOp.value.includes('ptc-subagent'), 'ptc-subagent parked in disabledAgents')
+    assert.equal(result.text, EN.noChanges, 'empty selected is not an unselect')
+    assert.equal(ctx.recorded.mutations.length, 0, 'ptcEnabled is not flipped')
+    assert.equal(ctx.recorded.refreshes, 0, 'no roster refresh on a no-op')
     assert.ok(
       readFileSync(join(dir, 'ptc-subagent.md'), 'utf8').includes('Previously installed.'),
       'the installed md is kept, never deleted',
     )
-    assert.match(result.text, /ptcEnabled → false/)
-    console.log('PASS ptc linkage: unselect → disable + park, file kept')
+    console.log('PASS ptc linkage: blank selection writes nothing, file kept')
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
@@ -314,7 +312,7 @@ const INVOCATION = { agent: { id: 'root-1' }, rawInput: '', signal: new AbortCon
     const partial = fakeCtx({ askImpl: () => ({ answers: [{ id: DISABLE_QUESTION_ID, selected: [] }] }) })
     const partialResult = await handleSubagentsCommand(makeDeps(partial, dir, { isPtcEnabled: () => true }), INVOCATION)
     assert.equal(partialResult.kind, 'success')
-    assert.equal(partialResult.text, EN.noChanges, 'empty disable set + empty opt-in set = unchanged')
+    assert.equal(partialResult.text, EN.noChanges, 'an empty selection is not an answer = unchanged')
     assert.equal(partial.recorded.mutations.length, 0, 'no ptc flip when the opt-in question was not answered')
     console.log('PASS declined / partially answered panel: no-op, no ptc flip')
   } finally {

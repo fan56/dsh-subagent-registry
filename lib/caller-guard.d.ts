@@ -61,5 +61,5 @@ export declare function assertTopLevelCaller(exec: CallerIdentity | undefined): 
  * carry their own guard for a direct call. `driveResumedRun` and its inner
  * `driveLegacyResume` (the `agents.resume` call site) are both guarded.
  */
-export declare const REGISTRY_DELEGATION_ENTRY_POINTS: readonly ["tool-run-agent.ts::use_agent.execute", "tool-run-agent.ts::activateWithReservedComposition", "tool-run-agent.ts::startLegacyForeground", "resume.ts::driveResumedRun", "resume.ts::driveLegacyResume"];
+export declare const REGISTRY_DELEGATION_ENTRY_POINTS: readonly ["tool-run-agent.ts::use_agent.execute", "tool-run-agent.ts::activateWithReservedComposition", "tool-run-agent.ts::startLegacyForeground", "tool-run-agent.ts::activateExternal", "resume.ts::driveResumedRun", "resume.ts::driveLegacyResume"];
 export {};

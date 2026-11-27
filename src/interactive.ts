@@ -43,7 +43,17 @@ import {
   type ChildListEntry,
   type MinimalSessionEvent,
 } from './resume.ts'
-import { isAgentDisabled, loadAgent, stopReasonError, textOf, type DisabledAgentsInput } from './tool-run-agent.ts'
+import {
+  isAgentDisabled,
+  loadAgent,
+  stopReasonError,
+  textOf,
+  builtinAgyIgnoringToggle,
+  type DisabledAgentsInput,
+} from './tool-run-agent.ts'
+import { BUILTIN_AGY_ID } from './builtin-agy.ts'
+import { ACP_CODES, acpErrorText, classifyAcpError } from './acp/errors.ts'
+import type { Language } from './preset-contract.ts'
 
 // ---------------------------------------------------------------------------
 // Dispatch-mode decision (pure)
@@ -290,6 +300,12 @@ export interface AskAgentConfig {
    * the toggle governs the roster, not live children.
    */
   disabledAgents?: DisabledAgentsInput
+  /** Same built-in agy wiring as the dispatch tool; absent = no built-in member. */
+  agy?: {
+    enabled: boolean
+    resolveExecutable: (name: string) => string | undefined
+  }
+  language?: Language
 }
 
 /**
@@ -303,6 +319,15 @@ export function askAgentTool(ctx: Context, cfg: AskAgentConfig) {
   const visible = agents.filter((agent) => !isAgentDisabled(agent.meta.name, cfg.disabledAgents))
   const nameList = visible.map((agent) => agent.meta.name).join(', ')
   const brokenNote = broken.length > 0 ? ` (unparsable agents excluded: ${broken.map((b) => b.path).join(', ')})` : ''
+  // The built-in agy is a one-shot external worker: it is deliberately NOT in
+  // this follow-up roster (name list above comes from files only), and naming
+  // it at execute time earns the stable ACP_FOREGROUND_ONLY copy.
+  const agyMember = cfg.agy === undefined ? undefined : builtinAgyIgnoringToggle(cfg.agentsDir, {
+    enabled: cfg.agy.enabled,
+    resolveExecutable: cfg.agy.resolveExecutable,
+    disabledAgents: cfg.disabledAgents,
+    language: cfg.language,
+  })
 
   const description =
     `Send a follow-up message to a background custom agent and WAIT for its reply. ` +
@@ -358,6 +383,9 @@ export function askAgentTool(ctx: Context, cfg: AskAgentConfig) {
       }
       const hasName = typeof args.agent === 'string' && args.agent.trim() !== ''
       const hasId = typeof args.agent_id === 'string' && args.agent_id.trim() !== ''
+      if (hasName && agyMember !== undefined && args.agent === BUILTIN_AGY_ID) {
+        throw new Error(acpErrorText(classifyAcpError({ code: ACP_CODES.FOREGROUND_ONLY }, 'process')))
+      }
       if (hasName === hasId) {
         throw new Error(
           `${cfg.toolName}: pass exactly one of "agent" (an agent name) or "agent_id" (the durable subagent id a background dispatch returned)`,

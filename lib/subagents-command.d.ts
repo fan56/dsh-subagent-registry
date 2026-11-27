@@ -17,12 +17,21 @@
  *    `ptcEnabled: true` (the codemode tool registers on the next plugin
  *    mount); unselecting flips it back to false and parks the installed
  *    `ptc-subagent` in `disabledAgents` (file kept, roster excluded).
+ * 3. **The agy switch** (`agyEnabled`, non-volatile, only when agy is wired):
+ *    a separate single-select question with two locale-labeled options
+ *    ("on" / "off"). Because an empty selection means "not answered" (T20),
+ *    the off path needs its own option; skipping leaves the switch untouched.
+ *    Q2 never carries an agy row, so answering it for any other purpose cannot
+ *    flip codemode or agy.
  *
  * Persistence goes through `settings.mutate` against the plugin's own entry
  * config (namespace = the entry id `dsh-subagent-registry`), the same
  * describe → mutate(with revision) → one-conflict-retry spell
- * dsh-tui's preference writer uses. The texts follow the configured
- * `language` via the packaged `locale/<language>.json`.
+ * dsh-tui's preference writer uses. Non-volatile switches (`ptcEnabled` /
+ * `agyEnabled`) are refused by that volatile-only form on rc hosts, so those
+ * writes go through `ctx.configEditor.edit` instead (full profile row). The
+ * texts follow the configured `language` via the packaged
+ * `locale/<language>.json`.
  *
  * Degradation: on a headless deployment no answerer accepts the ask (the
  * service rejects with `NO_PROVIDER`) — the handler catches any ask failure
@@ -85,6 +94,13 @@ export interface SubagentsStrings {
     qOptInHeader: string;
     qOptInQuestion: string;
     qOptInDetail: string;
+    qAgyHeader: string;
+    qAgyQuestion: string;
+    qAgyDetail: string;
+    qAgyEnableLabel: string;
+    qAgyDisableLabel: string;
+    qAgyEnableDesc: string;
+    qAgyDisableDesc: string;
     ptcBlurb: string;
     minimalBlurb: string;
     stateInstalled: string;
@@ -100,6 +116,14 @@ export interface SubagentsStrings {
     installFailedLine: string;
     ptcEnabledLine: string;
     ptcDisabledLine: string;
+    agyBlurb: string;
+    agyOnNow: string;
+    agyOffNow: string;
+    agyFound: string;
+    agyNotFound: string;
+    agyEnabledLine: string;
+    agyDisabledLine: string;
+    agyStatusLine: string;
     rosterRefreshed: string;
     rosterRefreshFailed: string;
     persistFailed: string;
@@ -140,11 +164,42 @@ export interface SubagentsCommandDeps {
     refreshRoster: () => Promise<void>;
     /** Live codemode-switch reader (settings surface first, apply value fallback). */
     isPtcEnabled: () => boolean;
+    /**
+     * Live agy switch state. Absent = built without agy wiring: both original
+     * question option lists stay byte-for-byte identical to the pre-agy wizard
+     * and no agy question is asked. When wired, a separate Q3 is added with the
+     * on/off + found/not-found marks; Q2 never carries an agy row.
+     */
+    agy?: () => AgyCommandState;
+}
+/** The agy state the wizard needs for its option rows and status line. */
+export interface AgyCommandState {
+    /** Master switch (`agyEnabled`, non-volatile). */
+    enabled: boolean;
+    /** Whether `resolveExecutable('agy')` found the command. */
+    resolved: boolean;
+    /** Why the command was not found (shown in the agy question). */
+    reason?: string;
+    /** Visible built-in member (undefined when disabled / unresolved / shadowed). */
+    definition?: {
+        name: string;
+        displayName: string;
+    };
+    /**
+     * Built-in member ignoring the roster toggle, for the disable question —
+     * a stopped agy must stay visible so it can be re-enabled there.
+     */
+    definitionIgnoringToggle?: {
+        name: string;
+        displayName: string;
+    };
 }
 /** Question id of the disable toggle (the answer echoes it back). */
 export declare const DISABLE_QUESTION_ID = "disable-agents";
 /** Question id of the opt-in install (the answer echoes it back). */
 export declare const OPT_IN_QUESTION_ID = "opt-in-agents";
+/** Question id of the standalone agy switch (the answer echoes it back). */
+export declare const AGY_QUESTION_ID = "agy-switch";
 /** The host command name (satisfies the host's `/^[a-z][a-z0-9_-]*$/` rule). */
 export declare const REGISTRY_CONFIG_COMMAND_NAME = "registry-config";
 /**
@@ -162,9 +217,32 @@ export declare const REGISTRY_CONFIG_COMMAND_NAME = "registry-config";
  */
 export declare function registerSubagentsCommand(deps: SubagentsCommandDeps): void;
 /** Build the disable-toggle question (roster snapshot + current state marks). */
-export declare function buildDisableQuestion(strings: SubagentsStrings, agents: readonly AgentFile[], currentlyDisabled: readonly string[]): AskQuestionItem;
-/** Build the opt-in install question (installed/enabled state marks). */
+export declare function buildDisableQuestion(strings: SubagentsStrings, agents: readonly AgentFile[], currentlyDisabled: readonly string[], builtinAgy?: {
+    name: string;
+    displayName: string;
+}): AskQuestionItem;
+/**
+ * Build the opt-in install question (installed/enabled state marks).
+ * Deliberately takes no agy input: its two option rows stay byte-for-byte
+ * identical whether or not agy is wired, so answering it can never flip agy.
+ */
 export declare function buildOptInQuestion(strings: SubagentsStrings, agentsDir: string, ptcEnabled: boolean): AskQuestionItem;
+/**
+ * The two Q3 option labels, shared by the builder and the answer handler so
+ * the comparison uses exactly the labels this question generated (never a
+ * hardcoded zh/en literal). The TUI echoes the chosen label back in `selected`.
+ */
+export declare function agyQuestionLabels(strings: SubagentsStrings): {
+    enable: string;
+    disable: string;
+};
+/**
+ * Build the standalone agy switch question (only when agy is wired). A
+ * single-select pair of locale-labeled options: "on" / "off". Since T20 treats
+ * an empty selection as "not answered", the off path needs its own option.
+ * The live switch state and command resolution are carried in the detail.
+ */
+export declare function buildAgyQuestion(strings: SubagentsStrings, agy: AgyCommandState): AskQuestionItem;
 /** The wizard body: ask, resolve, install, persist, refresh, report. */
 export declare function handleSubagentsCommand(deps: SubagentsCommandDeps, invocation: SubagentsCommandInvocation): Promise<SubagentsCommandResult>;
 export {};
