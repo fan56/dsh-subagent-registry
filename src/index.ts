@@ -44,7 +44,7 @@ import { makePtcEnabledReader, registerSubagentsCommand } from './subagents-comm
 const BUNDLED_SKILL_RANK = 600
 import { agentsDir, expandHome } from './agents-dir.ts'
 import { seedBundledAgents } from './seed-defaults.ts'
-import { runAgentTool, type RunAgentConfig } from './tool-run-agent.ts'
+import { runAgentTool, visibleBuiltinAgy, type RunAgentConfig } from './tool-run-agent.ts'
 import { askAgentTool } from './interactive.ts'
 import { registerDelegationGuidance } from './delegation-guidance.ts'
 import { registerPresetsRpc } from './presets-rpc.ts'
@@ -385,6 +385,20 @@ export function apply(ctx: Context, config: RunAgentConfig): void {
     disabledAgents: runConfig.disabledAgents,
     refreshRoster: () => refreshRoster(),
     isPtcEnabled: makePtcEnabledReader(ctx, (runConfig as { ptcEnabled?: boolean }).ptcEnabled === true),
+    agy: () => {
+      const definition = visibleBuiltinAgy(dir, {
+        enabled: runConfig.agy?.enabled === true,
+        resolveExecutable: runConfig.agy?.resolveExecutable ?? (() => undefined),
+        disabledAgents: runConfig.disabledAgents,
+        language: runConfig.language,
+      })
+      return {
+        enabled: agyEnabled,
+        resolved: agyExecutable !== undefined,
+        reason: agyExecutable === undefined ? agyResolutionReason : undefined,
+        definition: definition === undefined ? undefined : { name: definition.name, displayName: definition.displayName },
+      }
+    },
   })
   // Activation hosts (the 0.2.1 line) carry a fresh child's persona and leaf
   // scoping out-of-band: the start request no longer holds `persona` /

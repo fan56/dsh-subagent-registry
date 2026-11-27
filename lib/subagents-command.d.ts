@@ -100,6 +100,14 @@ export interface SubagentsStrings {
     installFailedLine: string;
     ptcEnabledLine: string;
     ptcDisabledLine: string;
+    agyBlurb: string;
+    agyOnNow: string;
+    agyOffNow: string;
+    agyFound: string;
+    agyNotFound: string;
+    agyEnabledLine: string;
+    agyDisabledLine: string;
+    agyStatusLine: string;
     rosterRefreshed: string;
     rosterRefreshFailed: string;
     persistFailed: string;
@@ -140,6 +148,27 @@ export interface SubagentsCommandDeps {
     refreshRoster: () => Promise<void>;
     /** Live codemode-switch reader (settings surface first, apply value fallback). */
     isPtcEnabled: () => boolean;
+    /**
+     * Live agy switch state. Absent = built without agy wiring: both question
+     * option lists stay byte-for-byte identical to the pre-agy wizard. When the
+     * switch is OFF the agy rows are also omitted, so the lists stay identical
+     * on a machine that has not opted in.
+     */
+    agy?: () => AgyCommandState;
+}
+/** The agy state the wizard needs for its option rows and status line. */
+export interface AgyCommandState {
+    /** Master switch (`agyEnabled`, non-volatile). */
+    enabled: boolean;
+    /** Whether `resolveExecutable('agy')` found the command. */
+    resolved: boolean;
+    /** Why the command was not found (shown in the opt-in row). */
+    reason?: string;
+    /** Visible built-in member (undefined when disabled / unresolved / shadowed). */
+    definition?: {
+        name: string;
+        displayName: string;
+    };
 }
 /** Question id of the disable toggle (the answer echoes it back). */
 export declare const DISABLE_QUESTION_ID = "disable-agents";
@@ -162,9 +191,12 @@ export declare const REGISTRY_CONFIG_COMMAND_NAME = "registry-config";
  */
 export declare function registerSubagentsCommand(deps: SubagentsCommandDeps): void;
 /** Build the disable-toggle question (roster snapshot + current state marks). */
-export declare function buildDisableQuestion(strings: SubagentsStrings, agents: readonly AgentFile[], currentlyDisabled: readonly string[]): AskQuestionItem;
+export declare function buildDisableQuestion(strings: SubagentsStrings, agents: readonly AgentFile[], currentlyDisabled: readonly string[], builtinAgy?: {
+    name: string;
+    displayName: string;
+}): AskQuestionItem;
 /** Build the opt-in install question (installed/enabled state marks). */
-export declare function buildOptInQuestion(strings: SubagentsStrings, agentsDir: string, ptcEnabled: boolean): AskQuestionItem;
+export declare function buildOptInQuestion(strings: SubagentsStrings, agentsDir: string, ptcEnabled: boolean, agy?: AgyCommandState): AskQuestionItem;
 /** The wizard body: ask, resolve, install, persist, refresh, report. */
 export declare function handleSubagentsCommand(deps: SubagentsCommandDeps, invocation: SubagentsCommandInvocation): Promise<SubagentsCommandResult>;
 export {};

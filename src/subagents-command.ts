@@ -138,6 +138,14 @@ export interface SubagentsStrings {
   installFailedLine: string
   ptcEnabledLine: string
   ptcDisabledLine: string
+  agyBlurb: string
+  agyOnNow: string
+  agyOffNow: string
+  agyFound: string
+  agyNotFound: string
+  agyEnabledLine: string
+  agyDisabledLine: string
+  agyStatusLine: string
   rosterRefreshed: string
   rosterRefreshFailed: string
   persistFailed: string
@@ -178,6 +186,14 @@ const EN_STRINGS: SubagentsStrings = {
   installFailedLine: 'Install failed: {id} ({error})',
   ptcEnabledLine: 'ptcEnabled → true: the codemode tool registers on the next plugin mount (dsh restart).',
   ptcDisabledLine: 'ptcEnabled → false: the codemode tool will not register (applied on the next mount); an installed ptc-subagent.md is kept but excluded from the roster.',
+  agyBlurb: 'Experimental. agy (Google Antigravity CLI) via ACP, billed to the Google AI plan; foreground one-shot only — dispatch one task at a time.',
+  agyOnNow: 'agy enabled',
+  agyOffNow: 'agy disabled',
+  agyFound: 'command found',
+  agyNotFound: 'command not found: {reason}',
+  agyEnabledLine: 'agyEnabled → true: the registry-acp provider registers and "agy" joins the roster on the next plugin mount (dsh restart).',
+  agyDisabledLine: 'agyEnabled → false: the registry-acp provider is removed and "agy" leaves the roster on the next plugin mount (dsh restart).',
+  agyStatusLine: 'Experimental: agy dispatches through Google Antigravity CLI over ACP, billed to the Google AI plan (not the dsh model quota). It reads/writes files and runs commands in the current working directory, and the hooks in that directory WILL RUN; permission prompts are auto-answered per agyPermission (default reject). Foreground one-shot only; each call waits for agy to exit (task time plus up to ~9s teardown).',
   rosterRefreshed: 'Tool roster refreshed.',
   rosterRefreshFailed: 'Roster refresh failed: {error} — it applies when the management page is reopened or on the next dispatch.',
   persistFailed: 'Config write failed: {error}',
@@ -289,6 +305,25 @@ export interface SubagentsCommandDeps {
   refreshRoster: () => Promise<void>
   /** Live codemode-switch reader (settings surface first, apply value fallback). */
   isPtcEnabled: () => boolean
+  /**
+   * Live agy switch state. Absent = built without agy wiring: both question
+   * option lists stay byte-for-byte identical to the pre-agy wizard. When the
+   * switch is OFF the agy rows are also omitted, so the lists stay identical
+   * on a machine that has not opted in.
+   */
+  agy?: () => AgyCommandState
+}
+
+/** The agy state the wizard needs for its option rows and status line. */
+export interface AgyCommandState {
+  /** Master switch (`agyEnabled`, non-volatile). */
+  enabled: boolean
+  /** Whether `resolveExecutable('agy')` found the command. */
+  resolved: boolean
+  /** Why the command was not found (shown in the opt-in row). */
+  reason?: string
+  /** Visible built-in member (undefined when disabled / unresolved / shadowed). */
+  definition?: { name: string; displayName: string }
 }
 
 /** Question id of the disable toggle (the answer echoes it back). */
@@ -360,18 +395,28 @@ export function buildDisableQuestion(
   strings: SubagentsStrings,
   agents: readonly AgentFile[],
   currentlyDisabled: readonly string[],
+  builtinAgy?: { name: string; displayName: string },
 ): AskQuestionItem {
   const disabled = new Set(currentlyDisabled)
+  const options = agents.map((agent) => ({
+    label: agent.meta.name,
+    description: disabled.has(agent.meta.name) ? strings.markDisabled : strings.markEnabled,
+  }))
+  // The built-in member joins the roster toggle exactly where it joins the
+  // use_agent roster: enabled, resolvable, not disabled, no shadowing file.
+  if (builtinAgy !== undefined) {
+    options.push({
+      label: builtinAgy.name,
+      description: disabled.has(builtinAgy.name) ? strings.markDisabled : strings.markEnabled,
+    })
+  }
   return {
     id: DISABLE_QUESTION_ID,
     header: strings.qDisableHeader,
     question: strings.qDisableQuestion,
     detail: strings.qDisableDetail,
     multiSelect: true,
-    options: agents.map((agent) => ({
-      label: agent.meta.name,
-      description: disabled.has(agent.meta.name) ? strings.markDisabled : strings.markEnabled,
-    })),
+    options,
   }
 }
 
@@ -380,25 +425,38 @@ export function buildOptInQuestion(
   strings: SubagentsStrings,
   agentsDir: string,
   ptcEnabled: boolean,
+  agy?: AgyCommandState,
 ): AskQuestionItem {
   const ptcInstalled = existsSync(join(agentsDir, 'ptc-subagent.md'))
   const minimalInstalled = existsSync(join(agentsDir, 'minimal-subagent.md'))
+  const options: AskOptionItem[] = [
+    {
+      label: 'ptc-subagent',
+      description: `${strings.ptcBlurb} [${ptcInstalled ? strings.stateInstalled : strings.stateMissing} · ${ptcEnabled ? strings.ptcOnNow : strings.ptcOffNow}]`,
+    },
+    {
+      label: 'minimal-subagent',
+      description: `${strings.minimalBlurb} [${minimalInstalled ? strings.stateInstalled : strings.stateMissing}]`,
+    },
+  ]
+  // The agy row is shown only when the switch is already on: turning it on is
+  // a non-volatile change (settings / manual patch), while this wizard turns
+  // it off. With the switch off the two question lists are byte-identical.
+  if (agy?.enabled === true) {
+    options.push({
+      label: 'agy',
+      description: `${strings.agyBlurb} [${strings.agyOnNow} · ${agy.resolved
+        ? strings.agyFound
+        : format(strings.agyNotFound, { reason: agy.reason ?? strings.stateMissing })}]`,
+    })
+  }
   return {
     id: OPT_IN_QUESTION_ID,
     header: strings.qOptInHeader,
     question: strings.qOptInQuestion,
     detail: strings.qOptInDetail,
     multiSelect: true,
-    options: [
-      {
-        label: 'ptc-subagent',
-        description: `${strings.ptcBlurb} [${ptcInstalled ? strings.stateInstalled : strings.stateMissing} · ${ptcEnabled ? strings.ptcOnNow : strings.ptcOffNow}]`,
-      },
-      {
-        label: 'minimal-subagent',
-        description: `${strings.minimalBlurb} [${minimalInstalled ? strings.stateInstalled : strings.stateMissing}]`,
-      },
-    ],
+    options,
   }
 }
 
@@ -420,14 +478,16 @@ export async function handleSubagentsCommand(
     return { kind: 'error', text: `${strings.askUnavailable}\n\n${strings.manualHint}` }
   }
 
-  // Snapshot the roster + current toggle state for the questions.
+  // Snapshot the roster + current toggle state for the questions. With the agy
+  // switch off (or no agy wiring at all) the two option lists stay unchanged.
   const { agents } = listAgentFiles(deps.agentsDir)
   const currentDisabled = [...currentDisabledAgents(deps.disabledAgents)]
+  const agy = deps.agy?.()
   const questions: AskQuestionItem[] = []
   if (agents.length > 0) {
-    questions.push(buildDisableQuestion(strings, agents, currentDisabled))
+    questions.push(buildDisableQuestion(strings, agents, currentDisabled, agy?.definition))
   }
-  questions.push(buildOptInQuestion(strings, deps.agentsDir, deps.isPtcEnabled()))
+  questions.push(buildOptInQuestion(strings, deps.agentsDir, deps.isPtcEnabled(), agy))
 
   let answers: readonly AskAnswerItem[] | undefined
   try {
@@ -497,6 +557,14 @@ export async function handleSubagentsCommand(
   if (ptcChanged) {
     ops.push({ op: 'set', path: ['ptcEnabled'], value: desiredPtc })
   }
+  // agy row is only present while the switch is ON; unchecking it writes false
+  // (non-volatile → the next mount unregisters the provider). A declined Q2
+  // never flips it, same rule as ptcEnabled.
+  const agySelected = (optInSelected ?? []).includes('agy')
+  const agyChanged = agy?.enabled === true && optInSelected !== undefined && !agySelected
+  if (agyChanged) {
+    ops.push({ op: 'set', path: ['agyEnabled'], value: false })
+  }
   if (ops.length > 0) {
     const persistMessage = await writeRegistryConfig(deps.ctx, ops)
     if (persistMessage !== undefined) {
@@ -519,6 +587,7 @@ export async function handleSubagentsCommand(
     || alreadyPresent.length > 0
     || installFailures.length > 0
     || ptcChanged
+    || agyChanged
   if (!changed) return { kind: 'success', text: strings.noChanges }
 
   // Apply the hot toggle to the tool descriptions (the volatile write swapped
@@ -536,5 +605,7 @@ export async function handleSubagentsCommand(
   if (alreadyPresent.length > 0) notes.push(format(strings.presentLine, { ids: alreadyPresent.join(', ') }))
   notes.push(...installFailures)
   if (ptcChanged) notes.push(desiredPtc ? strings.ptcEnabledLine : strings.ptcDisabledLine)
+  if (agy?.enabled === true) notes.push(strings.agyStatusLine)
+  if (agyChanged) notes.push(agySelected ? strings.agyEnabledLine : strings.agyDisabledLine)
   return { kind: 'success', text: notes.join('\n') }
 }
