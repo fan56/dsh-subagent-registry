@@ -48,7 +48,7 @@ import {
   loadAgent,
   stopReasonError,
   textOf,
-  visibleBuiltinAgy,
+  builtinAgyIgnoringToggle,
   type DisabledAgentsInput,
 } from './tool-run-agent.ts'
 import { BUILTIN_AGY_ID } from './builtin-agy.ts'
@@ -322,7 +322,7 @@ export function askAgentTool(ctx: Context, cfg: AskAgentConfig) {
   // The built-in agy is a one-shot external worker: it is deliberately NOT in
   // this follow-up roster (name list above comes from files only), and naming
   // it at execute time earns the stable ACP_FOREGROUND_ONLY copy.
-  const agyMember = cfg.agy === undefined ? undefined : visibleBuiltinAgy(cfg.agentsDir, {
+  const agyMember = cfg.agy === undefined ? undefined : builtinAgyIgnoringToggle(cfg.agentsDir, {
     enabled: cfg.agy.enabled,
     resolveExecutable: cfg.agy.resolveExecutable,
     disabledAgents: cfg.disabledAgents,

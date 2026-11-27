@@ -485,7 +485,10 @@ export async function handleSubagentsCommand(
   const agy = deps.agy?.()
   const questions: AskQuestionItem[] = []
   if (agents.length > 0) {
-    questions.push(buildDisableQuestion(strings, agents, currentDisabled, agy?.definition))
+    questions.push(buildDisableQuestion(
+      strings, agents, currentDisabled,
+      agy?.enabled === true ? agy.definition : undefined,
+    ))
   }
   questions.push(buildOptInQuestion(strings, deps.agentsDir, deps.isPtcEnabled(), agy))
 

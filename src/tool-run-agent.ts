@@ -141,11 +141,13 @@ export interface AgyRoutingInput {
 }
 
 /**
- * Resolve the built-in agy definition that is actually visible in this roster.
- * A user-owned `agy.md` (valid OR broken) always shadows the built-in; the
- * async executable lookup lives in the caller's cached resolver.
+ * Resolve the built-in definition ignoring the roster toggle — execute needs
+ * this shape so a model that hard-names a toggled-off agy gets the same
+ * "disabled" error as any other agent instead of "unknown agent". A user-owned
+ * `agy.md` (valid OR broken) always shadows the built-in; the async executable
+ * lookup lives in the caller's cached resolver.
  */
-export function visibleBuiltinAgy(dir: string, input: AgyRoutingInput): BuiltinAgyDefinition | undefined {
+export function builtinAgyIgnoringToggle(dir: string, input: AgyRoutingInput): BuiltinAgyDefinition | undefined {
   if (input.enabled !== true) return undefined
   const { agents, broken } = listAgentFiles(dir)
   const userNames = new Set(agents.map((agent) => agent.meta.name))
@@ -153,10 +155,17 @@ export function visibleBuiltinAgy(dir: string, input: AgyRoutingInput): BuiltinA
   return resolveBuiltinAgy({
     language: input.language ?? 'zh',
     enabled: true,
-    disabledAgents: currentDisabledAgents(input.disabledAgents),
     resolveExecutable: input.resolveExecutable,
     parseUserAgent: (name) => (userNames.has(name) ? { ok: true } : undefined),
   })
+}
+
+/** Resolve the built-in agy definition visible in the roster (toggle applied). */
+export function visibleBuiltinAgy(dir: string, input: AgyRoutingInput): BuiltinAgyDefinition | undefined {
+  const definition = builtinAgyIgnoringToggle(dir, input)
+  if (definition === undefined) return undefined
+  if (currentDisabledAgents(input.disabledAgents).includes(BUILTIN_AGY_ID)) return undefined
+  return definition
 }
 
 /** Collect the built-in agy inputs from the tool config into the pure seam. */
@@ -743,7 +752,8 @@ export function runAgentTool(ctx: Context, cfg: RunAgentConfig) {
       // Built-in external agy has NO agent file: route BEFORE loadAgent so a
       // valid dispatch never collapses into `unknown agent "agy"`. A user-owned
       // agy.md shadows this branch and follows the ordinary in-process path.
-      if (agyMember !== undefined && args.agent === BUILTIN_AGY_ID) {
+      const routableAgy = builtinAgyIgnoringToggle(dir, agyRoutingOf(cfg))
+      if (routableAgy !== undefined && args.agent === BUILTIN_AGY_ID) {
         if (isAgentDisabled(args.agent, cfg.disabledAgents)) {
           throw new Error(
             `agent "${args.agent}" is disabled by the disabledAgents plugin config ` +
@@ -758,11 +768,11 @@ export function runAgentTool(ctx: Context, cfg: RunAgentConfig) {
         }
         // persona inline: the external provider has no local Agent to carry a
         // parked composition, so the brief rides the user prompt verbatim.
-        const promptText = `${agyMember.body}\n\n---\n\n${args.prompt}`
+        const promptText = `${routableAgy.body}\n\n---\n\n${args.prompt}`
         let activation: SubagentActivation
         try {
           activation = await activateExternal(
-            ctx, 'registry-acp', agyMember.displayName,
+            ctx, 'registry-acp', routableAgy.displayName,
             [{ type: 'text', text: promptText }], exec.signal, 'caller', parent,
           )
         } catch (error) {

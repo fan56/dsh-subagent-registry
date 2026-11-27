@@ -94,10 +94,14 @@ export interface AgyRoutingInput {
     language?: Language;
 }
 /**
- * Resolve the built-in agy definition that is actually visible in this roster.
- * A user-owned `agy.md` (valid OR broken) always shadows the built-in; the
- * async executable lookup lives in the caller's cached resolver.
+ * Resolve the built-in definition ignoring the roster toggle — execute needs
+ * this shape so a model that hard-names a toggled-off agy gets the same
+ * "disabled" error as any other agent instead of "unknown agent". A user-owned
+ * `agy.md` (valid OR broken) always shadows the built-in; the async executable
+ * lookup lives in the caller's cached resolver.
  */
+export declare function builtinAgyIgnoringToggle(dir: string, input: AgyRoutingInput): BuiltinAgyDefinition | undefined;
+/** Resolve the built-in agy definition visible in the roster (toggle applied). */
 export declare function visibleBuiltinAgy(dir: string, input: AgyRoutingInput): BuiltinAgyDefinition | undefined;
 /**
  * Every known agent-spawning tool name in the dsh base distribution, PLUS this
