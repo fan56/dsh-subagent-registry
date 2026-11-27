@@ -172,9 +172,10 @@ frontmatter 键，官方没有轮数预算能力，继续由宿主 TUI 硬停梯
 名册里**（`ask_agent` 追问的是后台 dsh 子代理）。若 `~/.dsh/agents/agy.md` 存在，
 名册里列出的是你自己的普通 dsh 成员文件，而非内置 agy。
 
-怎么开关：会话里输入 `/registry-config`，在 opt-in 问题里勾选
-「agy（Gemini 套餐 · 实验性）」写入 `agyEnabled: true`，取消写回 `false`；翻转在
-插件下次挂载（重启 dsh）时生效。打开后还可在「停用开关」问题里勾选 agy 把它从
+怎么开关：会话里输入 `/registry-config`，向导会多问一条 **agy 开关**问题：勾选
+「agy（Gemini 套餐 · 实验性）」写入 `agyEnabled: true`，取消勾选写回 `false`，跳过
+该题则不改动；翻转在插件下次挂载（重启 dsh）时生效。opt-in 安装问题里没有 agy
+行，回答它不会碰 agy 或 codemode。打开后还可在「停用开关」问题里勾选 agy 把它从
 名册摘掉（`disabledAgents`，热生效、不动文件）。向导打不开（无 ask 面板）时，
 手改 `~/.dsh/profiles/<profile>/cordis.patch.yml` 里 registry 行的 `config:`
 加 `agyEnabled: true`，再重启 dsh。配置键（同在该 `config:` 段）：`agyEnabled`

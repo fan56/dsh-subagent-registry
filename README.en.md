@@ -238,14 +238,19 @@ background dsh subagents; agy is a one-shot foreground dispatch). If a local
 `~/.dsh/agents/agy.md` exists, the roster lists that ordinary dsh member file
 instead of the built-in agy.
 
-**How to turn it on.** In the session, type `/registry-config` and check
-`agy (Gemini plan · experimental)` in the opt-in question (checking writes
-`agyEnabled: true`, unchecking writes `false`; the flip takes effect on the next
-plugin mount / dsh restart). Once on, you can still check `agy` in the disable
-question to drop it from the roster (`disabledAgents`, hot-applies, touches no
-files). When the wizard cannot open (no ask surface), edit the `config:` of the
-registry row in `~/.dsh/profiles/<profile>/cordis.patch.yml` by hand: add
-`agyEnabled: true`, then restart dsh.
+**How to turn it on.** In the session, type `/registry-config`: the wizard asks
+one extra **agy switch** question — check `agy (Gemini plan · experimental)` to
+write `agyEnabled: true`, uncheck to write `false`, or skip to leave it unchanged
+(the flip takes effect on the next plugin mount / dsh restart). The opt-in
+install question has no agy row; answering it never touches agy or codemode.
+Once on, you can still check `agy` in the disable question to drop it from the
+roster (`disabledAgents`, hot-applies, touches no files). When the wizard cannot
+open (no ask surface), edit the `config:` of the registry row in
+`~/.dsh/profiles/<profile>/cordis.patch.yml` by hand: add `agyEnabled: true`,
+then restart dsh.
+
+Note: wizard edits rewrite the registry row's `config:` block — comments inside
+that block are lost; put hand-written comments above the `config:` line instead.
 
 Config keys (all on the registry row's `config:` section, also shown as comments
 in the default `cordis.patch.yml`):

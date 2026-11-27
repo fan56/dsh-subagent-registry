@@ -17,6 +17,10 @@
  *    `ptcEnabled: true` (the codemode tool registers on the next plugin
  *    mount); unselecting flips it back to false and parks the installed
  *    `ptc-subagent` in `disabledAgents` (file kept, roster excluded).
+ * 3. **The agy switch** (`agyEnabled`, non-volatile, only when agy is wired):
+ *    a separate single-option question. Checking turns agy on, unchecking turns
+ *    it off, skipping leaves it untouched — Q2 never carries an agy row, so
+ *    answering it for any other purpose cannot flip codemode or agy.
  *
  * Persistence goes through `settings.mutate` against the plugin's own entry
  * config (namespace = the entry id `dsh-subagent-registry`), the same
@@ -88,6 +92,9 @@ export interface SubagentsStrings {
     qOptInHeader: string;
     qOptInQuestion: string;
     qOptInDetail: string;
+    qAgyHeader: string;
+    qAgyQuestion: string;
+    qAgyDetail: string;
     ptcBlurb: string;
     minimalBlurb: string;
     stateInstalled: string;
@@ -152,11 +159,10 @@ export interface SubagentsCommandDeps {
     /** Live codemode-switch reader (settings surface first, apply value fallback). */
     isPtcEnabled: () => boolean;
     /**
-     * Live agy switch state. Absent = built without agy wiring: both question
-     * option lists stay byte-for-byte identical to the pre-agy wizard. When
-     * wired, the opt-in row is always shown (with its on/off + found/not-found
-     * marks), so the documented "check agy to enable it" path stays reachable
-     * while the switch is off.
+     * Live agy switch state. Absent = built without agy wiring: both original
+     * question option lists stay byte-for-byte identical to the pre-agy wizard
+     * and no agy question is asked. When wired, a separate Q3 is added with the
+     * on/off + found/not-found marks; Q2 never carries an agy row.
      */
     agy?: () => AgyCommandState;
 }
@@ -166,7 +172,7 @@ export interface AgyCommandState {
     enabled: boolean;
     /** Whether `resolveExecutable('agy')` found the command. */
     resolved: boolean;
-    /** Why the command was not found (shown in the opt-in row). */
+    /** Why the command was not found (shown in the agy question). */
     reason?: string;
     /** Visible built-in member (undefined when disabled / unresolved / shadowed). */
     definition?: {
@@ -186,6 +192,8 @@ export interface AgyCommandState {
 export declare const DISABLE_QUESTION_ID = "disable-agents";
 /** Question id of the opt-in install (the answer echoes it back). */
 export declare const OPT_IN_QUESTION_ID = "opt-in-agents";
+/** Question id of the standalone agy switch (the answer echoes it back). */
+export declare const AGY_QUESTION_ID = "agy-switch";
 /** The host command name (satisfies the host's `/^[a-z][a-z0-9_-]*$/` rule). */
 export declare const REGISTRY_CONFIG_COMMAND_NAME = "registry-config";
 /**
@@ -207,8 +215,18 @@ export declare function buildDisableQuestion(strings: SubagentsStrings, agents: 
     name: string;
     displayName: string;
 }): AskQuestionItem;
-/** Build the opt-in install question (installed/enabled state marks). */
-export declare function buildOptInQuestion(strings: SubagentsStrings, agentsDir: string, ptcEnabled: boolean, agy?: AgyCommandState): AskQuestionItem;
+/**
+ * Build the opt-in install question (installed/enabled state marks).
+ * Deliberately takes no agy input: its two option rows stay byte-for-byte
+ * identical whether or not agy is wired, so answering it can never flip agy.
+ */
+export declare function buildOptInQuestion(strings: SubagentsStrings, agentsDir: string, ptcEnabled: boolean): AskQuestionItem;
+/**
+ * Build the standalone agy switch question (only when agy is wired). One
+ * option, explicit check = on / uncheck = off / skip = unchanged; its marks
+ * carry both the switch state and whether the command was resolved.
+ */
+export declare function buildAgyQuestion(strings: SubagentsStrings, agy: AgyCommandState): AskQuestionItem;
 /** The wizard body: ask, resolve, install, persist, refresh, report. */
 export declare function handleSubagentsCommand(deps: SubagentsCommandDeps, invocation: SubagentsCommandInvocation): Promise<SubagentsCommandResult>;
 export {};

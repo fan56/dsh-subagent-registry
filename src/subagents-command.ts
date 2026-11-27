@@ -17,6 +17,10 @@
  *    `ptcEnabled: true` (the codemode tool registers on the next plugin
  *    mount); unselecting flips it back to false and parks the installed
  *    `ptc-subagent` in `disabledAgents` (file kept, roster excluded).
+ * 3. **The agy switch** (`agyEnabled`, non-volatile, only when agy is wired):
+ *    a separate single-option question. Checking turns agy on, unchecking turns
+ *    it off, skipping leaves it untouched — Q2 never carries an agy row, so
+ *    answering it for any other purpose cannot flip codemode or agy.
  *
  * Persistence goes through `settings.mutate` against the plugin's own entry
  * config (namespace = the entry id `dsh-subagent-registry`), the same
@@ -138,6 +142,9 @@ export interface SubagentsStrings {
   qOptInHeader: string
   qOptInQuestion: string
   qOptInDetail: string
+  qAgyHeader: string
+  qAgyQuestion: string
+  qAgyDetail: string
   ptcBlurb: string
   minimalBlurb: string
   stateInstalled: string
@@ -186,6 +193,9 @@ const EN_STRINGS: SubagentsStrings = {
   qOptInHeader: 'Opt-in agents',
   qOptInQuestion: 'Check the opt-in agents to install / keep enabled (both Experimental — disabled by default).',
   qOptInDetail: 'Experimental — disabled by default. Installing copies the template into the agents dir (an existing file is never overwritten; unchecking never deletes a copied file).',
+  qAgyHeader: 'agy switch',
+  qAgyQuestion: 'Check "agy" to enable it, uncheck to disable it; skipping this question leaves the switch unchanged.',
+  qAgyDetail: 'Foreground one-shot only (no background/resume). Concurrency is capped by agyMaxConcurrent (default 1); an extra call fails fast with ACP_BUSY. Permission prompts are decided by the local agy\'s own settings — the registry does not answer for you.',
   ptcBlurb: 'Experimental. Batch decision-work specialist; links ptcEnabled (the codemode toolchain).',
   minimalBlurb: 'Experimental. Minimal terminal-only executor (leaf); no config linkage.',
   stateInstalled: 'installed',
@@ -280,13 +290,18 @@ export async function writeRegistryConfig(ctx: Context, ops: readonly SettingsPa
   if (ops.some((op) => op.path.length === 1 && NON_VOLATILE_SWITCHES.has(op.path[0]))) {
     const editor = host.get?.('configEditor') as ConfigEditorLike | undefined
     if (editor !== undefined && typeof editor.edit === 'function' && typeof editor.entries === 'function') {
+      // The editor writes whole profile rows by top-level key only. A nested
+      // path must fail loudly rather than be silently dropped from the batch.
+      const unsupported = ops.find((op) => op.path.length !== 1)
+      if (unsupported !== undefined) {
+        return `Unsupported config path (${unsupported.path.join('.')}): expected a single config key.`
+      }
       const entry = editor.entries().find((row) => row.options?.id === SUBAGENTS_SETTINGS_NAMESPACE)
       if (entry === undefined) return `Plugin entry "${SUBAGENTS_SETTINGS_NAMESPACE}" is not configurable.`
       try {
         await editor.edit(entry, (current) => {
           const next = { ...current }
           for (const op of ops) {
-            if (op.path.length !== 1) continue
             if (op.op === 'set') next[op.path[0]] = op.value
             else Reflect.deleteProperty(next, op.path[0])
           }
@@ -347,11 +362,10 @@ export interface SubagentsCommandDeps {
   /** Live codemode-switch reader (settings surface first, apply value fallback). */
   isPtcEnabled: () => boolean
   /**
-   * Live agy switch state. Absent = built without agy wiring: both question
-   * option lists stay byte-for-byte identical to the pre-agy wizard. When
-   * wired, the opt-in row is always shown (with its on/off + found/not-found
-   * marks), so the documented "check agy to enable it" path stays reachable
-   * while the switch is off.
+   * Live agy switch state. Absent = built without agy wiring: both original
+   * question option lists stay byte-for-byte identical to the pre-agy wizard
+   * and no agy question is asked. When wired, a separate Q3 is added with the
+   * on/off + found/not-found marks; Q2 never carries an agy row.
    */
   agy?: () => AgyCommandState
 }
@@ -362,7 +376,7 @@ export interface AgyCommandState {
   enabled: boolean
   /** Whether `resolveExecutable('agy')` found the command. */
   resolved: boolean
-  /** Why the command was not found (shown in the opt-in row). */
+  /** Why the command was not found (shown in the agy question). */
   reason?: string
   /** Visible built-in member (undefined when disabled / unresolved / shadowed). */
   definition?: { name: string; displayName: string }
@@ -377,6 +391,8 @@ export interface AgyCommandState {
 export const DISABLE_QUESTION_ID = 'disable-agents'
 /** Question id of the opt-in install (the answer echoes it back). */
 export const OPT_IN_QUESTION_ID = 'opt-in-agents'
+/** Question id of the standalone agy switch (the answer echoes it back). */
+export const AGY_QUESTION_ID = 'agy-switch'
 
 /** Structural `ctx.commands.register` surface (guarded — older hosts omit it). */
 interface CommandsSeam {
@@ -467,12 +483,15 @@ export function buildDisableQuestion(
   }
 }
 
-/** Build the opt-in install question (installed/enabled state marks). */
+/**
+ * Build the opt-in install question (installed/enabled state marks).
+ * Deliberately takes no agy input: its two option rows stay byte-for-byte
+ * identical whether or not agy is wired, so answering it can never flip agy.
+ */
 export function buildOptInQuestion(
   strings: SubagentsStrings,
   agentsDir: string,
   ptcEnabled: boolean,
-  agy?: AgyCommandState,
 ): AskQuestionItem {
   const ptcInstalled = existsSync(join(agentsDir, 'ptc-subagent.md'))
   const minimalInstalled = existsSync(join(agentsDir, 'minimal-subagent.md'))
@@ -486,18 +505,6 @@ export function buildOptInQuestion(
       description: `${strings.minimalBlurb} [${minimalInstalled ? strings.stateInstalled : strings.stateMissing}]`,
     },
   ]
-  // Any agy wiring shows the row — this opt-in question is the documented
-  // enable path, so a default-off install must still see it. The marks carry
-  // both the switch state and whether the command was resolved. Without
-  // wiring (older hosts / no seams) the two question lists stay untouched.
-  if (agy !== undefined) {
-    options.push({
-      label: 'agy',
-      description: `${strings.agyBlurb} [${agy.enabled ? strings.agyOnNow : strings.agyOffNow} · ${agy.resolved
-        ? strings.agyFound
-        : format(strings.agyNotFound, { reason: agy.reason ?? strings.stateMissing })}]`,
-    })
-  }
   return {
     id: OPT_IN_QUESTION_ID,
     header: strings.qOptInHeader,
@@ -505,6 +512,27 @@ export function buildOptInQuestion(
     detail: strings.qOptInDetail,
     multiSelect: true,
     options,
+  }
+}
+
+/**
+ * Build the standalone agy switch question (only when agy is wired). One
+ * option, explicit check = on / uncheck = off / skip = unchanged; its marks
+ * carry both the switch state and whether the command was resolved.
+ */
+export function buildAgyQuestion(strings: SubagentsStrings, agy: AgyCommandState): AskQuestionItem {
+  return {
+    id: AGY_QUESTION_ID,
+    header: strings.qAgyHeader,
+    question: strings.qAgyQuestion,
+    detail: strings.qAgyDetail,
+    multiSelect: true,
+    options: [{
+      label: 'agy',
+      description: `${strings.agyBlurb} [${agy.enabled ? strings.agyOnNow : strings.agyOffNow} · ${agy.resolved
+        ? strings.agyFound
+        : format(strings.agyNotFound, { reason: agy.reason ?? strings.stateMissing })}]`,
+    }],
   }
 }
 
@@ -526,9 +554,10 @@ export async function handleSubagentsCommand(
     return { kind: 'error', text: `${strings.askUnavailable}\n\n${strings.manualHint}` }
   }
 
-  // Snapshot the roster + current toggle state for the questions. The agy row
-  // is present in the opt-in question whenever agy is wired; the roster
-  // question uses the toggle-agnostic definition so a stopped agy can return.
+  // Snapshot the roster + current toggle state for the questions. Q2 never
+  // carries an agy row; Q3 is separate and only exists when agy is wired. The
+  // roster question uses the toggle-agnostic definition so a stopped agy can
+  // be re-enabled there.
   const { agents } = listAgentFiles(deps.agentsDir)
   const currentDisabled = [...currentDisabledAgents(deps.disabledAgents)]
   const agy = deps.agy?.()
@@ -536,7 +565,8 @@ export async function handleSubagentsCommand(
   if (agents.length > 0) {
     questions.push(buildDisableQuestion(strings, agents, currentDisabled, agy?.definitionIgnoringToggle))
   }
-  questions.push(buildOptInQuestion(strings, deps.agentsDir, deps.isPtcEnabled(), agy))
+  questions.push(buildOptInQuestion(strings, deps.agentsDir, deps.isPtcEnabled()))
+  if (agy !== undefined) questions.push(buildAgyQuestion(strings, agy))
 
   let answers: readonly AskAnswerItem[] | undefined
   try {
@@ -553,10 +583,13 @@ export async function handleSubagentsCommand(
     return { kind: 'error', text: `${format(strings.askFailed, { error: detail })}\n\n${strings.manualHint}` }
   }
 
-  // A declined panel (no answer rows at all) changes nothing.
+  // A declined panel (no answer rows at all) changes nothing. An empty
+  // selection is an ANSWER (uncheck everything), not a skip — selectedOf
+  // distinguishes the two by returning undefined only when the row is absent.
   const disableSelected = selectedOf(answers, DISABLE_QUESTION_ID)
   const optInSelected = selectedOf(answers, OPT_IN_QUESTION_ID)
-  if (disableSelected === undefined && optInSelected === undefined) {
+  const agyAnswer = selectedOf(answers, AGY_QUESTION_ID)
+  if (disableSelected === undefined && optInSelected === undefined && agyAnswer === undefined) {
     return { kind: 'success', text: strings.noChanges }
   }
 
@@ -606,13 +639,12 @@ export async function handleSubagentsCommand(
   if (ptcChanged) {
     ops.push({ op: 'set', path: ['ptcEnabled'], value: desiredPtc })
   }
-  // The agy row is shown whenever agy is wired, so Q2 answers flip the switch
-  // in both directions (non-volatile → the next mount registers/unregisters
-  // the provider). A declined Q2 never flips it, same rule as ptcEnabled.
-  const agySelected = (optInSelected ?? []).includes('agy')
-  const agyChanged = agy !== undefined && optInSelected !== undefined && agySelected !== agy.enabled
+  // Q3 owns agy: checked = on, unchecked = off, skipped = untouched. It never
+  // reads Q2, so answering Q2 for an opt-in install cannot flip agy either.
+  const agyOn = (agyAnswer ?? []).includes('agy')
+  const agyChanged = agy !== undefined && agyAnswer !== undefined && agyOn !== agy.enabled
   if (agyChanged) {
-    ops.push({ op: 'set', path: ['agyEnabled'], value: agySelected })
+    ops.push({ op: 'set', path: ['agyEnabled'], value: agyOn })
   }
   if (ops.length > 0) {
     const persistMessage = await writeRegistryConfig(deps.ctx, ops)
@@ -654,7 +686,9 @@ export async function handleSubagentsCommand(
   if (alreadyPresent.length > 0) notes.push(format(strings.presentLine, { ids: alreadyPresent.join(', ') }))
   notes.push(...installFailures)
   if (ptcChanged) notes.push(desiredPtc ? strings.ptcEnabledLine : strings.ptcDisabledLine)
-  if (agy?.enabled === true) notes.push(strings.agyStatusLine)
-  if (agyChanged) notes.push(agySelected ? strings.agyEnabledLine : strings.agyDisabledLine)
+  // Show the warning on the enabling run too: the live state read at question
+  // build time still says "off" when the switch was just checked.
+  if (agy?.enabled === true || (agyChanged && agyOn)) notes.push(strings.agyStatusLine)
+  if (agyChanged) notes.push(agyOn ? strings.agyEnabledLine : strings.agyDisabledLine)
   return { kind: 'success', text: notes.join('\n') }
 }

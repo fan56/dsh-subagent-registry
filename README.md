@@ -201,12 +201,16 @@ NO_PROVIDER）时，命令降级为错误文案，指引用手改配置键（`di
 一次性前台派活）。若本机 `~/.dsh/agents/agy.md` 存在，名册里列出的是你这个普通的
 dsh 成员文件，而不是内置 agy。
 
-**怎么开。** 推荐在会话里输入 `/registry-config`，在 opt-in 问题里勾选
-「agy（Gemini 套餐 · 实验性）」（选中写入 `agyEnabled: true`，取消写回 `false`，
-翻转在插件下次挂载 / 重启 dsh 时生效）。打开后仍可在「停用开关」问题里勾选 agy
+**怎么开。** 推荐在会话里输入 `/registry-config`：向导会多问一条 **agy 开关**问题，
+勾选「agy（Gemini 套餐 · 实验性）」写入 `agyEnabled: true`，取消勾选写回 `false`，
+跳过该题则不改动（翻转在插件下次挂载 / 重启 dsh 时生效）。opt-in 安装问题里没有
+agy 行，回答它不会碰 agy 或 codemode。打开后仍可在「停用开关」问题里勾选 agy
 把它从名册摘掉（`disabledAgents`，热生效、不动任何文件）。向导打不开（无 ask
 面板）时，手改 `~/.dsh/profiles/<profile>/cordis.patch.yml` 里 registry 行的
 `config:`，加 `agyEnabled: true`，再重启 dsh。
+
+注意：用向导改配置会重写 registry 行的 `config:` 块，块内注释会丢；手写注释请写在
+`config:` 行上方。
 
 配置键（都挂在 registry 行的 `config:` 段，默认 `cordis.patch.yml` 的注释块里）：
 

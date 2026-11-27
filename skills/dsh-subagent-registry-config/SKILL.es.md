@@ -139,10 +139,12 @@ hace preguntas de seguimiento a subagentes dsh en segundo plano). Si existe
 `~/.dsh/agents/agy.md`, la lista muestra ese archivo de agente normal y no el agy
 integrado.
 
-Cómo activarlo/desactivarlo: en la sesión, escribe `/registry-config` y marca
-«agy (Gemini · experimental)» en la pregunta opcional para escribir
-`agyEnabled: true` (desmarcar escribe `false`); el cambio se aplica en el siguiente
-montaje del plugin (reinicio de dsh). Una vez activado, también puedes marcar agy en
+Cómo activarlo/desactivarlo: en la sesión, escribe `/registry-config`; el asistente
+hará una pregunta adicional de **interruptor agy**: marcar «agy (Gemini ·
+experimental)» escribe `agyEnabled: true`, desmarcar escribe `false`, y omitir la
+pregunta no cambia nada; el cambio se aplica en el siguiente montaje del plugin
+(reinicio de dsh). La pregunta de instalación opcional no incluye agy: responderla
+no afecta a agy ni a codemode. Una vez activado, también puedes marcar agy en
 la pregunta de desactivación para retirarlo de la lista (`disabledAgents`, se aplica
 en caliente y no toca archivos). Si el asistente no se puede abrir (sin interfaz de
 preguntas), edita a mano la sección `config:` de la fila del plugin en

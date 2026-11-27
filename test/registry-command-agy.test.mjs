@@ -1,35 +1,39 @@
-// /registry-config + agy: byte-identical option lists with the switch off,
-// built-in member merged into the roster toggle when on, agyEnabled writes,
-// and the experimental/hooks/permission status line.
+// /registry-config + agy: Q2 stays byte-identical with or without agy wiring;
+// the standalone agy question (Q3) owns agyEnabled; MF-A lock — answering Q3
+// alone must never flip ptcEnabled or park ptc-subagent in disabledAgents.
 // Run: node test/registry-command-agy.test.mjs  (after `pnpm build`)
 import assert from 'node:assert/strict'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
+  AGY_QUESTION_ID,
+  DISABLE_QUESTION_ID,
+  OPT_IN_QUESTION_ID,
+  SUBAGENTS_SETTINGS_NAMESPACE,
+  buildAgyQuestion,
   buildDisableQuestion,
   buildOptInQuestion,
   handleSubagentsCommand,
   loadSubagentsStrings,
-  DISABLE_QUESTION_ID,
-  OPT_IN_QUESTION_ID,
-  SUBAGENTS_SETTINGS_NAMESPACE,
+  writeRegistryConfig,
 } from '../lib/subagents-command.js'
 
 const EN = loadSubagentsStrings('en')
 const INVOCATION = { agent: { id: 'root-1' }, rawInput: '', signal: new AbortController().signal }
 const DEFINITION = { name: 'agy', displayName: 'Gemini plan · Experimental' }
 
-function agentsDir() {
+function agentsDir(withPtc = false) {
   const dir = mkdtempSync(join(tmpdir(), 'registry-command-agy-'))
   for (const name of ['alpha', 'beta', 'gamma']) {
     writeFileSync(join(dir, `${name}.md`), `---\nname: ${name}\ndescription: "the ${name} agent"\n---\nBody.\n`)
   }
+  if (withPtc) writeFileSync(join(dir, 'ptc-subagent.md'), '---\nname: ptc-subagent\n---\nBody.\n')
   return dir
 }
 
 function fakeCtx(answers) {
-  const recorded = { asks: [], mutations: [], refreshes: 0 }
+  const recorded = { asks: [], mutations: [], refreshes: 0, edits: [] }
   const ctx = {
     recorded,
     get(name) {
@@ -49,6 +53,16 @@ function fakeCtx(answers) {
   return ctx
 }
 
+function withConfigEditor(ctx, current = { ptcEnabled: true, agyEnabled: false }) {
+  const original = ctx.get.bind(ctx)
+  const editor = {
+    entries: () => [{ options: { id: SUBAGENTS_SETTINGS_NAMESPACE } }],
+    async edit(_entry, change) { ctx.recorded.edits.push(change({ ...current }, {})) },
+  }
+  ctx.get = (name) => name === 'configEditor' ? editor : original(name)
+  return ctx
+}
+
 function deps(ctx, dir, agy, extra = {}) {
   return {
     ctx,
@@ -62,174 +76,185 @@ function deps(ctx, dir, agy, extra = {}) {
   }
 }
 
-// --- no wiring: both option lists byte-identical to the pre-agy wizard ------
+const OFF = { enabled: false, resolved: true, reason: undefined }
+const ON = { enabled: true, resolved: true, reason: undefined, definition: DEFINITION, definitionIgnoringToggle: DEFINITION }
+const GOLDEN_Q2 = [
+  { label: 'ptc-subagent', description: `${EN.ptcBlurb} [${EN.stateMissing} · ${EN.ptcOffNow}]` },
+  { label: 'minimal-subagent', description: `${EN.minimalBlurb} [${EN.stateMissing}]` },
+]
+
+// --- Q2: byte-identical with / without agy wiring ---------------------------
 
 {
   const dir = agentsDir()
   try {
-    const ctx = fakeCtx([])
-    await handleSubagentsCommand(deps(ctx, dir), INVOCATION)
-    const questions = ctx.recorded.asks[0].questions
-    assert.deepEqual(
-      questions.find((q) => q.id === DISABLE_QUESTION_ID).options,
-      ['alpha', 'beta', 'gamma'].map((name) => ({ label: name, description: EN.markEnabled })),
-    )
-    assert.deepEqual(
-      questions.find((q) => q.id === OPT_IN_QUESTION_ID).options.map((o) => o.label),
-      ['ptc-subagent', 'minimal-subagent'],
-    )
-    console.log('PASS no wiring: two option lists byte-identical (no agy rows)')
-  } finally {
-    rmSync(dir, { recursive: true, force: true })
-  }
-}
-
-// --- wired + switch off: the agy row is visible, marked off / not found -----
-
-{
-  const dir = agentsDir()
-  try {
-    const ctx = fakeCtx([])
-    await handleSubagentsCommand(deps(ctx, dir, {
-      enabled: false, resolved: false, reason: 'ENOENT',
-    }), INVOCATION)
-    const optIn = ctx.recorded.asks[0].questions.find((q) => q.id === OPT_IN_QUESTION_ID)
-    assert.deepEqual(optIn.options.map((o) => o.label), ['ptc-subagent', 'minimal-subagent', 'agy'])
-    assert.ok(optIn.options[2].description.includes(EN.agyOffNow), 'off switch is marked')
-    assert.ok(optIn.options[2].description.includes('ENOENT'), 'unresolved command is marked')
-
-    const foundCtx = fakeCtx([])
-    await handleSubagentsCommand(deps(foundCtx, dir, {
-      enabled: false, resolved: true, reason: undefined,
-    }), INVOCATION)
-    const found = foundCtx.recorded.asks[0].questions.find((q) => q.id === OPT_IN_QUESTION_ID).options[2].description
-    assert.ok(found.includes(EN.agyOffNow) && found.includes(EN.agyFound) && !found.includes(EN.agyOnNow))
-    console.log('PASS wired + switch off: agy row visible with off/not-found marks')
-  } finally {
-    rmSync(dir, { recursive: true, force: true })
-  }
-}
-
-// --- switch on: agy in the roster toggle and in the opt-in row --------------
-
-{
-  const dir = agentsDir()
-  try {
-    const state = {
-      enabled: true, resolved: true, reason: undefined,
-      definition: DEFINITION, definitionIgnoringToggle: DEFINITION,
+    const built = buildOptInQuestion(EN, dir, false)
+    assert.deepEqual(built.options, GOLDEN_Q2, 'direct builder has exactly two ptc/minimal rows')
+    assert.equal(built.multiSelect, true)
+    for (const [label, agy] of [['no wiring', undefined], ['off', OFF], ['on', ON], ['unresolved', { enabled: false, resolved: false, reason: 'ENOENT' }]]) {
+      const ctx = fakeCtx([])
+      await handleSubagentsCommand(deps(ctx, dir, agy), INVOCATION)
+      const q2 = ctx.recorded.asks[0].questions.find((q) => q.id === OPT_IN_QUESTION_ID)
+      assert.deepEqual(q2, built, `${label}: Q2 identical in full`)
+      assert.deepEqual(q2.options, GOLDEN_Q2, `${label}: Q2 options identical`)
     }
-    const disable = buildDisableQuestion(EN, [], [], DEFINITION)
-    assert.deepEqual(disable.options.map((o) => o.label), ['agy'])
-    assert.equal(disable.options[0].description, EN.markEnabled)
-    const optIn = buildOptInQuestion(EN, dir, false, state)
-    assert.deepEqual(optIn.options.map((o) => o.label), ['ptc-subagent', 'minimal-subagent', 'agy'])
-    assert.match(optIn.options[2].description, /Experimental/)
-    assert.ok(optIn.options[2].description.includes(EN.agyOnNow))
-    assert.ok(optIn.options[2].description.includes(EN.agyFound))
-    const unresolved = buildOptInQuestion(EN, dir, false, {
-      ...state, resolved: false, reason: 'ENOENT',
-    })
-    assert.match(unresolved.options[2].description, /command not found: ENOENT/)
-    console.log('PASS switch on: built-in in roster toggle + opt-in row with resolution state')
+    console.log('PASS Q2: two rows, byte-identical with and without agy wiring')
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
 }
 
-// --- unchecking agy writes agyEnabled=false and reports the status line ----
+// --- Q3: only with wiring; single option; state + resolution + detail -------
 
 {
   const dir = agentsDir()
   try {
-    const ctx = fakeCtx([{ id: OPT_IN_QUESTION_ID, selected: [] }])
-    const result = await handleSubagentsCommand(deps(ctx, dir, {
-      enabled: true, resolved: true, reason: undefined,
-      definition: DEFINITION, definitionIgnoringToggle: DEFINITION,
-    }), INVOCATION)
-    assert.equal(result.kind, 'success')
-    const ops = ctx.recorded.mutations[0].ops
-    const agyOp = ops.find((op) => op.path[0] === 'agyEnabled')
-    assert.ok(agyOp && agyOp.value === false, 'unchecking agy writes agyEnabled=false')
-    assert.match(result.text, /Experimental/)
-    assert.match(result.text, /hooks/i, 'status line warns about hooks')
-    assert.match(result.text, /permission/i, 'status line explains permission handling')
-    assert.match(result.text, /~9s/, 'status line states the teardown expectation')
-    assert.match(result.text, /agyEnabled → false/)
-    console.log('PASS opt-out: agyEnabled=false write + experimental/hooks/permission status')
+    const noCtx = fakeCtx([])
+    await handleSubagentsCommand(deps(noCtx, dir), INVOCATION)
+    assert.equal(noCtx.recorded.asks[0].questions.find((q) => q.id === AGY_QUESTION_ID), undefined, 'no agy question without wiring')
+
+    for (const [state, marks, absent] of [
+      [OFF, [EN.agyOffNow, EN.agyFound], [EN.agyOnNow]],
+      [{ enabled: false, resolved: false, reason: 'ENOENT' }, [EN.agyOffNow, 'ENOENT'], [EN.agyFound]],
+      [{ enabled: true, resolved: false, reason: 'ENOENT' }, [EN.agyOnNow, 'ENOENT'], [EN.agyFound]],
+    ]) {
+      const ctx = fakeCtx([])
+      await handleSubagentsCommand(deps(ctx, dir, state), INVOCATION)
+      const q3 = ctx.recorded.asks[0].questions.find((q) => q.id === AGY_QUESTION_ID)
+      assert.ok(q3, 'Q3 present when wired')
+      assert.equal(q3.multiSelect, true)
+      assert.deepEqual(q3.options.map((o) => o.label), ['agy'], 'Q3 has exactly one option')
+      for (const mark of marks) assert.ok(q3.options[0].description.includes(mark), `description has ${mark}`)
+      for (const mark of absent) assert.ok(!q3.options[0].description.includes(mark), `description omits ${mark}`)
+      assert.match(q3.detail, /foreground/i, 'detail: foreground one-shot')
+      assert.match(q3.detail, /agyMaxConcurrent/, 'detail: concurrency key')
+      assert.match(q3.detail, /Permission/i, 'detail: local agy settings decide permissions')
+      assert.deepEqual(q3, buildAgyQuestion(EN, state), 'Q3 matches the builder')
+    }
+    console.log('PASS Q3: only with wiring, one option, on/off + found/not-found + three limits')
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
 }
 
-// --- leaving agy checked keeps the switch on (no redundant write) ----------
+// --- Q3 checked from off: write true, and the enabling summary warns -------
 
 {
   const dir = agentsDir()
   try {
-    const ctx = fakeCtx([{ id: OPT_IN_QUESTION_ID, selected: ['ptc-subagent', 'agy'] }])
-    const result = await handleSubagentsCommand(deps(ctx, dir, {
-      enabled: true, resolved: true, reason: undefined,
-      definition: DEFINITION, definitionIgnoringToggle: DEFINITION,
-    }), INVOCATION)
-    assert.equal(result.kind, 'success')
-    const ops = ctx.recorded.mutations[0].ops
-    assert.equal(ops.find((op) => op.path[0] === 'agyEnabled'), undefined, 'no redundant write')
-    assert.match(result.text, /Experimental/)
-    assert.doesNotMatch(result.text, /agyEnabled → false/)
-    console.log('PASS opt-in kept: no agyEnabled write when already on')
-  } finally {
-    rmSync(dir, { recursive: true, force: true })
-  }
-}
-
-// --- declined question never flips the non-volatile switch ------------------
-
-{
-  const dir = agentsDir()
-  try {
-    const ctx = fakeCtx([{ id: DISABLE_QUESTION_ID, selected: ['beta'] }])
-    await handleSubagentsCommand(deps(ctx, dir, {
-      enabled: true, resolved: true, reason: undefined,
-      definition: DEFINITION, definitionIgnoringToggle: DEFINITION,
-    }), INVOCATION)
-    assert.equal(ctx.recorded.mutations[0].ops.find((op) => op.path[0] === 'agyEnabled'), undefined)
-    console.log('PASS declined opt-in question: agyEnabled untouched')
-  } finally {
-    rmSync(dir, { recursive: true, force: true })
-  }
-}
-
-// --- checking agy from off writes true (documented enable path) --------------
-
-{
-  const dir = agentsDir()
-  try {
-    const ctx = fakeCtx([{ id: OPT_IN_QUESTION_ID, selected: ['agy'] }])
-    const result = await handleSubagentsCommand(deps(ctx, dir, {
-      enabled: false, resolved: true, reason: undefined,
-    }), INVOCATION)
+    const ctx = fakeCtx([{ id: AGY_QUESTION_ID, selected: ['agy'] }])
+    const result = await handleSubagentsCommand(deps(ctx, dir, OFF), INVOCATION)
     assert.equal(result.kind, 'success')
     const ops = ctx.recorded.mutations[0].ops
     assert.ok(ops.some((op) => op.path[0] === 'agyEnabled' && op.value === true), 'checking agy writes true')
     assert.match(result.text, /agyEnabled → true/)
-    console.log('PASS opt-in: checking agy from off writes agyEnabled=true')
+    assert.match(result.text, /Experimental/, 'enabling run shows the status line')
+    assert.match(result.text, /hooks/i)
+    assert.match(result.text, /permission/i)
+    assert.match(result.text, /~9s/)
+    console.log('PASS Q3 checked: agyEnabled=true + warning on the enabling run')
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
 }
 
-// --- declined Q2 while off never flips the switch on ------------------------
+// --- Q3 unchecked: write false + warning -----------------------------------
 
 {
   const dir = agentsDir()
   try {
-    const ctx = fakeCtx([{ id: DISABLE_QUESTION_ID, selected: ['beta'] }])
-    await handleSubagentsCommand(deps(ctx, dir, {
-      enabled: false, resolved: true, reason: undefined,
-    }), INVOCATION)
-    assert.equal(ctx.recorded.mutations[0].ops.find((op) => op.path[0] === 'agyEnabled'), undefined)
-    console.log('PASS declined opt-in question while off: agyEnabled untouched')
+    const ctx = fakeCtx([{ id: AGY_QUESTION_ID, selected: [] }])
+    const result = await handleSubagentsCommand(deps(ctx, dir, ON), INVOCATION)
+    const agyOp = ctx.recorded.mutations[0].ops.find((op) => op.path[0] === 'agyEnabled')
+    assert.ok(agyOp && agyOp.value === false, 'unchecking writes false')
+    assert.match(result.text, /agyEnabled → false/)
+    assert.match(result.text, /hooks/i, 'status line warns about hooks')
+    assert.match(result.text, /permission/i)
+    assert.match(result.text, /~9s/)
+    console.log('PASS Q3 unchecked: agyEnabled=false + experimental/hooks/permission status')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
+// --- Q3 skipped / unchanged: no write --------------------------------------
+
+{
+  const dir = agentsDir()
+  try {
+    for (const [label, answers, state] of [
+      ['skipped while off', [{ id: DISABLE_QUESTION_ID, selected: ['beta'] }], OFF],
+      ['skipped while on', [{ id: DISABLE_QUESTION_ID, selected: ['beta'] }], ON],
+      ['checked while already on', [{ id: AGY_QUESTION_ID, selected: ['agy'] }], ON],
+      ['unchecked while already off', [{ id: AGY_QUESTION_ID, selected: [] }], OFF],
+    ]) {
+      const ctx = fakeCtx(answers)
+      await handleSubagentsCommand(deps(ctx, dir, state), INVOCATION)
+      const ops = ctx.recorded.mutations[0]?.ops ?? []
+      assert.equal(ops.find((op) => op.path[0] === 'agyEnabled'), undefined, `${label}: no agyEnabled write`)
+    }
+    console.log('PASS Q3 skip/no-change: no agyEnabled write in any state')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
+// --- both questions answered: independent writes, no cross-talk -------------
+
+{
+  const dir = agentsDir(true)
+  try {
+    const ctx = fakeCtx([
+      { id: OPT_IN_QUESTION_ID, selected: ['ptc-subagent'] },
+      { id: AGY_QUESTION_ID, selected: ['agy'] },
+    ])
+    const result = await handleSubagentsCommand(deps(ctx, dir, OFF, { isPtcEnabled: () => false }), INVOCATION)
+    const ops = ctx.recorded.mutations[0].ops
+    assert.ok(ops.some((op) => op.path[0] === 'ptcEnabled' && op.value === true), 'Q2 still writes ptcEnabled=true')
+    assert.ok(ops.some((op) => op.path[0] === 'agyEnabled' && op.value === true), 'Q3 writes agyEnabled=true')
+    assert.ok(!ops.some((op) => op.path[0] === 'disabledAgents' && op.value.includes('ptc-subagent')), 'ptc not parked')
+    assert.match(result.text, /ptcEnabled → true/)
+    assert.match(result.text, /agyEnabled → true/)
+    console.log('PASS both answered: Q2 ptc and Q3 agy write independently')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
+// --- MF-A regression lock: Q2 unanswered, Q3 only agy ----------------------
+
+{
+  const dir = agentsDir(true) // ptc-subagent.md present — the original bug parked it
+  try {
+    const ctx = withConfigEditor(fakeCtx([{ id: AGY_QUESTION_ID, selected: ['agy'] }]))
+    const result = await handleSubagentsCommand(deps(ctx, dir, OFF, { isPtcEnabled: () => true }), INVOCATION)
+    assert.equal(result.kind, 'success')
+    assert.equal(ctx.recorded.edits.length, 1, 'the write uses the non-volatile config editor')
+    assert.equal(ctx.recorded.edits[0].agyEnabled, true)
+    assert.equal(ctx.recorded.edits[0].ptcEnabled, true, 'MF-A: ptcEnabled value untouched (still true)')
+    assert.equal('disabledAgents' in ctx.recorded.edits[0], false, 'MF-A: no disabledAgents write')
+    assert.equal(ctx.recorded.mutations.length, 0, 'MF-A: no volatile ptc write either')
+    assert.doesNotMatch(result.text, /ptcEnabled/)
+    assert.doesNotMatch(result.text, /Disabled:/)
+    console.log('PASS MF-A lock: Q2 skipped + Q3=agy never touches ptcEnabled / disabledAgents')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
+// --- Q2 semantics unchanged: its own answer still owns ptc ------------------
+
+{
+  const dir = agentsDir(true)
+  try {
+    const ctx = fakeCtx([{ id: OPT_IN_QUESTION_ID, selected: [] }])
+    await handleSubagentsCommand(deps(ctx, dir, OFF, { isPtcEnabled: () => true }), INVOCATION)
+    const ops = ctx.recorded.mutations[0].ops
+    assert.ok(ops.some((op) => op.path[0] === 'ptcEnabled' && op.value === false), 'Q2 uncheck writes ptcEnabled=false')
+    const disabledOp = ops.find((op) => op.path[0] === 'disabledAgents')
+    assert.ok(disabledOp && disabledOp.value.includes('ptc-subagent'), 'Q2 uncheck parks ptc-subagent')
+    assert.equal(ops.find((op) => op.path[0] === 'agyEnabled'), undefined, 'Q2 never flips agy')
+    console.log('PASS Q2 unchanged: checking/unchecking ptc owns ptcEnabled, not agy')
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
@@ -242,14 +267,9 @@ function deps(ctx, dir, agy, extra = {}) {
   try {
     const ctx = fakeCtx([
       { id: DISABLE_QUESTION_ID, selected: ['beta'] },
-      { id: OPT_IN_QUESTION_ID, selected: ['agy'] },
+      { id: AGY_QUESTION_ID, selected: ['agy'] },
     ])
-    const state = {
-      enabled: true, resolved: true, reason: undefined,
-      // The visible definition is gone (toggled off), but the toggle-agnostic
-      // one is still supplied to the wizard.
-      definition: undefined, definitionIgnoringToggle: DEFINITION,
-    }
+    const state = { ...ON, definition: undefined }
     const result = await handleSubagentsCommand(deps(ctx, dir, state, { disabledAgents: ['agy'] }), INVOCATION)
     assert.equal(result.kind, 'success')
     const disable = ctx.recorded.asks[0].questions.find((q) => q.id === DISABLE_QUESTION_ID)
@@ -257,36 +277,35 @@ function deps(ctx, dir, agy, extra = {}) {
     assert.equal(disable.options.at(-1).description, EN.markDisabled, 'stopped agy is marked disabled')
     const disabledOp = ctx.recorded.mutations[0].ops.find((op) => op.path[0] === 'disabledAgents')
     assert.ok(disabledOp, 'roster toggle writes the new disabled list')
-    assert.ok(!disabledOp.value.includes('agy'), 'unchecking agy re-enables it')
+    assert.ok(!disabledOp.value.includes('agy'), 'unchecking agy in Q1 re-enables it')
+    assert.equal(ctx.recorded.mutations[0].ops.find((op) => op.path[0] === 'agyEnabled'), undefined, 'Q3 already on: no switch write')
     console.log('PASS MF3: disabled agy stays in roster toggle and can be re-enabled')
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
 }
 
-// --- non-volatile switch: config editor, not the volatile-only form ----------
+// --- config editor: non-volatile write, nested paths rejected loudly --------
 
 {
   const dir = agentsDir()
   try {
-    const ctx = fakeCtx([{ id: OPT_IN_QUESTION_ID, selected: ['agy'] }])
-    ctx.recorded.edits = []
-    const editor = {
-      entries: () => [{ options: { id: SUBAGENTS_SETTINGS_NAMESPACE } }],
-      async edit(_entry, change) {
-        ctx.recorded.edits.push(change({ ptcEnabled: true, agyEnabled: false }, {}))
-      },
-    }
-    const settingsGet = ctx.get.bind(ctx)
-    ctx.get = (name) => name === 'configEditor' ? editor : settingsGet(name)
-    await handleSubagentsCommand(deps(ctx, dir, {
-      enabled: false, resolved: true, reason: undefined,
-    }), INVOCATION)
+    const ctx = withConfigEditor(fakeCtx([{ id: AGY_QUESTION_ID, selected: ['agy'] }]), { ptcEnabled: true, agyEnabled: false })
+    await handleSubagentsCommand(deps(ctx, dir, OFF), INVOCATION)
     assert.equal(ctx.recorded.edits.length, 1, 'non-volatile write goes through the config editor')
     assert.equal(ctx.recorded.edits[0].agyEnabled, true)
     assert.equal(ctx.recorded.edits[0].ptcEnabled, true, 'unrelated keys are preserved')
     assert.equal(ctx.recorded.mutations.length, 0, 'settings.mutate is not used for non-volatile writes')
-    console.log('PASS non-volatile write: config editor carries agyEnabled=true')
+
+    const nestedCtx = fakeCtx([])
+    const nested = withConfigEditor(nestedCtx)
+    const message = await writeRegistryConfig(nestedCtx, [
+      { op: 'set', path: ['ptcEnabled'], value: true },
+      { op: 'set', path: ['config', 'nested'], value: 1 },
+    ])
+    assert.match(message, /Unsupported config path \(config\.nested\)/, 'nested path is reported, not skipped')
+    assert.equal(nested.recorded.edits.length, 0, 'no partial edit is applied')
+    console.log('PASS config editor: full-row write + nested path error')
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
