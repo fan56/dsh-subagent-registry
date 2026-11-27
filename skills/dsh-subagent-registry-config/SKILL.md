@@ -115,7 +115,8 @@ cordis.patch.yml `insert` 项的 `config:` 段，即 entry config）。九个注
 
 ## /registry-config 命令（名册开关 + opt-in 安装）
 
-会话里输入 `/registry-config` 打开管理向导（经 ask_user_question 两道多选题）：
+会话里输入 `/registry-config` 打开管理向导（经 ask_user_question 两道多选题；agy
+有接线时另加一道「开启 agy / 关闭 agy」单选）：
 
 1. **停用开关**：勾选要停用的 agent（勾选集合 = 新的 `disabledAgents` 清单，
    不勾 = 全部启用；当前已停用的名字必须**保持勾选**才会继续停用，选项描述

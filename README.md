@@ -146,7 +146,8 @@ Frontmatter 字段：`name`（必填）、`description`、`display_name`、`mode
 
 ## /registry-config 命令
 
-会话里输入 `/registry-config` 打开管理向导（ask_user_question 两道多选题）：
+会话里输入 `/registry-config` 打开管理向导（ask_user_question 两道多选题；agy 有
+接线时另加一道「开启 agy / 关闭 agy」单选）：
 
 1. **停用开关**：勾选要停用的 agent（勾选集合 = 新的 `disabledAgents`；留空 =
    不改动，不能用来清空名单；已停用的名字要**保持勾选**才继续停用，选项描述标注当前状态）。
