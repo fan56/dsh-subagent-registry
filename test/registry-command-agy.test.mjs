@@ -3,7 +3,7 @@
 // alone must never flip ptcEnabled or park ptc-subagent in disabledAgents.
 // Run: node test/registry-command-agy.test.mjs  (after `pnpm build`)
 import assert from 'node:assert/strict'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -158,20 +158,18 @@ const GOLDEN_Q2 = [
   }
 }
 
-// --- Q3 unchecked: write false + warning -----------------------------------
+// --- Q3 blank (empty selected, agy on): no write ---------------------------
 
 {
   const dir = agentsDir()
   try {
     const ctx = fakeCtx([{ id: AGY_QUESTION_ID, selected: [] }])
     const result = await handleSubagentsCommand(deps(ctx, dir, ON), INVOCATION)
-    const agyOp = ctx.recorded.mutations[0].ops.find((op) => op.path[0] === 'agyEnabled')
-    assert.ok(agyOp && agyOp.value === false, 'unchecking writes false')
-    assert.match(result.text, /agyEnabled → false/)
-    assert.match(result.text, /hooks/i, 'status line warns about hooks')
-    assert.match(result.text, /permission/i)
-    assert.match(result.text, /~9s/)
-    console.log('PASS Q3 unchecked: agyEnabled=false + experimental/hooks/permission status')
+    assert.equal(result.kind, 'success')
+    assert.equal(result.text, EN.noChanges, 'an empty selection is not an answer')
+    assert.equal(ctx.recorded.mutations.length, 0, 'no agyEnabled=false write')
+    assert.equal(ctx.recorded.refreshes, 0, 'no roster refresh on a no-op')
+    console.log('PASS Q3 blank: empty selected never turns agy off')
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
@@ -186,7 +184,7 @@ const GOLDEN_Q2 = [
       ['skipped while off', [{ id: DISABLE_QUESTION_ID, selected: ['beta'] }], OFF],
       ['skipped while on', [{ id: DISABLE_QUESTION_ID, selected: ['beta'] }], ON],
       ['checked while already on', [{ id: AGY_QUESTION_ID, selected: ['agy'] }], ON],
-      ['unchecked while already off', [{ id: AGY_QUESTION_ID, selected: [] }], OFF],
+      ['blank while already off', [{ id: AGY_QUESTION_ID, selected: [] }], OFF],
     ]) {
       const ctx = fakeCtx(answers)
       await handleSubagentsCommand(deps(ctx, dir, state), INVOCATION)
@@ -242,19 +240,78 @@ const GOLDEN_Q2 = [
   }
 }
 
-// --- Q2 semantics unchanged: its own answer still owns ptc ------------------
+// --- declined envelope: blank + custom on every question changes nothing ----
+
+{
+  const dir = agentsDir()
+  try {
+    const declined = (id) => ({ id, selected: [], custom: 'User declined to answer questions.' })
+    const ctx = withConfigEditor(fakeCtx([
+      declined(DISABLE_QUESTION_ID),
+      declined(OPT_IN_QUESTION_ID),
+      declined(AGY_QUESTION_ID),
+    ]))
+    const result = await handleSubagentsCommand(deps(ctx, dir, OFF), INVOCATION)
+    assert.equal(result.kind, 'success')
+    assert.equal(result.text, EN.noChanges, 'the declined wizard is a no-op')
+    assert.equal(ctx.recorded.mutations.length, 0, 'no volatile settings write')
+    assert.equal(ctx.recorded.edits.length, 0, 'no config editor write')
+    assert.equal(ctx.recorded.refreshes, 0, 'no roster refresh')
+    assert.equal(existsSync(join(dir, 'ptc-subagent.md')), false, 'no template installed')
+    console.log('PASS declined envelope: blank+custom on all questions changes nothing')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
+// --- custom text only on Q1/Q2 + Q3 agy: only agyEnabled is written ---------
+
+{
+  const dir = agentsDir(true) // ptc-subagent.md present — must not be parked
+  try {
+    const note = (id) => ({ id, selected: [], custom: 'just a note' })
+    const ctx = withConfigEditor(fakeCtx([
+      note(DISABLE_QUESTION_ID),
+      note(OPT_IN_QUESTION_ID),
+      { id: AGY_QUESTION_ID, selected: ['agy'] },
+    ]), { ptcEnabled: true, agyEnabled: false, disabledAgents: ['beta'] })
+    const result = await handleSubagentsCommand(deps(ctx, dir, OFF, {
+      isPtcEnabled: () => true,
+      disabledAgents: ['beta'],
+    }), INVOCATION)
+    assert.equal(result.kind, 'success')
+    assert.equal(ctx.recorded.edits.length, 1, 'one config editor write')
+    assert.equal(ctx.recorded.edits[0].agyEnabled, true, 'only agyEnabled flips')
+    assert.equal(ctx.recorded.edits[0].ptcEnabled, true, 'ptcEnabled untouched')
+    assert.deepEqual(ctx.recorded.edits[0].disabledAgents, ['beta'], 'disabledAgents untouched')
+    assert.equal(ctx.recorded.mutations.length, 0, 'no volatile write')
+    assert.equal(existsSync(join(dir, 'ptc-subagent.md')), true, 'existing template kept')
+    console.log('PASS custom-only Q1/Q2 + Q3 agy: agyEnabled alone changes')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
+// --- Q2 blank: no write; an answered Q2 without ptc still parks it ----------
 
 {
   const dir = agentsDir(true)
   try {
     const ctx = fakeCtx([{ id: OPT_IN_QUESTION_ID, selected: [] }])
-    await handleSubagentsCommand(deps(ctx, dir, OFF, { isPtcEnabled: () => true }), INVOCATION)
-    const ops = ctx.recorded.mutations[0].ops
-    assert.ok(ops.some((op) => op.path[0] === 'ptcEnabled' && op.value === false), 'Q2 uncheck writes ptcEnabled=false')
+    const result = await handleSubagentsCommand(deps(ctx, dir, OFF, { isPtcEnabled: () => true }), INVOCATION)
+    assert.equal(result.kind, 'success')
+    assert.equal(result.text, EN.noChanges, 'a blank Q2 is not an answer')
+    assert.equal(ctx.recorded.mutations.length, 0, 'no ptcEnabled=false write')
+    assert.equal(ctx.recorded.refreshes, 0, 'no roster refresh')
+    // An answered Q2 that checks only the other row still parks ptc-subagent.
+    const answered = fakeCtx([{ id: OPT_IN_QUESTION_ID, selected: ['minimal-subagent'] }])
+    await handleSubagentsCommand(deps(answered, dir, OFF, { isPtcEnabled: () => true }), INVOCATION)
+    const ops = answered.recorded.mutations[0].ops
+    assert.ok(ops.some((op) => op.path[0] === 'ptcEnabled' && op.value === false), 'answered Q2 without ptc writes false')
     const disabledOp = ops.find((op) => op.path[0] === 'disabledAgents')
-    assert.ok(disabledOp && disabledOp.value.includes('ptc-subagent'), 'Q2 uncheck parks ptc-subagent')
+    assert.ok(disabledOp && disabledOp.value.includes('ptc-subagent'), 'answered Q2 without ptc parks ptc-subagent')
     assert.equal(ops.find((op) => op.path[0] === 'agyEnabled'), undefined, 'Q2 never flips agy')
-    console.log('PASS Q2 unchanged: checking/unchecking ptc owns ptcEnabled, not agy')
+    console.log('PASS Q2 blank: no write; answered Q2 without ptc still parks it')
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }

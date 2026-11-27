@@ -172,16 +172,20 @@ Type `/registry-config` in the session to open the management wizard (two
 multi-select questions through ask_user_question):
 
 1. **The disable toggle**: check the agents to disable (the checked set
-   becomes the new `disabledAgents`; nothing checked = all enabled; currently
-   disabled names must STAY checked to remain disabled — option descriptions
-   mark the current state). The scope covers every roster agent (including
-   your own), and **no md file is ever touched**.
+   becomes the new `disabledAgents`; leaving it blank = unchanged, it cannot
+   clear the list; currently disabled names must STAY checked to remain
+   disabled — option descriptions mark the current state). The scope covers
+   every roster agent (including your own), and **no md file is ever touched**.
 2. **Opt-in installs**: check `ptc-subagent` / `minimal-subagent` to install
    (⚠️ Experimental — disabled by default). Template copy; existing files
    never overwritten; unchecking never deletes. Selecting ptc links
    `ptcEnabled: true` and copies the md;
-   unselecting links the reverse (writes false and parks ptc-subagent in
-   `disabledAgents`, the copied md is kept).
+   checking another row but leaving ptc unchecked links the reverse (writes
+   false and parks ptc-subagent in `disabledAgents`, the copied md is kept).
+
+Note: **leaving a question blank is not an answer** — it neither clears the
+disable list nor turns codemode / agy off; clearing the list or disabling
+codemode requires a manual config edit.
 
 Timing: `disabledAgents` is volatile — the command refreshes the roster at the
 end, so it applies immediately; a `ptcEnabled` change waits for the next plugin
@@ -240,8 +244,9 @@ instead of the built-in agy.
 
 **How to turn it on.** In the session, type `/registry-config`: the wizard asks
 one extra **agy switch** question — check `agy (Gemini plan · experimental)` to
-write `agyEnabled: true`, uncheck to write `false`, or skip to leave it unchanged
-(the flip takes effect on the next plugin mount / dsh restart). The opt-in
+write `agyEnabled: true`; leaving it blank or skipping leaves it unchanged (the
+wizard no longer expresses "off" with an empty check; edit the config by hand to
+turn agy off; the flip takes effect on the next plugin mount / dsh restart). The opt-in
 install question has no agy row; answering it never touches agy or codemode.
 Once on, you can still check `agy` in the disable question to drop it from the
 roster (`disabledAgents`, hot-applies, touches no files). When the wizard cannot

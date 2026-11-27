@@ -536,11 +536,19 @@ export function buildAgyQuestion(strings: SubagentsStrings, agy: AgyCommandState
   }
 }
 
-/** The selected labels of one answered question; undefined when declined. */
+/**
+ * The selected labels of one answered question; undefined when that question
+ * was not answered. A blank selection (`selected: []`, whether or not a
+ * `custom` note rides along — the TUI's declined envelope uses exactly this
+ * shape) means "not answered", never "uncheck everything": the wizard cannot
+ * express "clear disabledAgents / turn codemode off" with an empty check.
+ * Those intents need a manual config edit (see the README recipe).
+ */
 function selectedOf(answers: readonly AskAnswerItem[] | undefined, id: string): readonly string[] | undefined {
   const item = answers?.find((candidate) => candidate.id === id)
   if (item === undefined) return undefined
-  return item.selected ?? []
+  const selected = item.selected ?? []
+  return selected.length > 0 ? selected : undefined
 }
 
 /** The wizard body: ask, resolve, install, persist, refresh, report. */
@@ -583,9 +591,12 @@ export async function handleSubagentsCommand(
     return { kind: 'error', text: `${format(strings.askFailed, { error: detail })}\n\n${strings.manualHint}` }
   }
 
-  // A declined panel (no answer rows at all) changes nothing. An empty
-  // selection is an ANSWER (uncheck everything), not a skip — selectedOf
-  // distinguishes the two by returning undefined only when the row is absent.
+  // A declined panel or a blank answer changes nothing. An empty selection
+  // (declined envelope with custom text, or a user who only typed custom text)
+  // is NOT an answer: selectedOf maps it to undefined so no question silently
+  // clears disabledAgents or flips ptcEnabled / agyEnabled. Enable/disable is
+  // expressed by checked rows; clearing the list or turning codemode off needs
+  // a manual config edit.
   const disableSelected = selectedOf(answers, DISABLE_QUESTION_ID)
   const optInSelected = selectedOf(answers, OPT_IN_QUESTION_ID)
   const agyAnswer = selectedOf(answers, AGY_QUESTION_ID)
@@ -594,8 +605,10 @@ export async function handleSubagentsCommand(
   }
 
   // Resolve the desired state. Q1's checked set IS the new disabledAgents
-  // list; Q2's ptc selection overrides the ptc-subagent entry (selected =
-  // enabled, unselected = disabled-parked when the file exists).
+  // list; a blank Q1 leaves the current list alone. Q2's ptc selection
+  // overrides the ptc-subagent entry (ptc checked = enabled; an answered Q2
+  // with other rows checked parks ptc-subagent when the file exists); a blank
+  // Q2 leaves both ptcEnabled and the disabled list alone.
   const desiredDisabled = new Set(disableSelected ?? currentDisabled)
   const ptcSelected = (optInSelected ?? []).includes('ptc-subagent')
   if (ptcSelected) {
@@ -639,8 +652,9 @@ export async function handleSubagentsCommand(
   if (ptcChanged) {
     ops.push({ op: 'set', path: ['ptcEnabled'], value: desiredPtc })
   }
-  // Q3 owns agy: checked = on, unchecked = off, skipped = untouched. It never
-  // reads Q2, so answering Q2 for an opt-in install cannot flip agy either.
+  // Q3 owns agy: checked = on, blank (or skipped) = untouched. The wizard can
+  // no longer turn agy off with an empty check. It never reads Q2, so answering
+  // Q2 for an opt-in install cannot flip agy either.
   const agyOn = (agyAnswer ?? []).includes('agy')
   const agyChanged = agy !== undefined && agyAnswer !== undefined && agyOn !== agy.enabled
   if (agyChanged) {

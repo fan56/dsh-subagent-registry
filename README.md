@@ -148,14 +148,17 @@ Frontmatter 字段：`name`（必填）、`description`、`display_name`、`mode
 
 会话里输入 `/registry-config` 打开管理向导（ask_user_question 两道多选题）：
 
-1. **停用开关**：勾选要停用的 agent（勾选集合 = 新的 `disabledAgents`；不勾 =
-   全部启用；已停用的名字要**保持勾选**才继续停用，选项描述标注当前状态）。
+1. **停用开关**：勾选要停用的 agent（勾选集合 = 新的 `disabledAgents`；留空 =
+   不改动，不能用来清空名单；已停用的名字要**保持勾选**才继续停用，选项描述标注当前状态）。
    开关作用域覆盖名册全部 agent（含你自己定义的），**永不碰任何 md 文件**。
 2. **opt-in 安装**：勾选 `ptc-subagent` / `minimal-subagent` 安装可选 agent
    （⚠️ Experimental 试验性功能，默认关闭）。拷模板、已有不覆盖、取消勾选不
    删除；选 ptc 联动 `ptcEnabled: true` +
-   拷 md；取消选联动反向（写 false + 把 ptc-subagent 停用进 `disabledAgents`，
-   已拷 md 保留不删）。
+   拷 md；本题另有勾选但未勾 ptc 时联动反向（写 false + 把 ptc-subagent 停用进
+   `disabledAgents`，已拷 md 保留不删）。
+
+注意：**一题不选（空选择）不算回答**——不清空停用名单、不关闭 codemode / agy；
+要清空名单或关掉 codemode 只能手改配置键。
 
 生效时机：`disabledAgents` 是 volatile 键，命令收尾自动刷新名册、立即生效；
 `ptcEnabled` 变更要等插件下次挂载（重启 dsh）。无头部署没有 ask 面板（ask 报
@@ -202,8 +205,8 @@ NO_PROVIDER）时，命令降级为错误文案，指引用手改配置键（`di
 dsh 成员文件，而不是内置 agy。
 
 **怎么开。** 推荐在会话里输入 `/registry-config`：向导会多问一条 **agy 开关**问题，
-勾选「agy（Gemini 套餐 · 实验性）」写入 `agyEnabled: true`，取消勾选写回 `false`，
-跳过该题则不改动（翻转在插件下次挂载 / 重启 dsh 时生效）。opt-in 安装问题里没有
+勾选「agy（Gemini 套餐 · 实验性）」写入 `agyEnabled: true`，不选 / 跳过该题则不改动
+（向导不再用空选择表达关闭；关掉 agy 请手改配置，翻转在插件下次挂载 / 重启 dsh 时生效）。opt-in 安装问题里没有
 agy 行，回答它不会碰 agy 或 codemode。打开后仍可在「停用开关」问题里勾选 agy
 把它从名册摘掉（`disabledAgents`，热生效、不动任何文件）。向导打不开（无 ask
 面板）时，手改 `~/.dsh/profiles/<profile>/cordis.patch.yml` 里 registry 行的
