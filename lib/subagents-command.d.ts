@@ -18,9 +18,11 @@
  *    mount); unselecting flips it back to false and parks the installed
  *    `ptc-subagent` in `disabledAgents` (file kept, roster excluded).
  * 3. **The agy switch** (`agyEnabled`, non-volatile, only when agy is wired):
- *    a separate single-option question. Checking turns agy on, unchecking turns
- *    it off, skipping leaves it untouched — Q2 never carries an agy row, so
- *    answering it for any other purpose cannot flip codemode or agy.
+ *    a separate single-select question with two locale-labeled options
+ *    ("on" / "off"). Because an empty selection means "not answered" (T20),
+ *    the off path needs its own option; skipping leaves the switch untouched.
+ *    Q2 never carries an agy row, so answering it for any other purpose cannot
+ *    flip codemode or agy.
  *
  * Persistence goes through `settings.mutate` against the plugin's own entry
  * config (namespace = the entry id `dsh-subagent-registry`), the same
@@ -95,6 +97,10 @@ export interface SubagentsStrings {
     qAgyHeader: string;
     qAgyQuestion: string;
     qAgyDetail: string;
+    qAgyEnableLabel: string;
+    qAgyDisableLabel: string;
+    qAgyEnableDesc: string;
+    qAgyDisableDesc: string;
     ptcBlurb: string;
     minimalBlurb: string;
     stateInstalled: string;
@@ -222,9 +228,19 @@ export declare function buildDisableQuestion(strings: SubagentsStrings, agents: 
  */
 export declare function buildOptInQuestion(strings: SubagentsStrings, agentsDir: string, ptcEnabled: boolean): AskQuestionItem;
 /**
- * Build the standalone agy switch question (only when agy is wired). One
- * option, explicit check = on / uncheck = off / skip = unchanged; its marks
- * carry both the switch state and whether the command was resolved.
+ * The two Q3 option labels, shared by the builder and the answer handler so
+ * the comparison uses exactly the labels this question generated (never a
+ * hardcoded zh/en literal). The TUI echoes the chosen label back in `selected`.
+ */
+export declare function agyQuestionLabels(strings: SubagentsStrings): {
+    enable: string;
+    disable: string;
+};
+/**
+ * Build the standalone agy switch question (only when agy is wired). A
+ * single-select pair of locale-labeled options: "on" / "off". Since T20 treats
+ * an empty selection as "not answered", the off path needs its own option.
+ * The live switch state and command resolution are carried in the detail.
  */
 export declare function buildAgyQuestion(strings: SubagentsStrings, agy: AgyCommandState): AskQuestionItem;
 /** The wizard body: ask, resolve, install, persist, refresh, report. */

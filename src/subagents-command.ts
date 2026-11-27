@@ -18,9 +18,11 @@
  *    mount); unselecting flips it back to false and parks the installed
  *    `ptc-subagent` in `disabledAgents` (file kept, roster excluded).
  * 3. **The agy switch** (`agyEnabled`, non-volatile, only when agy is wired):
- *    a separate single-option question. Checking turns agy on, unchecking turns
- *    it off, skipping leaves it untouched — Q2 never carries an agy row, so
- *    answering it for any other purpose cannot flip codemode or agy.
+ *    a separate single-select question with two locale-labeled options
+ *    ("on" / "off"). Because an empty selection means "not answered" (T20),
+ *    the off path needs its own option; skipping leaves the switch untouched.
+ *    Q2 never carries an agy row, so answering it for any other purpose cannot
+ *    flip codemode or agy.
  *
  * Persistence goes through `settings.mutate` against the plugin's own entry
  * config (namespace = the entry id `dsh-subagent-registry`), the same
@@ -145,6 +147,10 @@ export interface SubagentsStrings {
   qAgyHeader: string
   qAgyQuestion: string
   qAgyDetail: string
+  qAgyEnableLabel: string
+  qAgyDisableLabel: string
+  qAgyEnableDesc: string
+  qAgyDisableDesc: string
   ptcBlurb: string
   minimalBlurb: string
   stateInstalled: string
@@ -194,8 +200,12 @@ const EN_STRINGS: SubagentsStrings = {
   qOptInQuestion: 'Check the opt-in agents to install / keep enabled (both Experimental — disabled by default).',
   qOptInDetail: 'Experimental — disabled by default. Installing copies the template into the agents dir (an existing file is never overwritten; unchecking never deletes a copied file).',
   qAgyHeader: 'agy switch',
-  qAgyQuestion: 'Check "agy" to enable it, uncheck to disable it; skipping this question leaves the switch unchanged.',
-  qAgyDetail: 'Foreground one-shot only (no background/resume). Concurrency is capped by agyMaxConcurrent (default 1); an extra call fails fast with ACP_BUSY. Permission prompts are decided by the local agy\'s own settings — the registry does not answer for you.',
+  qAgyQuestion: 'Choose "Enable agy (Experimental)" or "Disable agy". Skip this question to leave the switch unchanged.',
+  qAgyDetail: 'Current: {agyState} · {agyCommand}. Foreground one-shot only (no background/resume). Concurrency is capped by agyMaxConcurrent (default 1); an extra call fails fast with ACP_BUSY. Permission prompts are decided by the local agy\'s own settings — the registry does not answer for you.',
+  qAgyEnableLabel: 'Enable agy (Experimental)',
+  qAgyDisableLabel: 'Disable agy',
+  qAgyEnableDesc: 'Billed to the Gemini plan · foreground only · concurrency capped by agyMaxConcurrent',
+  qAgyDisableDesc: 'Removed from the use_agent roster; nothing is dispatched to agy',
   ptcBlurb: 'Experimental. Batch decision-work specialist; links ptcEnabled (the codemode toolchain).',
   minimalBlurb: 'Experimental. Minimal terminal-only executor (leaf); no config linkage.',
   stateInstalled: 'installed',
@@ -516,23 +526,36 @@ export function buildOptInQuestion(
 }
 
 /**
- * Build the standalone agy switch question (only when agy is wired). One
- * option, explicit check = on / uncheck = off / skip = unchanged; its marks
- * carry both the switch state and whether the command was resolved.
+ * The two Q3 option labels, shared by the builder and the answer handler so
+ * the comparison uses exactly the labels this question generated (never a
+ * hardcoded zh/en literal). The TUI echoes the chosen label back in `selected`.
+ */
+export function agyQuestionLabels(strings: SubagentsStrings): { enable: string; disable: string } {
+  return { enable: strings.qAgyEnableLabel, disable: strings.qAgyDisableLabel }
+}
+
+/**
+ * Build the standalone agy switch question (only when agy is wired). A
+ * single-select pair of locale-labeled options: "on" / "off". Since T20 treats
+ * an empty selection as "not answered", the off path needs its own option.
+ * The live switch state and command resolution are carried in the detail.
  */
 export function buildAgyQuestion(strings: SubagentsStrings, agy: AgyCommandState): AskQuestionItem {
+  const labels = agyQuestionLabels(strings)
+  const state = agy.enabled ? strings.agyOnNow : strings.agyOffNow
+  const command = agy.resolved
+    ? strings.agyFound
+    : format(strings.agyNotFound, { reason: agy.reason ?? strings.stateMissing })
   return {
     id: AGY_QUESTION_ID,
     header: strings.qAgyHeader,
     question: strings.qAgyQuestion,
-    detail: strings.qAgyDetail,
-    multiSelect: true,
-    options: [{
-      label: 'agy',
-      description: `${strings.agyBlurb} [${agy.enabled ? strings.agyOnNow : strings.agyOffNow} · ${agy.resolved
-        ? strings.agyFound
-        : format(strings.agyNotFound, { reason: agy.reason ?? strings.stateMissing })}]`,
-    }],
+    detail: format(strings.qAgyDetail, { agyState: state, agyCommand: command }),
+    multiSelect: false,
+    options: [
+      { label: labels.enable, description: strings.qAgyEnableDesc },
+      { label: labels.disable, description: strings.qAgyDisableDesc },
+    ],
   }
 }
 
@@ -652,13 +675,23 @@ export async function handleSubagentsCommand(
   if (ptcChanged) {
     ops.push({ op: 'set', path: ['ptcEnabled'], value: desiredPtc })
   }
-  // Q3 owns agy: checked = on, blank (or skipped) = untouched. The wizard can
-  // no longer turn agy off with an empty check. It never reads Q2, so answering
-  // Q2 for an opt-in install cannot flip agy either.
-  const agyOn = (agyAnswer ?? []).includes('agy')
-  const agyChanged = agy !== undefined && agyAnswer !== undefined && agyOn !== agy.enabled
+  // Q3 owns agy: its two locale-labeled options map to on / off. A blank
+  // selection (or custom text only) is not an answer and flips nothing — T20
+  // made "empty" mean "unchanged", so off has its own option. The labels come
+  // from the same strings the builder used, never a hardcoded literal. Q3
+  // never reads Q2, so an opt-in-only answer cannot flip agy either.
+  const agyLabels = agyQuestionLabels(strings)
+  const agyPick = agyAnswer ?? []
+  const desiredAgy = agyAnswer === undefined
+    ? undefined
+    : agyPick.includes(agyLabels.enable)
+      ? true
+      : agyPick.includes(agyLabels.disable)
+        ? false
+        : undefined
+  const agyChanged = agy !== undefined && desiredAgy !== undefined && desiredAgy !== agy.enabled
   if (agyChanged) {
-    ops.push({ op: 'set', path: ['agyEnabled'], value: agyOn })
+    ops.push({ op: 'set', path: ['agyEnabled'], value: desiredAgy })
   }
   if (ops.length > 0) {
     const persistMessage = await writeRegistryConfig(deps.ctx, ops)
@@ -701,8 +734,8 @@ export async function handleSubagentsCommand(
   notes.push(...installFailures)
   if (ptcChanged) notes.push(desiredPtc ? strings.ptcEnabledLine : strings.ptcDisabledLine)
   // Show the warning on the enabling run too: the live state read at question
-  // build time still says "off" when the switch was just checked.
-  if (agy?.enabled === true || (agyChanged && agyOn)) notes.push(strings.agyStatusLine)
-  if (agyChanged) notes.push(agyOn ? strings.agyEnabledLine : strings.agyDisabledLine)
+  // build time still says "off" when the switch was just switched on.
+  if (agy?.enabled === true || (agyChanged && desiredAgy === true)) notes.push(strings.agyStatusLine)
+  if (agyChanged) notes.push(desiredAgy === true ? strings.agyEnabledLine : strings.agyDisabledLine)
   return { kind: 'success', text: notes.join('\n') }
 }

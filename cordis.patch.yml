@@ -60,9 +60,10 @@
       #   jevTimeoutMs: 3000           # per-classify deadline, one signal, no retry
       #   jevSecretFile: ''            # outbound secret-gate literal list (one per line)
       #   storageDir: ''               # usage-sink dir; '' = <dsh home>/storages/ptc-subagent
-      # Experimental agy (Antigravity CLI) member — disabled by default; turning it on via the
-      # extra agy switch question in /registry-config adds 'agy' to the use_agent roster only
-      # (not ask_agent); answering the opt-in install question never touches agy or codemode.
+      # Experimental agy (Antigravity CLI) member — disabled by default; in the extra agy
+      # switch question of /registry-config choose "Enable agy (Experimental)" or
+      # "Disable agy" (skipping leaves it unchanged); enabling adds 'agy' to the use_agent
+      # roster only (not ask_agent); the opt-in install question never touches agy or codemode.
       # Manual fallback when the wizard is unavailable: set agyEnabled: true in this config:
       # block and restart dsh.
       #   agyEnabled: false            # master switch (non-volatile, flip remounts); true = register the registry-acp ACP provider

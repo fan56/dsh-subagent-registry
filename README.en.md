@@ -242,11 +242,10 @@ background dsh subagents; agy is a one-shot foreground dispatch). If a local
 `~/.dsh/agents/agy.md` exists, the roster lists that ordinary dsh member file
 instead of the built-in agy.
 
-**How to turn it on.** In the session, type `/registry-config`: the wizard asks
-one extra **agy switch** question — check `agy (Gemini plan · experimental)` to
-write `agyEnabled: true`; leaving it blank or skipping leaves it unchanged (the
-wizard no longer expresses "off" with an empty check; edit the config by hand to
-turn agy off; the flip takes effect on the next plugin mount / dsh restart). The opt-in
+**How to turn it on and off.** In the session, type `/registry-config`: the wizard asks
+one extra **agy switch** question — choose "Enable agy (Experimental)" to write
+`agyEnabled: true`, or "Disable agy" to write `false`; skipping leaves it unchanged
+(the flip takes effect on the next plugin mount / dsh restart). The opt-in
 install question has no agy row; answering it never touches agy or codemode.
 Once on, you can still check `agy` in the disable question to drop it from the
 roster (`disabledAgents`, hot-applies, touches no files). When the wizard cannot

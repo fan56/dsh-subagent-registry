@@ -138,9 +138,9 @@ dsh's usage accounting. `agy` appears only in the `use_agent` roster, **not in
 instead of the built-in agy.
 
 How to toggle: in the session, type `/registry-config`; the wizard asks one extra
-**agy switch** question — check `agy (Gemini plan · experimental)` to write
-`agyEnabled: true`, uncheck to write `false`, skip to leave it unchanged; the
-flip takes effect on the next plugin mount (dsh restart). The opt-in install
+**agy switch** question — choose "Enable agy (Experimental)" to write
+`agyEnabled: true`, or "Disable agy" to write `false`; skip to leave it unchanged;
+the flip takes effect on the next plugin mount (dsh restart). The opt-in install
 question has no agy row; answering it never touches agy or codemode. Once on,
 you can also check `agy` in the disable question to drop it from the roster
 (`disabledAgents`, hot-applies, touches no files). When the wizard cannot open (no ask surface), edit the `config:` of the
