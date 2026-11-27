@@ -176,8 +176,9 @@ frontmatter 键，官方没有轮数预算能力，继续由宿主 TUI 硬停梯
 怎么开关：会话里输入 `/registry-config`，向导会多问一条 **agy 开关**问题：在其中选
 「开启 agy（实验性）」写入 `agyEnabled: true`，选「关闭 agy」写回 `false`，跳过
 该题则不改动；翻转在插件下次挂载（重启 dsh）时生效。opt-in 安装问题里没有 agy
-行，回答它不会碰 agy 或 codemode。打开后还可在「停用开关」问题里勾选 agy 把它从
-名册摘掉（`disabledAgents`，热生效、不动文件）。向导打不开（无 ask 面板）时，
+行，回答它不会碰 agy 或 codemode。打开后可在同一条开关里再选「关闭 agy」关掉；
+也可在「停用开关」里勾选 agy 只把它从名册隐藏（`disabledAgents`，热生效、不动
+文件；该名单只能手改，空选择不会清空）。向导打不开（无 ask 面板）时，
 手改 `~/.dsh/profiles/<profile>/cordis.patch.yml` 里 registry 行的 `config:`
 加 `agyEnabled: true`，再重启 dsh。配置键（同在该 `config:` 段）：`agyEnabled`
 （默认 `false`，非 volatile）、`agyPermission`（默认 `reject`）、`agyTimeoutMs`

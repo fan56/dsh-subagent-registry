@@ -247,8 +247,10 @@ one extra **agy switch** question — choose "Enable agy (Experimental)" to writ
 `agyEnabled: true`, or "Disable agy" to write `false`; skipping leaves it unchanged
 (the flip takes effect on the next plugin mount / dsh restart). The opt-in
 install question has no agy row; answering it never touches agy or codemode.
-Once on, you can still check `agy` in the disable question to drop it from the
-roster (`disabledAgents`, hot-applies, touches no files). When the wizard cannot
+Once on, choose "Disable agy" in the same switch to turn it off; you can also
+check `agy` in the disable question to only hide it from the roster
+(`disabledAgents`, hot-applies, touches no files — that list is hand-edited only,
+and a blank selection never clears it). When the wizard cannot
 open (no ask surface), edit the `config:` of the registry row in
 `~/.dsh/profiles/<profile>/cordis.patch.yml` by hand: add `agyEnabled: true`,
 then restart dsh.
