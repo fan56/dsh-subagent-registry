@@ -71,7 +71,7 @@ system prompt，**逐字使用**，不要二次改写），并告知生效时机
 
 本插件没有 settings 命名空间，配置挂在**加载它的 patch 挂载块**上（bundle 的
 cordis.patch.yml `insert` 项的 `config:` 段，即 entry config）。九个注册键 +
-六个 jev 键（ptc 能力，见下节）：
+六个 jev 键（ptc 能力，见下节）+ 五个 agy 键（实验性、默认关闭，见后文）：
 
 ```yaml
 - insert:
@@ -93,6 +93,12 @@ cordis.patch.yml `insert` 项的 `config:` 段，即 entry config）。九个注
         # jevTimeoutMs: 3000       # 单次 classify 超时；一个 signal，不重试
         # jevSecretFile: ''        # 出站密钥闸的明文清单（一行一个）
         # storageDir: ''           # 用量落盘目录；空 = <dsh home>/storages/ptc-subagent
+        # --- 实验性 agy 成员（默认关闭，见后文「实验性：经 agy 使用 Gemini 套餐」）---
+        # agyEnabled: false        # 总开关（非 volatile）：true = 注册 ACP provider，「agy」进 use_agent 名册，不在 ask_agent
+        # agyPermission: reject    # 'allow' | 'reject'：如何应答 agy 的 ACP 权限请求；reject = 不代替用户回答
+        # agyTimeoutMs: 600000     # 握手后单次任务总时限（ms）
+        # agyHandshakeTimeoutMs: 20000 # initialize + session/new 握手时限（ms）
+        # agyMaxConcurrent: 1      # 单个 dsh 进程并发 agy 上限；第二条立即 ACP_BUSY，不排队
 ```
 
 | 键              | 默认           | 说明                                                                                             |
@@ -154,6 +160,45 @@ profile patch 写 `subagent: { maxActiveSubagents: N, maxDepth: M }`，或运行
 `settings.update('subagent', …)`；agent 文件的 `deep` 只是在这条官方预算内收紧
 （`deep: 0` 叶子直接拔掉派发工具）。`maxRounds`（per-agent 轮数上限）仍是本插件
 frontmatter 键，官方没有轮数预算能力，继续由宿主 TUI 硬停梯消费。
+
+## 实验性：经 agy 使用 Gemini 套餐（默认关闭）
+
+> ⚠️ **Experimental — disabled by default（实验性功能，默认关闭）**：只有
+> `agyEnabled: true` 时本节才适用；默认关闭时对现有用户零行为变化。
+
+`agy` = Antigravity CLI。开关打开后，registry 用自带 ACP 客户端直连本机
+`agy acp`，走 **Google Gemini AI Pro 套餐额度**——不依赖 profile、不占 DeepSeek
+额度，用量不进 dsh 用量统计。「agy」只出现在 `use_agent` 名册，**不在 `ask_agent`
+名册里**（`ask_agent` 追问的是后台 dsh 子代理）。若 `~/.dsh/agents/agy.md` 存在，
+名册里列出的是你自己的普通 dsh 成员文件，而非内置 agy。
+
+怎么开关：会话里输入 `/registry-config`，在 opt-in 问题里勾选
+「agy（Gemini 套餐 · 实验性）」写入 `agyEnabled: true`，取消写回 `false`；翻转在
+插件下次挂载（重启 dsh）时生效。打开后还可在「停用开关」问题里勾选 agy 把它从
+名册摘掉（`disabledAgents`，热生效、不动文件）。向导打不开（无 ask 面板）时，
+手改 `~/.dsh/profiles/<profile>/cordis.patch.yml` 里 registry 行的 `config:`
+加 `agyEnabled: true`，再重启 dsh。配置键（同在该 `config:` 段）：`agyEnabled`
+（默认 `false`，非 volatile）、`agyPermission`（默认 `reject`）、`agyTimeoutMs`
+（`600000`）、`agyHandshakeTimeoutMs`（`20000`）、`agyMaxConcurrent`（`1`）；
+后四键 volatile、逐次调用读取，只有 `agyEnabled` 翻转要重启。
+
+限制（如实写，不是 TODO / 缺陷）：
+
+- **仅前台、不可续跑**：`background` / `resume` / `fresh` 会报
+  `ACP_FOREGROUND_ONLY`，失败后重新派活，不续跑。
+- **并发 1**：第二条立刻 `ACP_BUSY`、不排队，请逐条派。
+- **要等 agy 进程退出才出结果**：任务耗时 + 退出宽限最多约 9 秒；首次约 20–30 秒
+  （冷启动约 20 秒）。
+- **不在子 agent 面板里、也不能从面板单独中断**：外部运行没有本地 dsh Session；
+  按 Esc 取消当前工具调用。
+- **依赖本机已安装并登录的 `agy`**：未装 / 未登录 → 名册不出现或
+  `ACP_AUTH_REQUIRED` 诊断。
+- 平台：macOS / Linux（Windows 未验证）。
+
+安全：agy 的实际权限由**本机 agy 自身设置**决定（本机可能是 `always-proceed`，
+此时根本不发权限请求）；registry 只转发 ACP 权限请求并按 `agyPermission` 应答，
+**不限制 agy 能做什么**。派它进某目录 = 那个目录的 hooks 会运行；只做审查的场景
+也按高风险对待。
 
 ## 切换插件语言（language）
 

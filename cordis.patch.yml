@@ -60,6 +60,14 @@
       #   jevTimeoutMs: 3000           # per-classify deadline, one signal, no retry
       #   jevSecretFile: ''            # outbound secret-gate literal list (one per line)
       #   storageDir: ''               # usage-sink dir; '' = <dsh home>/storages/ptc-subagent
+      # Experimental agy (Antigravity CLI) member — disabled by default; turning it on via
+      # /registry-config adds 'agy' to the use_agent roster only (not ask_agent). Manual fallback
+      # when the wizard is unavailable: set agyEnabled: true in this config: block and restart dsh.
+      #   agyEnabled: false            # master switch (non-volatile, flip remounts); true = register the registry-acp ACP provider
+      #   agyPermission: reject        # 'allow' | 'reject': how registry answers agy's ACP permission requests; 'reject' = do not answer for the user (local agy's own settings decide what agy may do)
+      #   agyTimeoutMs: 600000         # post-handshake per-task deadline (ms)
+      #   agyHandshakeTimeoutMs: 20000 # initialize + session/new handshake deadline (ms)
+      #   agyMaxConcurrent: 1          # concurrent agy runs per dsh process; the 2nd fails fast with ACP_BUSY (no queue)
     # The tui profile stack (and any profile without dsh-web-app) ships no
     # agent-preset layer, so the package mounts the registry itself. The two
     # service rows migrated from the @aiwayds/dsh-ptc-subagent patch are
