@@ -21,7 +21,11 @@
  * @module dsh-subagent-registry/tool-run-agent
  */
 import type { Context } from '@deepseek-ai/cordis';
-import { type SubagentStartRequest } from '@deepseek-ai/dsh-subagent';
+import type { ContentBlock } from '@deepseek-ai/dsh-llm';
+import type { Agent } from '@deepseek-ai/dsh-agent';
+import { type SubagentStartRequest, type SubagentActivation } from '@deepseek-ai/dsh-subagent';
+import type { Language } from './preset-contract.ts';
+import { type BuiltinAgyDefinition } from './builtin-agy.ts';
 import { type ScopeKey } from '@deepseek-ai/dsh-scope';
 import { type ChildComposition } from './host-compat.ts';
 import { type AgentFile, type ThinkingLevel } from './agents-dir.ts';
@@ -79,7 +83,22 @@ export interface RunAgentConfig {
         enabled: boolean;
         resolveExecutable: (name: string) => string | undefined;
     };
+    /** UI language for the built-in member's localized roster line. */
+    language?: Language;
 }
+/** Inputs of the built-in member visibility check (pure, injected seams). */
+export interface AgyRoutingInput {
+    enabled: boolean;
+    resolveExecutable: (name: string) => string | undefined;
+    disabledAgents?: DisabledAgentsInput;
+    language?: Language;
+}
+/**
+ * Resolve the built-in agy definition that is actually visible in this roster.
+ * A user-owned `agy.md` (valid OR broken) always shadows the built-in; the
+ * async executable lookup lives in the caller's cached resolver.
+ */
+export declare function visibleBuiltinAgy(dir: string, input: AgyRoutingInput): BuiltinAgyDefinition | undefined;
 /**
  * Every known agent-spawning tool name in the dsh base distribution, PLUS this
  * plugin's own configurable `use_agent` tool name (registered separately
@@ -212,6 +231,14 @@ export interface BuildStartRequestInput {
  * or any nested spawn capability — subagents cannot call subagents.
  */
 export declare function buildStartRequest(input: BuildStartRequestInput): Omit<SubagentStartRequest, 'signal'> & ChildComposition;
+/**
+ * Start one external one-shot activation (the built-in `agy` member) with the
+ * MINIMAL spec: no `childId`, no `name`, no `persona`/`toolFilter` reservation.
+ * Those fields belong to in-process children; an external provider rejects
+ * a reserved childId as UNSUPPORTED_CAPABILITY and has no local Agent to carry
+ * a parked composition. The persona is inlined into `prompt` by the caller.
+ */
+export declare function activateExternal(ctx: Context, provider: string, label: string, prompt: ContentBlock[], signal: AbortSignal, delivery: 'parent' | 'caller', parent: Agent): Promise<SubagentActivation>;
 /** Map a non-`completed` stop reason to a human headline for the parent model. */
 export declare function stopReasonError(reason: string): string;
 /** Read + parse one agent file, throwing a friendly, roster-aware error. */
