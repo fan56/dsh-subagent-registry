@@ -414,6 +414,8 @@ export function apply(ctx: Context, config: RunAgentConfig): void {
           toolName: config.askToolName ?? 'ask_agent',
           dispatchToolName: config.toolName,
           disabledAgents: runConfig.disabledAgents,
+          agy: runConfig.agy,
+          language,
         })
       }
       const replace = async (): Promise<void> => {

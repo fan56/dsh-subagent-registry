@@ -31,6 +31,7 @@ import type { ContentBlock } from '@deepseek-ai/dsh-llm';
 import type { SessionId } from '@deepseek-ai/dsh-session';
 import { type ChildListEntry, type MinimalSessionEvent } from './resume.ts';
 import { type DisabledAgentsInput } from './tool-run-agent.ts';
+import type { Language } from './preset-contract.ts';
 /**
  * Resolve the dispatch mode for one `use_agent` call: an explicit tool
  * parameter wins, the agent file's `background` frontmatter is the default,
@@ -120,6 +121,12 @@ export interface AskAgentConfig {
      * the toggle governs the roster, not live children.
      */
     disabledAgents?: DisabledAgentsInput;
+    /** Same built-in agy wiring as the dispatch tool; absent = no built-in member. */
+    agy?: {
+        enabled: boolean;
+        resolveExecutable: (name: string) => string | undefined;
+    };
+    language?: Language;
 }
 /**
  * The cordis `ctx.tools.register`-ready definition for the `ask_agent` tool.
