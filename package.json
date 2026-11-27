@@ -150,6 +150,7 @@
     "@deepseek-ai/dsh-session-query": "0.2.2-rc.5",
     "@deepseek-ai/dsh-skill": "0.2.2-rc.5",
     "@deepseek-ai/dsh-subagent": "0.2.2-rc.5",
+    "@deepseek-ai/dsh-subprocess": "0.2.2-rc.5",
     "@deepseek-ai/dsh-system-prompt": "0.2.2-rc.5",
     "@deepseek-ai/dsh-tool-subagent-control": "0.2.2-rc.5",
     "@deepseek-ai/dsh-tools": "0.2.2-rc.5",
