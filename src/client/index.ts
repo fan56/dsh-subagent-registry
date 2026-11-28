@@ -20,7 +20,7 @@ export const PANEL_ID = 'subagent-presets' as MainPanelId
 export const PANEL_LABEL = '子智能体'
 export const AGY_PANEL_ID = 'subagent-agy' as MainPanelId
 export const AGY_PANEL_LABEL = 'agy'
-export const inject = ['slots', 'layout', 'connection', 'remote', 'remote.session', 'sessions']
+export const inject = ['slots', 'layout', 'connection', 'remote', 'remote.session', 'remote.subagents', 'sessions']
 
 export function SubagentIcon({ size }: { size?: number }) {
   const edge = typeof size === 'number' && size > 0 ? size : 16
