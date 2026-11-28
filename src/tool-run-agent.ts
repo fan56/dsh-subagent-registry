@@ -666,11 +666,17 @@ export function runAgentTool(ctx: Context, cfg: RunAgentConfig) {
   const agyMember = visibleBuiltinAgy(dir, agyRoutingOf(cfg))
   // S7: use_agent itself is concurrency-safe, but agy runs are capped and
   // over-cap calls fail immediately — teach the model to dispatch one at a time.
+  // A stopped agy run is a user decision, not a transient failure: suppress the
+  // model's tendency to re-dispatch on its own after a cancellation settlement.
   const agyNote = agyMember === undefined ? '' :
     `\nExternal member "${agyMember.name}" (${agyMember.displayName}) runs over ACP as a one-shot foreground worker: ` +
     `no background/follow-up/resume, self-contained prompt required. Dispatch agy tasks ONE AT A TIME — ` +
     `this tool is concurrency-safe, but agy runs are capped (see agyMaxConcurrent); a second parallel call ` +
-    `over the cap fails immediately with ACP_BUSY.`
+    `over the cap fails immediately with ACP_BUSY.` +
+    `\nA cancelled agy run is NOT a transient error: if the user pressed stop, or the result says the run ` +
+    `was cancelled/aborted (ACP_ABORTED / "subagent run was cancelled") — do NOT retry the same task on ` +
+    `your own. Report the cancellation and wait for the user's instruction; re-dispatch only if the user ` +
+    `explicitly asks for it.`
   const description =
     `Call one of the locally-defined custom agents by name. These are your own ` +
     `custom sub-agents (defined in ${dir}/<name>.md); each runs as its own ` +
