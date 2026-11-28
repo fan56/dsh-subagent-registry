@@ -54,6 +54,8 @@ export declare const STDERR_TAIL_BYTES = 4096;
 export declare const MAX_TOOL_TRACE = 50;
 /** Bound on the available-family list in a "bad model" rejection (all 11 current families fit). */
 export declare const MODEL_OPTIONS_MAX_BYTES = 320;
+/** Guidance when agy reports no model families (observed on real `agy acp`). */
+export declare const EMPTY_MODEL_OPTIONS_HINT = "agy \u672A\u8FD4\u56DE\u53EF\u9009\u5217\u8868\uFF08\u672C\u673A agy \u7248\u672C\u884C\u4E3A\uFF09\uFF0C\u8BF7\u7528 agy models \u6838\u5BF9\u6A21\u578B\u65CF\u540D";
 /**
  * Start one agy child. Startup failures reject after process cleanup; after
  * publication all failures travel through `result` (which never rejects).

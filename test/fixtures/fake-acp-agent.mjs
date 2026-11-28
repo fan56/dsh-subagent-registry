@@ -14,7 +14,13 @@ const MODEL_FAMILIES = [
   'gemini-pro-orchestrator-neon', 'gemini-pro-orchestrator', 'gemini-pro-orchestrator-argon',
   'gemini-3.8-flash', 'claude-opus-5-5', 'claude-sonnet-5-5', 'gpt-oss-120b-medium',
 ]
-const modelScenario = scenario.startsWith('model')
+// T40: `model-empty*` scenarios expose an empty options array (real agy shape).
+const emptyOptionsScenario = scenario.startsWith('model-empty')
+const modelScenario = scenario.startsWith('model') && !emptyOptionsScenario
+const objectOptionsScenario = scenario.startsWith('model-object')
+const optionFamilies = emptyOptionsScenario ? [] : MODEL_FAMILIES
+// Real agy sends `{value,name}` entries; the 11-family default fixture stays strings.
+const wireOptions = objectOptionsScenario ? MODEL_FAMILIES.map((value) => ({ value, name: value })) : optionFamilies
 const echo = {}
 let sessionId = 'fake-session'
 let promptDone = false
@@ -148,9 +154,9 @@ function handleMessage(msg) {
       sessionId = 'fake-session-1'
       reply(msg.id, {
         sessionId, models: [],
-        ...(modelScenario ? {
+        ...(modelScenario || emptyOptionsScenario ? {
           configOptions: [
-            { id: 'model', currentValue: 'gemini-4-neon', options: MODEL_FAMILIES },
+            { id: 'model', currentValue: 'gemini-4-neon', options: wireOptions },
             { id: 'thought_level', currentValue: 'high', options: ['low', 'medium', 'high', 'xhigh'] },
           ],
         } : {}),
@@ -161,7 +167,7 @@ function handleMessage(msg) {
     case 'session/set_config_option': {
       // Client → server request: echo the exact params, then answer by value.
       echo['session/set_config_option'] = msg.params
-      if (scenario === 'model-rpc-error') {
+      if (scenario === 'model-rpc-error' || scenario === 'model-empty-rpc-error') {
         rpcError(msg.id, -32602, 'SECRET_REMOTE_MODEL_MESSAGE: rejected')
         return
       }
@@ -171,7 +177,7 @@ function handleMessage(msg) {
           {
             id: 'model',
             currentValue: scenario === 'model-mismatch' ? 'gemini-4-neon' : value,
-            options: MODEL_FAMILIES,
+            options: wireOptions,
           },
         ],
       })

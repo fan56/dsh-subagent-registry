@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.25.1] - 2026-11-28
+
+### Fixed
+- **`agyModel` no longer rejected by an empty model list on real `agy acp`.** Some agy builds return `configOptions.model.options: []` from `session/new` (T39), which made 0.25.0's local whitelist reject every family with an empty `available:` list. The whitelist is now applied only when the list is non-empty; with an empty/missing list the registry still sends `session/set_config_option` and trusts the RPC outcome. An RPC error fails loud with the jsonrpc code retained and the remote message kept log-only; a returned `currentValue` that disagrees with the request still fails loud. The rejection now points to `agy models` for checking family names instead of showing an empty `available:` list. The option reader also accepts real agy's `{value,name}` entries (previously only bare strings, which silently filtered the 11 families down to an empty list). `test/acp-run.test.mjs` covers the empty-list paths, the object-shape path and the 11-family fixture scenarios.
+
 ## [0.25.0] - 2026-11-28
 
 ### Added

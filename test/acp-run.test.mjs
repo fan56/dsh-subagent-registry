@@ -4,7 +4,7 @@ import { once } from 'node:events'
 import { spawn } from 'node:child_process'
 import { PassThrough } from 'node:stream'
 import { fileURLToPath } from 'node:url'
-import { startAgyRun } from '../lib/acp/run.js'
+import { EMPTY_MODEL_OPTIONS_HINT, startAgyRun } from '../lib/acp/run.js'
 import { ACP_CODES, acpErrorText } from '../lib/acp/errors.js'
 
 const FAKE = fileURLToPath(new URL('./fixtures/fake-acp-agent.mjs', import.meta.url))
@@ -438,6 +438,66 @@ async function stopAll(children) {
   })
   await stopAll(mh.children)
   console.log('PASS model: exact params, success header, invalid/RPC-error/mismatch fail loud')
+}
+
+// 14. T40: real agy returns `options: []` — skip the local whitelist, let RPC decide.
+{
+  // Empty options + set_config_option success: still send the exact request.
+  const ok = requestWith()
+  const oh = makeSpec('model-empty-ok')
+  oh.spec.model = 'claude-sonnet-5-5'
+  const orun = await startAgyRun(ok.request, oh.spec, oh.deps)
+  const oresult = await orun.result
+  assert.equal(oresult.stopReason, 'completed')
+  assert.match(oresult.output[0].text, /^\[agy · claude-sonnet-5-5 · [\d.]+s\]$/, 'effective model in source header')
+  assert.deepEqual(echoOf(oresult)['session/set_config_option'], {
+    sessionId: 'fake-session-1', configId: 'model', value: 'claude-sonnet-5-5',
+  }, 'empty options still sends set_config_option')
+  await finish(orun)
+
+  // Empty options + RPC error: fail loud with guidance; jsonrpc code kept,
+  // remote message log-only.
+  const rp = requestWith()
+  const rh = makeSpec('model-empty-rpc-error')
+  rh.spec.model = 'claude-sonnet-5-5'
+  await assert.rejects(startAgyRun(rp.request, rh.spec, rh.deps), (e) => {
+    assert.equal(e.code, ACP_CODES.AGENT_ERROR)
+    assert.match(e.fact ?? '', /jsonrpc code -32602/, 'remote code kept')
+    assert.match(acpErrorText(e), /请用 agy models 核对模型族名/, 'guidance present')
+    assert.match(acpErrorText(e), /未返回可选列表/)
+    assert.doesNotMatch(acpErrorText(e), /available: /, 'no empty available list')
+    assert.doesNotMatch(acpErrorText(e), /SECRET_REMOTE_MODEL_MESSAGE/, 'remote message dropped')
+    return true
+  })
+  assert.match(rh.logs.join('\n'), /SECRET_REMOTE_MODEL_MESSAGE/, 'remote message is log-only')
+  assert.ok(EMPTY_MODEL_OPTIONS_HINT.includes('agy models'))
+  await stopAll(rh.children)
+  console.log('PASS model-empty: success path and RPC error with actionable guidance')
+}
+
+// 15. T40 bonus: real agy sends `{value,name}` options, not bare strings.
+{
+  const ok = requestWith()
+  const oh = makeSpec('model-object')
+  oh.spec.model = 'claude-sonnet-5-5'
+  const orun = await startAgyRun(ok.request, oh.spec, oh.deps)
+  const oresult = await orun.result
+  assert.equal(oresult.stopReason, 'completed')
+  assert.match(oresult.output[0].text, /^\[agy · claude-sonnet-5-5 · [\d.]+s\]$/)
+  await finish(orun)
+
+  const bad = requestWith()
+  const bh = makeSpec('model-object')
+  bh.spec.model = 'not-a-family'
+  await assert.rejects(startAgyRun(bad.request, bh.spec, bh.deps), (e) => {
+    assert.match(acpErrorText(e), /not an available model family/)
+    assert.match(acpErrorText(e), /claude-sonnet-5-5/, 'object options listed by value')
+    return true
+  })
+  assert.equal(bh.seen.some((line) => line.includes('session/set_config_option')), false,
+    'invalid family rejected before the request is sent')
+  await stopAll(bh.children)
+  console.log('PASS model-object: {value,name} options validate like bare strings')
 }
 
 console.log('ALL acp-run tests passed')

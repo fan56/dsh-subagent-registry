@@ -87,7 +87,7 @@ export declare class AcpError extends Error {
  * hide, so `diagnosticError` keeps the fact verbatim instead of rebuilding it.
  */
 export declare class AcpConfigError extends AcpError {
-    constructor(stage: AcpStage, fact: string);
+    constructor(stage: AcpStage, fact: string, remoteMessage?: string);
 }
 /**
  * Truncate to a UTF-8 byte budget without cutting a multi-byte code point, so

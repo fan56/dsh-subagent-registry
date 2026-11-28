@@ -181,8 +181,8 @@ export class AcpError extends Error {
  * hide, so `diagnosticError` keeps the fact verbatim instead of rebuilding it.
  */
 export class AcpConfigError extends AcpError {
-  constructor(stage: AcpStage, fact: string) {
-    super(ACP_CODES.AGENT_ERROR, stage, fact)
+  constructor(stage: AcpStage, fact: string, remoteMessage?: string) {
+    super(ACP_CODES.AGENT_ERROR, stage, fact, undefined, remoteMessage)
   }
 }
 
