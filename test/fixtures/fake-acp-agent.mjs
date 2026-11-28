@@ -8,6 +8,13 @@ import { spawn } from 'node:child_process'
 import { writeFileSync } from 'node:fs'
 
 const scenario = process.argv[2] ?? process.env.FAKE_ACP_SCENARIO ?? 'ok'
+// ACP `configOptions.model` families (same shape T35 measured on real agy).
+const MODEL_FAMILIES = [
+  'gemini-4-neon', 'gemini-4-carbon', 'gemini-4-argon', 'gemini-4-hydrogen',
+  'gemini-pro-orchestrator-neon', 'gemini-pro-orchestrator', 'gemini-pro-orchestrator-argon',
+  'gemini-3.8-flash', 'claude-opus-5-5', 'claude-sonnet-5-5', 'gpt-oss-120b-medium',
+]
+const modelScenario = scenario.startsWith('model')
 const echo = {}
 let sessionId = 'fake-session'
 let promptDone = false
@@ -139,10 +146,37 @@ function handleMessage(msg) {
     case 'session/new':
       echo['session/new'] = msg.params
       sessionId = 'fake-session-1'
-      reply(msg.id, { sessionId, models: [] })
+      reply(msg.id, {
+        sessionId, models: [],
+        ...(modelScenario ? {
+          configOptions: [
+            { id: 'model', currentValue: 'gemini-4-neon', options: MODEL_FAMILIES },
+            { id: 'thought_level', currentValue: 'high', options: ['low', 'medium', 'high', 'xhigh'] },
+          ],
+        } : {}),
+      })
       if (scenario === 'early-exit') { exiting = true; setTimeout(() => process.exit(0), 20) }
       if (scenario === 'ePipe') { exiting = true; setTimeout(() => process.stdin.destroy(), 20) }
       return
+    case 'session/set_config_option': {
+      // Client → server request: echo the exact params, then answer by value.
+      echo['session/set_config_option'] = msg.params
+      if (scenario === 'model-rpc-error') {
+        rpcError(msg.id, -32602, 'SECRET_REMOTE_MODEL_MESSAGE: rejected')
+        return
+      }
+      const value = msg.params?.value
+      reply(msg.id, {
+        configOptions: [
+          {
+            id: 'model',
+            currentValue: scenario === 'model-mismatch' ? 'gemini-4-neon' : value,
+            options: MODEL_FAMILIES,
+          },
+        ],
+      })
+      return
+    }
     case 'session/prompt':
       void handlePrompt(msg.id, msg.params)
       return

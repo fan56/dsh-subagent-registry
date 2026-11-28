@@ -8,6 +8,7 @@ import { join } from 'node:path'
 import { activateExternal, runAgentTool, visibleBuiltinAgy } from '../lib/tool-run-agent.js'
 import { builtinAgyEdition } from '../lib/builtin-agy.js'
 import { ACP_CODES } from '../lib/acp/errors.js'
+import { Config } from '../lib/index.js'
 
 const DIR = mkdtempSync(join(tmpdir(), 'acp-routing-'))
 
@@ -192,6 +193,40 @@ function fakeActivation({ result, onDispose } = {}) {
   const off = runAgentTool({}, config({ agy: { enabled: false, resolveExecutable: () => '/usr/bin/agy' } }))
   assert.equal(off.description, plain.description, 'no agy note or roster line when the switch is off')
   console.log('PASS switch off: tool description unchanged')
+}
+
+// --- T38: agyModel config key (volatile) + per-call override + fail-loud ----
+
+{
+  const defaults = Config({})
+  assert.equal(defaults.agyModel.get(), '', 'agyModel default is the empty string')
+  assert.equal(typeof defaults.agyModel.get, 'function', 'agyModel is volatile')
+  console.log('PASS Config: agyModel defaults to "" and is volatile')
+}
+
+{
+  const specs = []
+  const ctx = { subagents: { startActivation: async (spec) => { specs.push(spec); return fakeActivation().activation } } }
+  const tool = runAgentTool(ctx, config({ agyModel: 'gemini-4-carbon' }))
+  assert.ok(tool.parameters.properties.agyModel, 'use_agent declares the optional agyModel parameter')
+  assert.equal(tool.parameters.required.includes('agyModel'), false, 'agyModel is not required')
+  assert.match(tool.description, /Pass agyModel/, 'description teaches the per-call override')
+
+  await tool.execute({ agent: 'agy', prompt: 'x' }, exec())
+  assert.equal(specs.at(-1).model, 'gemini-4-carbon', 'config value is the default for agy')
+  await tool.execute({ agent: 'agy', prompt: 'x', agyModel: 'claude-sonnet-5-5' }, exec())
+  assert.equal(specs.at(-1).model, 'claude-sonnet-5-5', 'per-call value overrides the config key')
+  assert.equal(Object.hasOwn(specs.at(-1), 'agentOptions'), false, 'model does not ride as agentOptions')
+
+  await assert.rejects(
+    () => tool.execute({ agent: 'workhorse', prompt: 'x', agyModel: 'claude-sonnet-5-5' }, exec()),
+    (error) => {
+      assert.match(error.message, /agyModel only applies to the built-in agy member/)
+      return true
+    },
+  )
+  assert.equal(specs.length, 2, 'no activation for a non-agy agyModel call')
+  console.log('PASS agyModel: config default, per-call override, fail-loud on non-agy')
 }
 
 rmSync(DIR, { recursive: true, force: true })

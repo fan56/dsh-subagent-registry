@@ -142,7 +142,7 @@ Frontmatter 字段：`name`（必填）、`description`、`display_name`、`mode
 | `disabledAgents` | `[]`（volatile） | **名册开关**：名单里的 agent 从 `use_agent`/`ask_agent` 名册隐藏、按名调用被拒；**只过滤名册，永不改动 agent 文件**。volatile 写热生效；`/registry-config` 命令可代写，执行期还会按活值再查（模型硬调停用名会被拒绝）。 |
 | `ptcEnabled`    | `false`         | **opt-in 门控**：false（默认）不注册任何额外工具；true 在插件下次挂载（重启 dsh）时按 standing scope 注册 `codemode` 工具（主代理与派发子代理都可见）。Experimental（试验性功能，默认关闭）。 |
 | `jevEnabled` 等 六键 | 见 ptc 章节 | jev 能力的 volatile 配置：`jevEnabled`（默认 false = 零 jev 调用）/`jevBackend`（zen）/`jevModel`（'' = 后端默认）/`jevTimeoutMs`（3000）/`jevSecretFile`（''）/`storageDir`（'' = `<dsh home>/storages/ptc-subagent`）。 |
-| `agyEnabled` 等五键 | 见下节 | 实验性 agy 成员的配置（默认关闭）：`agyEnabled`（默认 false，非 volatile）/`agyPermission`（reject）/`agyTimeoutMs`（600000）/`agyHandshakeTimeoutMs`（20000）/`agyMaxConcurrent`（1）；后四键 volatile。 |
+| `agyEnabled` 等六键 | 见下节 | 实验性 agy 成员的配置（默认关闭）：`agyEnabled`（默认 false，非 volatile）/`agyModel`（'' = agy 默认）/`agyPermission`（reject）/`agyTimeoutMs`（600000）/`agyHandshakeTimeoutMs`（20000）/`agyMaxConcurrent`（1）；后五键 volatile。 |
 
 ## /registry-config 命令
 
@@ -222,10 +222,27 @@ agy 行，回答它不会碰 agy 或 codemode。打开后可在同一条开关�
 | 键 | 默认 | 说明 |
 | --- | --- | --- |
 | `agyEnabled` | `false` | 实验性总开关（非 volatile）：`true` = 注册 ACP provider 并让「agy」进入 `use_agent` 名册；翻转要重启 dsh。 |
+| `agyModel` | `''` | agy 默认模型族（volatile，逐次调用读取）：空 = 用 agy 当前默认模型；例如 `claude-sonnet-5-5`。只接受 ACP `configOptions.model.options` 里的族名（不带 `-high`/`-low` 后缀），档位仍由 agy 决定。可被 `use_agent` 的按次 `agyModel` 参数覆盖。 |
 | `agyPermission` | `reject` | agy 发 ACP 权限请求时 registry 如何应答：`reject` = 不代替用户回答（实际权限由本机 agy 自身设置决定）；`allow` = 代为放行。volatile，逐次调用读取。 |
 | `agyTimeoutMs` | `600000` | 握手之后单次任务总时限（毫秒，10 分钟），超时返回部分输出。volatile。 |
 | `agyHandshakeTimeoutMs` | `20000` | `initialize` + `session/new` 握手时限（毫秒）。volatile。 |
 | `agyMaxConcurrent` | `1` | 单个 dsh 进程内并发 agy 运行上限；第二条立即 `ACP_BUSY`、不排队。volatile。 |
+
+**按次选模型。** 0.25.0 起 `use_agent` 支持可选 `agyModel` 参数，只对内置 agy 成员生效，按次覆盖配置键：
+
+```
+use_agent({ agent: "agy", prompt: "审查这段 diff", agyModel: "claude-sonnet-5-5" })
+```
+
+不给这个参数就用配置键 `agyModel`（空则用 agy 默认）。取值是**模型族**（如
+`gemini-4-neon` / `claude-sonnet-5-5` / `gemini-pro-orchestrator-neon`），不带
+`-high`/`-low` 档位后缀；思考档位本版不暴露，仍由 agy 决定。registry 在
+`session/new` 后先拿 `configOptions.model.options` 校验族名，再发 ACP
+`session/set_config_option {configId:'model'}`；族名不在列表、RPC 报错或返回的
+`currentValue` 不一致都会直接拒绝并列出可用族（不会静默回落到默认模型）。
+结算头 `[agy · <模型族> · <秒数>s]` 显示实际生效值。给其它 agent 传 `agyModel`
+会报 `agyModel only applies to the built-in agy member`。配置键是 volatile 的，
+改配置无需重启；按次参数随每次调用读取。
 
 **限制（如实写，不是 TODO / 缺陷）。**
 

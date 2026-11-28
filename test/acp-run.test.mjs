@@ -5,7 +5,7 @@ import { spawn } from 'node:child_process'
 import { PassThrough } from 'node:stream'
 import { fileURLToPath } from 'node:url'
 import { startAgyRun } from '../lib/acp/run.js'
-import { ACP_CODES } from '../lib/acp/errors.js'
+import { ACP_CODES, acpErrorText } from '../lib/acp/errors.js'
 
 const FAKE = fileURLToPath(new URL('./fixtures/fake-acp-agent.mjs', import.meta.url))
 const CWD = process.cwd()
@@ -26,6 +26,7 @@ function requestWith(text = 'do the task') {
 /** Spawn the fake agent behind a seam-shaped SubprocessHandle. */
 function makeSpec(scenario, opts = {}) {
   const logs = opts.logs ?? []
+  const seen = opts.seen ?? []
   const spawnSpecs = []
   const children = []
   const spec = {
@@ -72,6 +73,7 @@ function makeSpec(scenario, opts = {}) {
         while ((index = pending.indexOf('\n')) >= 0) {
           let line = pending.slice(0, index)
           pending = pending.slice(index + 1)
+          seen.push(line)
           if (opts.transformLine) line = opts.transformLine(line)
           if (line !== '') stdout.write(line + '\n')
         }
@@ -104,7 +106,7 @@ function makeSpec(scenario, opts = {}) {
       return handle
     },
   }
-  return { spec, deps: { log: spec.log, warn: spec.warn }, logs, spawnSpecs, children, flags: opts }
+  return { spec, deps: { log: spec.log, warn: spec.warn }, logs, seen, spawnSpecs, children, flags: opts }
 }
 
 const echoOf = (result) => {
@@ -372,6 +374,70 @@ async function stopAll(children) {
   assert.equal(h.spawnSpecs.length, 1)
   assert.ok(h.children.every(exited))
   console.log('PASS handshake cancel: rejects ACP_ABORTED, one spawn, child reaped')
+}
+
+// 13. T38: per-call model via session/set_config_option (success + 3 failures).
+{
+  // Success: exact request envelope, effective value in the source header.
+  const ok = requestWith()
+  const oh = makeSpec('model')
+  oh.spec.model = 'claude-sonnet-5-5'
+  const orun = await startAgyRun(ok.request, oh.spec, oh.deps)
+  const oresult = await orun.result
+  assert.equal(oresult.stopReason, 'completed')
+  assert.match(oresult.output[0].text, /^\[agy · claude-sonnet-5-5 · [\d.]+s\]$/, 'effective model in source header')
+  assert.deepEqual(echoOf(oresult)['session/set_config_option'], {
+    sessionId: 'fake-session-1', configId: 'model', value: 'claude-sonnet-5-5',
+  }, 'client → server request params verbatim')
+  await finish(orun)
+
+  // No model requested: no set_config_option, display falls back to agy.
+  const none = requestWith()
+  const nh = makeSpec('model')
+  const nrun = await startAgyRun(none.request, nh.spec, nh.deps)
+  const nresult = await nrun.result
+  assert.match(nresult.output[0].text, /^\[agy · agy · [\d.]+s\]$/)
+  assert.equal(nh.seen.some((line) => line.includes('session/set_config_option')), false)
+  await finish(nrun)
+
+  // Value not in session/new.options: reject, list families, send nothing.
+  const bad = requestWith()
+  const bh = makeSpec('model')
+  bh.spec.model = 'not-a-family'
+  await assert.rejects(startAgyRun(bad.request, bh.spec, bh.deps), (e) => {
+    assert.equal(e.code, ACP_CODES.AGENT_ERROR)
+    assert.match(acpErrorText(e), /not an available model family/)
+    assert.match(acpErrorText(e), /claude-sonnet-5-5/, 'available families listed')
+    assert.doesNotMatch(acpErrorText(e), /SECRET_REMOTE_MODEL_MESSAGE/)
+    return true
+  })
+  assert.equal(bh.seen.some((line) => line.includes('session/set_config_option')), false,
+    'invalid value rejected before the request is sent')
+  await stopAll(bh.children)
+
+  // RPC error: only the remote code survives; the raw message stays in logs.
+  const rp = requestWith()
+  const rh = makeSpec('model-rpc-error')
+  rh.spec.model = 'claude-sonnet-5-5'
+  await assert.rejects(startAgyRun(rp.request, rh.spec, rh.deps), (e) => {
+    assert.equal(e.code, ACP_CODES.AGENT_ERROR)
+    assert.match(e.fact ?? '', /jsonrpc code -32602/, 'remote code kept')
+    assert.doesNotMatch(acpErrorText(e), /SECRET_REMOTE_MODEL_MESSAGE/, 'remote message dropped')
+    return true
+  })
+  assert.match(rh.logs.join('\n'), /SECRET_REMOTE_MODEL_MESSAGE/, 'remote message is log-only')
+  await stopAll(rh.children)
+
+  // currentValue mismatch: reject instead of showing a model agy did not apply.
+  const mm = requestWith()
+  const mh = makeSpec('model-mismatch')
+  mh.spec.model = 'claude-sonnet-5-5'
+  await assert.rejects(startAgyRun(mm.request, mh.spec, mh.deps), (e) => {
+    assert.match(acpErrorText(e), /currentValue "gemini-4-neon" instead of "claude-sonnet-5-5"/)
+    return true
+  })
+  await stopAll(mh.children)
+  console.log('PASS model: exact params, success header, invalid/RPC-error/mismatch fail loud')
 }
 
 console.log('ALL acp-run tests passed')

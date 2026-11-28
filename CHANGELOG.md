@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.25.0] - 2026-11-28
+
+### Added
+- **Per-call / configured model selection for the built-in `agy` member.** The new volatile `agyModel` config key (default `''` = agy's own default) sets the default ACP model family; `use_agent` gains an optional `agyModel` argument that overrides it for one call and is refused for any other agent (`agyModel only applies to the built-in agy member`). After `session/new` the registry reads `configOptions.model.options`, rejects a family that is not in the list (showing the available families, bounded), then sends the client→server ACP request `session/set_config_option {sessionId, configId:'model', value}`. An RPC error keeps only its JSON-RPC code in the rejection (the remote message stays log-only), and a returned `currentValue` that disagrees with the request also rejects: no silent fallback to the default model. The settlement header shows the effective value agy reports. Only the model family is selected — thinking tiers (`thought_level`) are deliberately out of scope for this release. README (zh/en) and `test/acp-routing.test.mjs` / `test/acp-run.test.mjs` cover the config key, the override, and all failure shapes.
+
 ## [0.24.2] - 2026-11-28
 
 ### Changed
