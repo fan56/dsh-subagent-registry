@@ -125,7 +125,7 @@ const react = { createElement: element, useEffect: effect => { mountedEffects.pu
 const module = { exports: {} }
 const styleNodes = []
 const document = { createElement: () => ({ dataset: {}, remove() { styleNodes.splice(styleNodes.indexOf(this), 1) } }), head: { append(node) { styleNodes.push(node) } } }
-runInNewContext(js, { module, exports: module.exports, __PRESETS_CSS__: css, document, require(id) {
+runInNewContext(js, { module, exports: module.exports, __PRESETS_CSS__: css, __AGY_CSS__: '', document, require(id) {
   if (id === 'react') return react
   if (id === 'react/jsx-runtime') return { jsx: element, jsxs: element, Fragment: 'Fragment' }
   if (id === '@deepseek-ai/dsh-client-ui-primitives') return { Button: 'HostButton', Input: 'HostInput', Modal: 'HostModal' }
@@ -137,8 +137,12 @@ const navigation = []
 let listLanguage
 module.exports.apply({
   effect(effect) { cleanups.push(effect()) },
-  slots: { inject(_slot, callback) { cleanups.push(callback()) }, register(options, component) { registrations.set(options.name, { options, component }); return () => registrations.delete(options.name) } },
+  slots: { inject(_slot, callback) { cleanups.push(callback()) }, register(options, component) { const key = `${options.name}:${options.key ?? options.id ?? ''}`; registrations.set(key, { options, component }); return () => registrations.delete(key) } },
   layout: { selectPanel(id) { navigation.push(id) } },
+  sessions: {
+    list: { getSnapshot: () => ({ ids: [], byId: {}, projectionsBySession: {} }), subscribe: () => () => {} },
+    async refreshProjections() {},
+  },
   connection: { rpc: { async call(channel, endpoint, payload) { assert.equal(channel, '/api'); if (endpoint === 'subagent-presets/save') return { ok: true, value: { ok: false, code: 'invalid_id', field: 'id', error: 'Unsafe name' } }; assert.equal(endpoint, 'subagent-presets/list'); assert.equal(payload, null); return { ok: true, value: { ok: true, value: listLanguage ? { ...list, language: listLanguage } : list } } } } },
   remote: {
     session: {
@@ -194,16 +198,27 @@ module.exports.apply({
         }
       },
     },
+    subagents: { async interruptByUser() { return { ok: true, value: { accepted: true } } } },
   },
 })
-assert.equal(styleNodes.length, 1)
+assert.equal(styleNodes.length, 2)
 assert.equal(styleNodes[0].textContent, css)
-const main = registrations.get('main')
-const sidebar = registrations.get('sidebar.panellist')
+assert.equal(styleNodes[1].textContent, '')
+const main = registrations.get('main:subagent-presets')
+const sidebar = registrations.get('sidebar.panellist:subagent-presets')
+const agyMain = registrations.get('main:subagent-agy')
+const agySidebar = registrations.get('sidebar.panellist:subagent-agy')
 assert.equal(main.options.key, 'subagent-presets')
 assert.equal(sidebar.options.id, 'subagent-presets')
 assert.equal(sidebar.options.label, '子智能体')
 assert.equal(sidebar.options.order, 50)
+assert.equal(agyMain.options.key, 'subagent-agy')
+assert.equal(agySidebar.options.id, 'subagent-agy')
+assert.equal(agySidebar.options.label, 'agy')
+assert.equal(agySidebar.options.order, 60)
+const agyIcon = agySidebar.component({ size: 16 })
+assert.equal(agyIcon.type, 'svg')
+assert.equal(agyIcon.props.width, 16)
 const icon = sidebar.component({ size: 16 })
 assert.equal(icon.type, 'svg')
 assert.equal(icon.props.width, 16)

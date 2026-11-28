@@ -202,7 +202,7 @@ NO_PROVIDER）时，命令降级为错误文案，指引用手改配置键（`di
 直连本机 `agy acp`，走 **Google Gemini AI Pro 套餐额度**——不依赖任何 profile、
 不占 DeepSeek 额度；agy 的用量**不进 dsh 用量统计**。「agy」出现在 `use_agent`
 名册，**不在 `ask_agent` 名册里**（`ask_agent` 追问的是后台 dsh 子代理，agy 只支持
-一次性前台派活）。若本机 `~/.dsh/agents/agy.md` 存在，名册里列出的是你这个普通的
+一次性前台派活）。0.24.0 起 agy 以 `parent` delivery 进入宿主目录，因此每次调用结束后父会话会收到一条结算通知（含 agy 输出摘要），主模型可能多一轮；这样 `list_agents`、web 面板、宿主中断工具能看到它。若本机 `~/.dsh/agents/agy.md` 存在，名册里列出的是你这个普通的
 dsh 成员文件，而不是内置 agy。
 
 **怎么开关。** 推荐在会话里输入 `/registry-config`：向导会多问一条 **agy 开关**问题，

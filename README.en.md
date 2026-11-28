@@ -238,7 +238,7 @@ uses its own bundled ACP client to talk directly to the local `agy acp` and runs
 on your **Google Gemini AI Pro plan quota** — no profile dependency, no DeepSeek
 quota, and agy usage does **not** enter dsh's usage accounting. `agy` appears in
 the `use_agent` roster, **not in `ask_agent`** (follow-ups there address
-background dsh subagents; agy is a one-shot foreground dispatch). If a local
+background dsh subagents; agy is a one-shot foreground dispatch). Since 0.24.0 agy enters the host catalog with `parent` delivery, so each call ends with one settlement notification (including an agy output summary) posted into the parent session and the main model may take an extra turn; this is what makes `list_agents` / the web panel / the host interrupt tools see it. If a local
 `~/.dsh/agents/agy.md` exists, the roster lists that ordinary dsh member file
 instead of the built-in agy.
 

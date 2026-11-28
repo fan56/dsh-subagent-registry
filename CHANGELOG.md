@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.24.0] - 2026-11-28
+
+### Changed
+- **The built-in `agy` member now dispatches its foreground one-shot runs with `delivery: 'parent'` instead of `'caller'`.** It therefore enters the host's `subagent/catalog` with its display name as the label (no fixed `name`, so the host assigns `agent-N`), which makes `list_agents`, the web subagent panel and the host's interrupt tools able to see it. Accepted cost: on every agy call the host packages the complete output into one settlement user message posted back into the parent session (`manager.ts:1125-1141`), so the parent model may take one extra turn and the output is duplicated in context; pressing Esc may also start an extra round. Foreground one-shot semantics (no background / follow-up / resume, `ACP_BUSY` concurrency cap) are unchanged. README (zh/en) carries the user-facing note.
+
 ## [0.23.0] - 2026-11-28
 
 ### Known limitation

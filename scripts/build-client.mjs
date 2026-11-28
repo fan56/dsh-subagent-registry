@@ -37,9 +37,19 @@ if (diagnostics.length) {
   })
   const js = result.outputFiles.find(file => file.path.endsWith('.js')).text
   const css = result.outputFiles.find(file => file.path.endsWith('.css'))?.text ?? ''
-  const factory = `window.__ModuleLoader__.load({id:"@aiwayds/dsh-subagent-registry",factory:(require)=>{const __PRESETS_CSS__=${JSON.stringify(css)};const module={exports:{}};const exports=module.exports;\n${js}\nreturn module.exports;}});\n`
+  // esbuild emits one CSS file for the whole bundle, with a preserved per-file
+  // marker comment; split there so each panel gets its own inlined style constant.
+  const marker = '/* src/client/AgyPage.module.css */'
+  const split = css.indexOf(marker)
+  const presetsCss = split < 0 ? css : css.slice(0, split)
+  const agyCss = split < 0 ? '' : css.slice(split)
+  const factory = `window.__ModuleLoader__.load({id:"@aiwayds/dsh-subagent-registry",factory:(require)=>{const __PRESETS_CSS__=${JSON.stringify(presetsCss)};const __AGY_CSS__=${JSON.stringify(agyCss)};const module={exports:{}};const exports=module.exports;\n${js}\nreturn module.exports;}});\n`
+    // esbuild writes Latin-1 escapes as \xNN while the checked-in bundle uses \u00NN;
+    // normalize so an unchanged rebuild does not jitter the artifact encoding.
+    .replace(/(?<!\\)\\x([0-9A-Fa-f]{2})/g, (_, hex) => `\\u00${hex}`)
   // Assert the artifact protocol and that host singletons remain require() edges.
   if (!css || !js.includes('require("react') || !js.includes('require("@deepseek-ai/dsh-client-ui-primitives")')) throw new Error('Missing scoped CSS or host singleton externals')
+  if (!presetsCss.includes('--dsw-alias-label-primary') || !agyCss.includes(marker)) throw new Error('Missing scoped panel CSS')
   if (check) console.log(`Client types and factory build passed${sdk ? ` against ${sdk}` : ''}; ${Buffer.byteLength(factory)} bytes (no files written).`)
   else {
     const emitted = program.emit()

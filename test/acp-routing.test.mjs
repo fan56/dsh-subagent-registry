@@ -69,12 +69,12 @@ function fakeActivation({ result, onDispose } = {}) {
   }
   const signal = new AbortController().signal
   const prompt = [{ type: 'text', text: 'brief' }]
-  await activateExternal(ctx, 'registry-acp', 'agy', prompt, signal, 'caller', parent())
+  await activateExternal(ctx, 'registry-acp', 'agy', prompt, signal, 'parent', parent())
   assert.equal(specs.length, 1)
   const spec = specs[0]
   assert.equal(spec.provider, 'registry-acp')
   assert.equal(spec.label, 'agy')
-  assert.equal(spec.delivery, 'caller')
+  assert.equal(spec.delivery, 'parent')
   assert.equal(spec.signal, signal)
   assert.equal(spec.prompt, prompt)
   for (const forbidden of ['childId', 'name', 'persona', 'toolFilter', 'agentOptions']) {
@@ -115,8 +115,9 @@ function fakeActivation({ result, onDispose } = {}) {
   assert.equal(specs.length, 1)
   const spec = specs[0]
   assert.equal(spec.provider, 'registry-acp')
-  assert.equal(spec.delivery, 'caller')
+  assert.equal(spec.delivery, 'parent', 'parent delivery puts agy in the host catalog')
   assert.equal(Object.hasOwn(spec, 'childId'), false)
+  assert.equal(Object.hasOwn(spec, 'name'), false, 'no fixed name — host assigns agent-N')
   assert.equal(Object.hasOwn(spec, 'persona'), false)
   const text = spec.prompt[0].text
   assert.ok(text.includes(builtinAgyEdition('en').body), 'persona is inlined into the prompt')
