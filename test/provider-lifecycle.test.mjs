@@ -74,17 +74,18 @@ function config(overrides = {}) {
 const PROVIDER_EFFECT = 'dsh-subagent-registry:acp-provider'
 const disposeProvider = (ctx) => ctx.effects.get(PROVIDER_EFFECT)()
 
-// --- schema defaults: five keys, only the master switch non-volatile --------
+// --- schema defaults: six keys, only the master switch non-volatile --------
 
 {
   const defaults = Config({})
   assert.equal(defaults.agyEnabled, false, 'master switch is a plain boolean (non-volatile)')
+  assert.equal(defaults.agyModel.get(), '')
   assert.equal(defaults.agyPermission.get(), 'reject')
   assert.equal(defaults.agyTimeoutMs.get(), 600000)
   assert.equal(defaults.agyHandshakeTimeoutMs.get(), 20000)
   assert.equal(defaults.agyMaxConcurrent.get(), 1)
-  assert.equal(typeof defaults.agyEnabled.get, 'undefined', 'only the four tuning keys are volatile')
-  console.log('PASS Config: five agy keys with the specified defaults')
+  assert.equal(typeof defaults.agyEnabled.get, 'undefined', 'only the five tuning keys are volatile')
+  console.log('PASS Config: six agy keys with the specified defaults')
 }
 
 // --- switch off: no provider effect, no registry-acp registration -----------

@@ -83,6 +83,12 @@ export interface RunAgentConfig {
         enabled: boolean;
         resolveExecutable: (name: string) => string | undefined;
     };
+    /**
+     * Default ACP model family for the built-in agy member (`agyModel` config key,
+     * volatile). Empty/undefined means agy's own default; a per-call `agyModel`
+     * argument on `use_agent` overrides this value.
+     */
+    agyModel?: string;
     /** UI language for the built-in member's localized roster line. */
     language?: Language;
 }
@@ -241,8 +247,12 @@ export declare function buildStartRequest(input: BuildStartRequestInput): Omit<S
  * Those fields belong to in-process children; an external provider rejects
  * a reserved childId as UNSUPPORTED_CAPABILITY and has no local Agent to carry
  * a parked composition. The persona is inlined into `prompt` by the caller.
+ *
+ * `model` is an optional per-dispatch model family for the built-in agy member.
+ * It rides as an extra spec field (not `agentOptions`, which this provider does
+ * not advertise) and the host manager forwards it verbatim to `provider.start`.
  */
-export declare function activateExternal(ctx: Context, provider: string, label: string, prompt: ContentBlock[], signal: AbortSignal, delivery: 'parent' | 'caller', parent: Agent): Promise<SubagentActivation>;
+export declare function activateExternal(ctx: Context, provider: string, label: string, prompt: ContentBlock[], signal: AbortSignal, delivery: 'parent' | 'caller', parent: Agent, model?: string): Promise<SubagentActivation>;
 /** Map a non-`completed` stop reason to a human headline for the parent model. */
 export declare function stopReasonError(reason: string): string;
 /** Read + parse one agent file, throwing a friendly, roster-aware error. */

@@ -164,7 +164,7 @@ section of the cordis.patch.yml `insert` entry):
 | `disabledAgents` | `[]` (volatile) | **The roster toggle**: listed agent names vanish from the `use_agent`/`ask_agent` rosters and calls by name are refused; **a pure roster filter that never touches agent files**. Volatile writes hot-apply; the `/registry-config` command writes it for you, and the execute path re-checks the live value (a model hard-naming a disabled agent is refused). |
 | `ptcEnabled`    | `false`         | **The opt-in gate**: false (default) registers nothing extra; true registers the `codemode` tool at standing scope (visible to the main agent and every dispatched subagent) on the next plugin mount (dsh restart). Experimental — disabled by default. |
 | six jev keys    | see the ptc section | The volatile jev configuration: `jevEnabled` (default false = zero jev calls) / `jevBackend` (zen) / `jevModel` ('' = backend default) / `jevTimeoutMs` (3000) / `jevSecretFile` ('') / `storageDir` ('' = `<dsh home>/storages/ptc-subagent`). |
-| five `agy*` keys | see the next section | Experimental agy member config (disabled by default): `agyEnabled` (default false, non-volatile) / `agyPermission` (reject) / `agyTimeoutMs` (600000) / `agyHandshakeTimeoutMs` (20000) / `agyMaxConcurrent` (1); the last four are volatile. |
+| six `agy*` keys | see the next section | Experimental agy member config (disabled by default): `agyEnabled` (default false, non-volatile) / `agyModel` ('' = agy default) / `agyPermission` (reject) / `agyTimeoutMs` (600000) / `agyHandshakeTimeoutMs` (20000) / `agyMaxConcurrent` (1); the last five are volatile. |
 
 ## The /registry-config command
 
@@ -264,10 +264,19 @@ in the default `cordis.patch.yml`):
 | Key | Default | Description |
 | --- | --- | --- |
 | `agyEnabled` | `false` | Experimental master switch (non-volatile): `true` registers the ACP provider and puts `agy` in the `use_agent` roster; flipping it needs a dsh restart. |
+| `agyModel` | `''` | Default ACP model family for agy (volatile, read per call): empty = agy's current default, e.g. `claude-sonnet-5-5`. Only families listed in ACP `configOptions.model.options` are accepted (no `-high`/`-low` tier suffix); the reasoning tier stays with agy. Overridden by a per-call `agyModel` argument on `use_agent`. |
 | `agyPermission` | `reject` | How the registry answers agy's ACP permission requests: `reject` = do not answer on the user's behalf (actual permissions are decided by the local agy's own settings); `allow` = answer with allow. Volatile, read per call. |
 | `agyTimeoutMs` | `600000` | Per-task deadline after handshake (ms, 10 min); a timeout returns partial output. Volatile. |
 | `agyHandshakeTimeoutMs` | `20000` | `initialize` + `session/new` handshake deadline (ms). Volatile. |
 | `agyMaxConcurrent` | `1` | Concurrent agy runs per dsh process; the second call fails immediately with `ACP_BUSY` (no queue). Volatile. |
+
+**Per-call model selection.** Since 0.25.0 `use_agent` accepts an optional `agyModel` argument. It applies only to the built-in agy member and overrides the config key for that call:
+
+```
+use_agent({ agent: "agy", prompt: "review this diff", agyModel: "claude-sonnet-5-5" })
+```
+
+Without the argument the config key `agyModel` applies (empty = agy's own default). The value is a **model family** (e.g. `gemini-4-neon`, `claude-sonnet-5-5`, `gemini-pro-orchestrator-neon`), without a `-high`/`-low` tier suffix; the reasoning tier is not exposed in this release and stays with agy. After `session/new` the registry validates the family against `configOptions.model.options` before sending ACP `session/set_config_option {configId:'model'}`. An unknown family, an RPC error, or a returned `currentValue` mismatch rejects the call and lists the available families — there is no silent fallback to the default model. The settlement header `[agy · <family> · <seconds>s]` shows the value agy actually applied. Passing `agyModel` to any other agent fails loudly with `agyModel only applies to the built-in agy member`. The config key is volatile (no restart needed); the per-call argument is read on every dispatch.
 
 **Limitations (as they are, not TODOs or defects).**
 

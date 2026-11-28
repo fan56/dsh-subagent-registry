@@ -25,6 +25,7 @@ import {
 import type { SubprocessHandle, SubprocessOutcome, SubprocessSpawnSpec } from '@deepseek-ai/dsh-subprocess'
 import {
   ACP_CODES,
+  AcpConfigError,
   AcpError,
   acpDiagnostic,
   acpOutcomeFact,
@@ -78,6 +79,10 @@ export const DEFAULT_GRACE_MS = 3_000
 export const STDERR_TAIL_BYTES = 4_096
 /** Cap on the tool-trace block appended to `output` on a failed/aborted run. */
 export const MAX_TOOL_TRACE = 50
+/** Bound on the available-family list in a "bad model" rejection (all 11 current families fit). */
+export const MODEL_OPTIONS_MAX_BYTES = 320
+/** Bound on a single model id quoted in a rejection (remote or local). */
+const MODEL_VALUE_MAX_BYTES = 80
 
 const toError = (value: unknown): Error => value instanceof Error ? value : new Error(String(value))
 
@@ -99,6 +104,9 @@ function remoteFacts(fact: string | undefined): { rpcCode?: number; rpcMessage?:
  * the emitted fact. The raw error is logged separately via `onError`/`warn`.
  */
 function diagnosticError(error: unknown, stage: AcpStage): ReturnType<typeof classifyAcpError> {
+  // Curated configuration facts are already safe to show; never collapse them
+  // into the generic remote-error copy (which would hide the bad value).
+  if (error instanceof AcpConfigError) return error
   if (!(error instanceof Error)) return classifyAcpError({ errno: String(error) }, stage)
   if (error.name !== 'AcpError') {
     const errno = (error as NodeJS.ErrnoException).code
@@ -157,6 +165,35 @@ function sessionModel(session: unknown): string | undefined {
     }
   }
   return undefined
+}
+
+/** Read `configOptions.model.options` from `session/new` (ACP model families). */
+function modelOptions(session: unknown): readonly string[] | undefined {
+  if (session === null || typeof session !== 'object') return undefined
+  const options = Reflect.get(session, 'configOptions')
+  if (!Array.isArray(options)) return undefined
+  for (const item of options) {
+    if (item === null || typeof item !== 'object' || Reflect.get(item, 'id') !== 'model') continue
+    const values = Reflect.get(item, 'options')
+    if (!Array.isArray(values)) return undefined
+    return values.filter((value): value is string => typeof value === 'string' && value !== '')
+  }
+  return undefined
+}
+
+/** Read the effective `model.currentValue` from a `session/set_config_option` result. */
+function configModelValue(result: unknown): string | undefined {
+  if (result === null || typeof result !== 'object') return undefined
+  const options = Reflect.get(result, 'configOptions')
+  if (Array.isArray(options)) {
+    for (const item of options) {
+      if (item === null || typeof item !== 'object' || Reflect.get(item, 'id') !== 'model') continue
+      const value = Reflect.get(item, 'currentValue')
+      return typeof value === 'string' && value !== '' ? value : undefined
+    }
+  }
+  const direct = Reflect.get(result, 'currentValue')
+  return typeof direct === 'string' && direct !== '' ? direct : undefined
 }
 
 /** Keep the LAST 4 KB of stderr (aligned to a code point), for logs only. */
@@ -368,7 +405,38 @@ export async function startAgyRun(
           const id = session !== null && typeof session === 'object' ? Reflect.get(session, 'sessionId') : undefined
           if (typeof id !== 'string' || id === '') throw classifyAcpError({ protocol: true }, 'new-session')
           sessionId = id
-          model = sessionModel(session) ?? model
+          const requestedModel = spec.model
+          if (requestedModel === undefined || requestedModel === '') {
+            model = sessionModel(session) ?? model
+          } else {
+            // Validate against the families the running agy actually exposes
+            // before sending the request; a typo or a removed family must be
+            // visible instead of silently falling back to agy's default.
+            const available = modelOptions(session)
+            if (available === undefined) {
+              throw new AcpConfigError('new-session',
+                `session/new did not expose agy model options; cannot select model ` +
+                `"${truncateUtf8(requestedModel, MODEL_VALUE_MAX_BYTES)}"`)
+            }
+            if (!available.includes(requestedModel)) {
+              throw new AcpConfigError('new-session',
+                `agy model "${truncateUtf8(requestedModel, MODEL_VALUE_MAX_BYTES)}" is not an available model family; ` +
+                `available: ${truncateUtf8(available.join(', '), MODEL_OPTIONS_MAX_BYTES)}`)
+            }
+            // client → server request (the T6/T35 probe sends the same envelope).
+            const applied = await connection.request('session/set_config_option', {
+              sessionId: id, configId: 'model', value: requestedModel,
+            })
+            const current = configModelValue(applied)
+            if (current !== undefined && current !== requestedModel) {
+              throw new AcpConfigError('new-session',
+                `agy set_config_option returned currentValue "${truncateUtf8(current, MODEL_VALUE_MAX_BYTES)}" ` +
+                `instead of "${truncateUtf8(requestedModel, MODEL_VALUE_MAX_BYTES)}"`)
+            }
+            // Show the value agy reports as effective, falling back to the
+            // requested family when the result carries no currentValue.
+            model = current ?? requestedModel
+          }
         })(),
         handshakeTimeout,
         cancelRace,

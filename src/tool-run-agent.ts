@@ -128,6 +128,12 @@ export interface RunAgentConfig {
     enabled: boolean
     resolveExecutable: (name: string) => string | undefined
   }
+  /**
+   * Default ACP model family for the built-in agy member (`agyModel` config key,
+   * volatile). Empty/undefined means agy's own default; a per-call `agyModel`
+   * argument on `use_agent` overrides this value.
+   */
+  agyModel?: string
   /** UI language for the built-in member's localized roster line. */
   language?: Language
 }
@@ -611,6 +617,10 @@ async function activateWithReservedComposition(
  * Those fields belong to in-process children; an external provider rejects
  * a reserved childId as UNSUPPORTED_CAPABILITY and has no local Agent to carry
  * a parked composition. The persona is inlined into `prompt` by the caller.
+ *
+ * `model` is an optional per-dispatch model family for the built-in agy member.
+ * It rides as an extra spec field (not `agentOptions`, which this provider does
+ * not advertise) and the host manager forwards it verbatim to `provider.start`.
  */
 export async function activateExternal(
   ctx: Context,
@@ -620,9 +630,11 @@ export async function activateExternal(
   signal: AbortSignal,
   delivery: 'parent' | 'caller',
   parent: Agent,
+  model?: string,
 ): Promise<SubagentActivation> {
   assertTopLevelCaller({ agent: parent })
-  const spec: SubagentActivationSpec = { provider, label, prompt, parent, signal, delivery }
+  const spec: SubagentActivationSpec & { model?: string } = { provider, label, prompt, parent, signal, delivery }
+  if (model !== undefined && model !== '') spec.model = model
   return await ctx.subagents.startActivation(spec)
 }
 
@@ -673,6 +685,8 @@ export function runAgentTool(ctx: Context, cfg: RunAgentConfig) {
     `no background/follow-up/resume, self-contained prompt required. Dispatch agy tasks ONE AT A TIME — ` +
     `this tool is concurrency-safe, but agy runs are capped (see agyMaxConcurrent); a second parallel call ` +
     `over the cap fails immediately with ACP_BUSY.` +
+    `\nPass agyModel to pick a model family for this one call (a valid ACP model family such as ` +
+    `"claude-sonnet-5-5"); it overrides the agyModel config key and is refused for any other agent.` +
     `\nA cancelled agy run is NOT a transient error: if the user pressed stop, or the result says the run ` +
     `was cancelled/aborted (ACP_ABORTED / "subagent run was cancelled") — do NOT retry the same task on ` +
     `your own. Report the cancellation and wait for the user's instruction; re-dispatch only if the user ` +
@@ -725,6 +739,11 @@ export function runAgentTool(ctx: Context, cfg: RunAgentConfig) {
         description:
           'Start the agent as a durable background conversation and return its subagent id immediately instead of waiting for the result. Follow up with ask_agent or send_message. Defaults to the agent file\'s background frontmatter, else false. Mutually exclusive with resume.',
       },
+      agyModel: {
+        type: 'string',
+        description:
+          'Optional model family for the built-in agy member only, e.g. "claude-sonnet-5-5" (no thinking-tier suffix). Overrides the agyModel plugin config for this call; passing it for any other agent is an error.',
+      },
     },
     output: {
       schema: {
@@ -759,7 +778,12 @@ export function runAgentTool(ctx: Context, cfg: RunAgentConfig) {
       // valid dispatch never collapses into `unknown agent "agy"`. A user-owned
       // agy.md shadows this branch and follows the ordinary in-process path.
       const routableAgy = builtinAgyIgnoringToggle(dir, agyRoutingOf(cfg))
-      if (routableAgy !== undefined && args.agent === BUILTIN_AGY_ID) {
+      const isBuiltinAgy = routableAgy !== undefined && args.agent === BUILTIN_AGY_ID
+      const perCallModel = typeof args.agyModel === 'string' && args.agyModel !== '' ? args.agyModel : undefined
+      if (perCallModel !== undefined && !isBuiltinAgy) {
+        throw new Error('agyModel only applies to the built-in agy member')
+      }
+      if (isBuiltinAgy) {
         if (isAgentDisabled(args.agent, cfg.disabledAgents)) {
           throw new Error(
             `agent "${args.agent}" is disabled by the disabledAgents plugin config ` +
@@ -780,6 +804,7 @@ export function runAgentTool(ctx: Context, cfg: RunAgentConfig) {
           activation = await activateExternal(
             ctx, 'registry-acp', routableAgy.displayName,
             [{ type: 'text', text: promptText }], exec.signal, 'parent', parent,
+            perCallModel ?? cfg.agyModel,
           )
         } catch (error) {
           // A pre-publication provider failure carries its own code/copy.

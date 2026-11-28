@@ -72,10 +72,11 @@ export declare const inject: string[];
  *
  * The experimental external ACP member (`agy`): `agyEnabled` (default false)
  * is NOT volatile — flipping it remounts the plugin, which is exactly the
- * `registry-acp` provider register/unregister act. The four tuning keys
- * (`agyPermission`, `agyTimeoutMs`, `agyHandshakeTimeoutMs`, `agyMaxConcurrent`)
- * are volatile and read per dispatch through the loader's live refs, so a
- * settings edit never disturbs a running task. Twenty keys in total.
+ * `registry-acp` provider register/unregister act. The five tuning keys
+ * (`agyModel`, `agyPermission`, `agyTimeoutMs`, `agyHandshakeTimeoutMs`,
+ * `agyMaxConcurrent`) are volatile and read per dispatch through the loader's
+ * live refs, so a settings edit never disturbs a running task. Twenty-one keys
+ * in total.
  */
 export declare const Config: z<Schemastery.ObjectS<NoInfer<{
     agentsDir: z<string, string, "defined">;
@@ -94,6 +95,7 @@ export declare const Config: z<Schemastery.ObjectS<NoInfer<{
     jevSecretFile: z<string, string, "volatile-defined">;
     storageDir: z<string, string, "volatile-defined">;
     agyEnabled: z<boolean, boolean, "defined">;
+    agyModel: z<string, string, "volatile-defined">;
     agyPermission: z<"allow" | "reject", "allow" | "reject", "volatile-defined">;
     agyTimeoutMs: z<number, number, "volatile-defined">;
     agyHandshakeTimeoutMs: z<number, number, "volatile-defined">;
@@ -115,6 +117,7 @@ export declare const Config: z<Schemastery.ObjectS<NoInfer<{
     jevSecretFile: z<string, string, "volatile-defined">;
     storageDir: z<string, string, "volatile-defined">;
     agyEnabled: z<boolean, boolean, "defined">;
+    agyModel: z<string, string, "volatile-defined">;
     agyPermission: z<"allow" | "reject", "allow" | "reject", "volatile-defined">;
     agyTimeoutMs: z<number, number, "volatile-defined">;
     agyHandshakeTimeoutMs: z<number, number, "volatile-defined">;
