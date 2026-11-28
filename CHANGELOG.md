@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.24.2] - 2026-11-28
+
+### Changed
+- **Prompt-level guardrail: a stopped `agy` run is no longer re-dispatched by the model on its own.** The `use_agent` description now states that a cancellation — the user pressed stop, or a result carrying `ACP_ABORTED` / `subagent run was cancelled` — is NOT a transient error; the model must report it and wait for the user's instruction instead of retrying the same task. This only suppresses model behavior: it does not prevent the user from explicitly asking to re-dispatch. Observed on 0.24.1: after the web panel's stop, the parent model re-dispatched the same `agy` task three times, wasting plan quota. `test/acp-routing.test.mjs` pins the rule in the description.
+
 ## [0.24.0] - 2026-11-28
 
 ### Changed

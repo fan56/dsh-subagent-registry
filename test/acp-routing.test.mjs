@@ -110,6 +110,14 @@ function fakeActivation({ result, onDispose } = {}) {
   assert.match(tool.description, /ONE AT A TIME/, 'S7: dispatch serially')
   assert.match(tool.description, /ACP_BUSY/, 'S7: name the immediate over-cap failure')
   assert.match(tool.description, /- agy \(Gemini plan · Experimental\)/, 'built-in roster line present')
+  // T34: a stop is a user decision, not a transient failure. The description
+  // must suppress the model's tendency to re-dispatch after a cancellation.
+  assert.match(tool.description, /NOT a transient error/, 'cancellation is not a transient error')
+  assert.match(tool.description, /ACP_ABORTED/, 'name the cancellation code')
+  assert.match(tool.description, /subagent run was cancelled/, 'name the settlement text')
+  assert.match(tool.description, /do NOT retry the same task on your own/, 'never auto-retry on stop')
+  assert.match(tool.description, /wait for the user's instruction/, 'report and wait instead')
+  assert.match(tool.description, /re-dispatch only if the user explicitly asks/, 'user may still re-dispatch')
   const output = await tool.execute({ agent: 'agy', prompt: 'do the task' }, exec())
   assert.deepEqual(output.output, [{ type: 'text', text: 'done' }], 'child output returned verbatim')
   assert.equal(specs.length, 1)
