@@ -773,7 +773,7 @@ export function runAgentTool(ctx: Context, cfg: RunAgentConfig) {
         try {
           activation = await activateExternal(
             ctx, 'registry-acp', routableAgy.displayName,
-            [{ type: 'text', text: promptText }], exec.signal, 'caller', parent,
+            [{ type: 'text', text: promptText }], exec.signal, 'parent', parent,
           )
         } catch (error) {
           // A pre-publication provider failure carries its own code/copy.
