@@ -24,7 +24,7 @@ const system = exports.createClientModuleSystem(target, { id: bootstrap.id, expo
 })
 const plugin = await system.import(metadata.name)
 assert.equal(typeof plugin.apply, 'function')
-assert.deepEqual(Array.from(plugin.inject), ['slots', 'layout', 'connection', 'remote', 'remote.session'])
+assert.deepEqual(Array.from(plugin.inject), ['slots', 'layout', 'connection', 'remote', 'remote.session', 'remote.subagents', 'sessions'])
 assert.equal(await system.import(metadata.name), plugin, 'materialization is memoized')
 const edges = system.loadCache.get(metadata.name).edges
 assert(edges.has('react') && edges.has('react/jsx-runtime') && edges.has('@deepseek-ai/dsh-client-ui-primitives'))

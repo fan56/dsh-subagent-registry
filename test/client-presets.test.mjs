@@ -131,6 +131,7 @@ runInNewContext(js, { module, exports: module.exports, __PRESETS_CSS__: css, __A
   if (id === '@deepseek-ai/dsh-client-ui-primitives') return { Button: 'HostButton', Input: 'HostInput', Modal: 'HostModal' }
   throw new Error(`Unexpected bundled dependency ${id}`)
 } })
+assert.ok(module.exports.inject.includes('remote.subagents'), 'inject must declare remote.subagents so the web stop path can reach interruptByUser')
 const registrations = new Map()
 const cleanups = []
 const navigation = []
