@@ -52,6 +52,8 @@ export declare const DEFAULT_GRACE_MS = 3000;
 export declare const STDERR_TAIL_BYTES = 4096;
 /** Cap on the tool-trace block appended to `output` on a failed/aborted run. */
 export declare const MAX_TOOL_TRACE = 50;
+/** Bound on the available-family list in a "bad model" rejection (all 11 current families fit). */
+export declare const MODEL_OPTIONS_MAX_BYTES = 320;
 /**
  * Start one agy child. Startup failures reject after process cleanup; after
  * publication all failures travel through `result` (which never rejects).

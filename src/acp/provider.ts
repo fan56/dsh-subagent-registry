@@ -81,6 +81,10 @@ export class AgyAcpProvider implements SubagentProvider {
 
     let run: SubagentRun
     try {
+      // A per-dispatch model family on the activation spec (set by a
+      // `use_agent` agyModel argument) overrides the volatile config value.
+      const perCallModel = (request as ResolvedSubagentStartRequest & { model?: string }).model
+      const model = perCallModel !== undefined && perCallModel !== '' ? perCallModel : this.options.model
       run = await startAgyRun(request, {
         cwd: request.cwd,
         command: this.options.command,
@@ -90,7 +94,7 @@ export class AgyAcpProvider implements SubagentProvider {
         timeoutMs: this.options.timeoutMs,
         eofGraceMs: this.options.eofGraceMs,
         graceMs: this.options.graceMs,
-        model: this.options.model,
+        model,
         env: this.options.env,
         spawn: this.options.spawn,
         onError: this.options.onError,

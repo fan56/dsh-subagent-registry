@@ -82,6 +82,14 @@ export declare class AcpError extends Error {
     constructor(code: AcpCode, stage: AcpStage, fact?: string, nextStep?: string, remoteMessage?: string);
 }
 /**
+ * A pre-release failure whose `fact` is already diagnostic-safe — e.g. an
+ * invalid model family chosen by the caller. There is no remote message to
+ * hide, so `diagnosticError` keeps the fact verbatim instead of rebuilding it.
+ */
+export declare class AcpConfigError extends AcpError {
+    constructor(stage: AcpStage, fact: string);
+}
+/**
  * Truncate to a UTF-8 byte budget without cutting a multi-byte code point, so
  * a long remote message cannot leave a broken sequence in a diagnostic.
  */

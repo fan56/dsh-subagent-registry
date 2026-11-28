@@ -220,10 +220,11 @@ export const inject = ['tools', 'subagents', 'agents', 'skills', 'systemPrompt']
  *
  * The experimental external ACP member (`agy`): `agyEnabled` (default false)
  * is NOT volatile — flipping it remounts the plugin, which is exactly the
- * `registry-acp` provider register/unregister act. The four tuning keys
- * (`agyPermission`, `agyTimeoutMs`, `agyHandshakeTimeoutMs`, `agyMaxConcurrent`)
- * are volatile and read per dispatch through the loader's live refs, so a
- * settings edit never disturbs a running task. Twenty keys in total.
+ * `registry-acp` provider register/unregister act. The five tuning keys
+ * (`agyModel`, `agyPermission`, `agyTimeoutMs`, `agyHandshakeTimeoutMs`,
+ * `agyMaxConcurrent`) are volatile and read per dispatch through the loader's
+ * live refs, so a settings edit never disturbs a running task. Twenty-one keys
+ * in total.
  */
 export const Config = z.object({
   agentsDir: z.string().default('~/.dsh/agents'),
@@ -242,6 +243,7 @@ export const Config = z.object({
   jevSecretFile: z.string().default('').volatile(),
   storageDir: z.string().default('').volatile(),
   agyEnabled: z.boolean().default(false),
+  agyModel: z.string().default('').volatile(),
   agyPermission: z.union(['allow', 'reject']).default('reject').volatile(),
   agyTimeoutMs: z.natural().min(1).default(600000).volatile(),
   agyHandshakeTimeoutMs: z.natural().min(1).default(20000).volatile(),
@@ -301,7 +303,7 @@ export function apply(ctx: Context, config: RunAgentConfig): void {
   // expansion).
   const dir = config.agentsDir === '~/.dsh/agents' ? agentsDir() : expandHome(config.agentsDir)
   // Experimental agy member: the switch is non-volatile (a flip remounts the
-  // plugin), while the four tuning keys are read per dispatch through their
+  // plugin), while the five tuning keys are read per dispatch through their
   // live refs. The resolver seam is synchronous so the roster build stays
   // synchronous; the async host lookup fills the cache at inject time.
   const agyEnabled = (config as { agyEnabled?: boolean }).agyEnabled === true
@@ -324,6 +326,8 @@ export function apply(ctx: Context, config: RunAgentConfig): void {
     agentsDir: dir,
     language,
     agy: { enabled: agyEnabled, resolveExecutable: agyResolver },
+    // Per-dispatch default model family; a `use_agent` agyModel argument wins.
+    get agyModel() { return asVolatileRef(agyRaw.agyModel as string | undefined).get() },
   }
   // One-time seeding of the bundled default roster (workhorse / oldfox /
   // rubber-duck) into the configured agents dir: a fresh install starts
@@ -516,6 +520,7 @@ export function apply(ctx: Context, config: RunAgentConfig): void {
       command: 'agy',
       args: ['acp'],
       spawn: agySpawn,
+      get model() { return asVolatileRef(agyRaw.agyModel as string | undefined).get() },
       get permission() { return asVolatileRef(agyRaw.agyPermission as 'allow' | 'reject' | undefined).get() },
       get handshakeTimeoutMs() { return asVolatileRef(agyRaw.agyHandshakeTimeoutMs as number | undefined).get() },
       get timeoutMs() { return asVolatileRef(agyRaw.agyTimeoutMs as number | undefined).get() },
