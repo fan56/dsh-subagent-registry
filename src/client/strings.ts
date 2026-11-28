@@ -553,3 +553,69 @@ const tables: Record<Language, Strings> = { zh, en, ru, es }
 export function stringsFor(lang: Language | undefined): Strings {
   return lang && (LANGUAGES as readonly string[]).includes(lang) ? tables[lang] : tables.zh
 }
+
+/** Per-language UI strings for the agy (external subagent) panel. */
+export interface AgyStrings {
+  title: string
+  subtitle: string
+  refresh: string
+  refreshing: string
+  emptyTitle: string
+  emptyHint: string
+  stop: string
+  stopping: string
+  stopAria: (label: string) => string
+  outcome: Record<'running' | 'completed' | 'failed' | 'cancelled' | 'unknown', string>
+  justNow: string
+  agoMinutes: (count: number) => string
+  agoHours: (count: number) => string
+  agoDays: (count: number) => string
+  stopAccepted: (label: string) => string
+  stopFailed: (label: string, error: string) => string
+  settlementFailed: (error: string) => string
+}
+
+const agyZh: AgyStrings = {
+  title: 'agy 外部任务',
+  subtitle: '当前会话的外部成员；状态由目录与父会话结算消息推断，停止直接作用于外部进程。',
+  refresh: '刷新',
+  refreshing: '刷新中…',
+  emptyTitle: '当前会话没有 agy 外部任务',
+  emptyHint: '调用 agy 后这里会出现对应的一行。',
+  stop: '停止',
+  stopping: '停止中…',
+  stopAria: label => `停止 ${label}`,
+  outcome: { running: '运行中', completed: '已完成', failed: '失败', cancelled: '已取消', unknown: '状态未知' },
+  justNow: '刚刚创建',
+  agoMinutes: count => `${count} 分钟前创建`,
+  agoHours: count => `${count} 小时前创建`,
+  agoDays: count => `${count} 天前创建`,
+  stopAccepted: label => `已向 ${label} 发送停止信号。`,
+  stopFailed: (label, error) => `停止 ${label} 失败：${error || '未知错误'}`,
+  settlementFailed: error => `结算消息读取失败：${error}`,
+}
+
+const agyEn: AgyStrings = {
+  title: 'agy external tasks',
+  subtitle: 'External members of the current Session; status is inferred from the catalog and parent settlement notices, and stop reaches the external process.',
+  refresh: 'Refresh',
+  refreshing: 'Refreshing…',
+  emptyTitle: 'No agy external tasks in this Session',
+  emptyHint: 'A row appears here after you dispatch agy.',
+  stop: 'Stop',
+  stopping: 'Stopping…',
+  stopAria: label => `Stop ${label}`,
+  outcome: { running: 'Running', completed: 'Completed', failed: 'Failed', cancelled: 'Cancelled', unknown: 'Status unknown' },
+  justNow: 'Created just now',
+  agoMinutes: count => `Created ${count} min ago`,
+  agoHours: count => `Created ${count} h ago`,
+  agoDays: count => `Created ${count} d ago`,
+  stopAccepted: label => `Stop signal sent to ${label}.`,
+  stopFailed: (label, error) => `Failed to stop ${label}: ${error || 'unknown error'}`,
+  settlementFailed: error => `Could not read settlement notices: ${error}`,
+}
+
+/** Only zh/en are authored for this panel; other locales fall back to Chinese. */
+export function agyStringsFor(lang: Language | undefined): AgyStrings {
+  return lang === 'en' ? agyEn : agyZh
+}

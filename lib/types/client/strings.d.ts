@@ -116,3 +116,25 @@ export interface Strings {
 }
 /** Unknown or missing languages fall back to the Chinese defaults. */
 export declare function stringsFor(lang: Language | undefined): Strings;
+/** Per-language UI strings for the agy (external subagent) panel. */
+export interface AgyStrings {
+    title: string;
+    subtitle: string;
+    refresh: string;
+    refreshing: string;
+    emptyTitle: string;
+    emptyHint: string;
+    stop: string;
+    stopping: string;
+    stopAria: (label: string) => string;
+    outcome: Record<'running' | 'completed' | 'failed' | 'cancelled' | 'unknown', string>;
+    justNow: string;
+    agoMinutes: (count: number) => string;
+    agoHours: (count: number) => string;
+    agoDays: (count: number) => string;
+    stopAccepted: (label: string) => string;
+    stopFailed: (label: string, error: string) => string;
+    settlementFailed: (error: string) => string;
+}
+/** Only zh/en are authored for this panel; other locales fall back to Chinese. */
+export declare function agyStringsFor(lang: Language | undefined): AgyStrings;
